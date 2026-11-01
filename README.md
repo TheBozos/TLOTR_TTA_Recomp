@@ -161,7 +161,7 @@ disc files (game/) ──► Ghidra (headless, EE extension) + ExportPS2Function
 - `runtime/tta_overrides.cpp` holds the game-specific bindings and defaults (native GS renderer, recompiled IOP
   modules, COP0 Count on the PC's clock, drive-like CD timing); `runtime/tta_native.cpp` the native rendering work.
 
-The PS2Recomp fork lives in `PS2Recomp/` (git submodule, [boubou666/PS2Recomp](https://github.com/boubou666/PS2Recomp)),
+The PS2Recomp fork lives in `PS2Recomp/` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp)),
 shared with the *Twisted Metal: Black*, *Valkyrie Profile 2* and *Drakengard* recompilations.
 
 ## Requirements

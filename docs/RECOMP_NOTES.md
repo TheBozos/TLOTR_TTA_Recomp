@@ -33,7 +33,7 @@ How the port is brought up, every fix and how it was found, and what remains ope
   the function table). 381 MB of C++.
 - `ps2_vu_aot`: 38 microcode fragments, 7,921 instruction pairs -> 41 files in `generated/vu1/`.
 
-## To check (from the other ports, boubou666/PS2Recomp unless noted)
+## To check (from the other ports, TheBozos/PS2Recomp unless noted)
 
 - `ps2xIOP/src/modules/dbcman.cpp` only answers the version-check RPC (0x80001363); the game reads the pad through
   libdbc + `DBCMAN.IRX`/`DS2U_D.IRX`, so pad input likely needs the rest of DBCMAN's RPCs.
