@@ -178,7 +178,7 @@ shared with the *Twisted Metal: Black*, *Valkyrie Profile 2* and *Drakengard* re
 ## Build and run
 
 ```bash
-git clone --recurse-submodules https://github.com/boubou666/TLOTR_TTA_Recomp.git
+git clone --recurse-submodules https://github.com/TheBozos/TLOTR_TTA_Recomp.git
 cd TLOTR_TTA_Recomp
 scripts/extract_iso.sh "/path/to/Lord of the Rings, The - The Third Age (USA).iso"   # disc files -> game/
 scripts/build_tools.sh                                   # ps2_recomp, ps2_analyzer, ps2_vu_aot -> build/tools
