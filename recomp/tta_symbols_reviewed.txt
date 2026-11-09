@@ -6,3 +6,26 @@
 InitSys 0x32d268 # crt0 (_start 0x110008) calls it after SetupThread/SetupHeap; it runs the SDK's inits in order, InitThread (0x3290b8) among them, and 0x32d158, which installs syscalls 0x83 and 0x5a with SetSyscall (116) and scans kernel memory 0x80000000-0x80080000
 sceSifInitRpc 0x32a9c0 # the prologue (addiu sp,-0x40) of the function the matcher offers as its only candidate at 0x32a9c4 (sceSif shape 0.79, constants 0.88); it disables interrupts (0x32d008), tests an init flag at 0x37d540, re-enables them (0x32d060) and calls sceSifInitCmd (0x32a278), as libsif sceSifInitRpc does
 sceCdInit 0x27dd08 # calls sceSifInitRpc and GetThreadId, then loops on sceSifBindRpc with the RPC id 0x80000592 (the CD/DVD init server) until it has a server, then sceSifCallRpc: libcdvd sceCdInit; just before sceCdReadClock (0x27e0c0)
+sceMcInit 0x27c838 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xfe, the pair of sceMcInit in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcOpen 0x27ca30 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x2, the pair of sceMcOpen in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcClose 0x27cb90 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x3, the pair of sceMcClose in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcSeek 0x27cc50 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x4, the pair of sceMcSeek in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcRead 0x27cdc8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x5, the pair of sceMcRead in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcWrite 0x27cee0 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x6, the pair of sceMcWrite in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcGetInfo 0x27d178 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x1, the pair of sceMcGetInfo in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcGetDir 0x27d2f8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xd, the pair of sceMcGetDir in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcChdir 0x27d4d8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xc, the pair of sceMcChdir in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcFormat 0x27d618 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x10, the pair of sceMcFormat in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcDelete 0x27d6e8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xf, the pair of sceMcDelete in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcFlush 0x27d808 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xa, the pair of sceMcFlush in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceFsInit 0x32ba10 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0xff, the pair of sceFsInit in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceOpen 0x32bce0 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x0, the pair of sceOpen in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceClose 0x32bf68 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x1, the pair of sceClose in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceLseek 0x32c0e8 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x4, the pair of sceLseek in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceRead 0x32c320 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x2, the pair of sceRead in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceWrite 0x32c580 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x3, the pair of sceWrite in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceCdMmode 0x27dff0 # sends S-command 0x22 through libcdvd's S-command bind helper (0x27db98, server 0x80000593), its argument the media type; the game calls it with 2 (DVD) at 0x227328 and 0x227378
+sceSifResetIop 0x32cd50 # stops SIF DMA (sceSifStopDma), reads and sets the SIF registers and sends the reset packet with sceSifSetDma; only caller 0x32cef8
+sceSifRebootIop 0x32cef8 # sceSifInitRpc, sceSifExitRpc, then sceSifResetIop (0x32cd50); called by the game's IOP set-up 0x2272f8 before sceSifSyncIop
+sceSifSyncIop 0x32cea8 # returns 0 while bit 0x40000 (boot finished) of SIF register 4 is clear, else finishes the handshake and returns 1; the game's IOP set-up loops on it after sceSifRebootIop
+sceSifLoadModule 0x32cd08 # wrapper of the loadfile client 0x32cae0 (server 0x80000006, bound by _lf_bind 0x32c940) with the path and arguments, a result word on its stack and mode 0; the game's module loader 0x2271f8 calls it

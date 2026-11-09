@@ -1,4 +1,4 @@
-# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 317 functions.
+# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 340 functions.
 __do_global_dtors 0x271a78
 __do_global_ctors 0x271ad0
 __main 0x271b80
@@ -93,7 +93,20 @@ finitef 0x27c658
 isnanf 0x27c680
 scalbnf 0x27c6a8
 copysignf 0x27c808
+sceMcInit 0x27c838
+sceMcOpen 0x27ca30
+sceMcClose 0x27cb90
+sceMcSeek 0x27cc50
+sceMcRead 0x27cdc8
+sceMcWrite 0x27cee0
+sceMcGetInfo 0x27d178
+sceMcGetDir 0x27d2f8
+sceMcChdir 0x27d4d8
+sceMcFormat 0x27d618
+sceMcDelete 0x27d6e8
+sceMcFlush 0x27d808
 sceCdInit 0x27dd08
+sceCdMmode 0x27dff0
 sceCdReadClock 0x27e0c0
 _ri0_000 0x281080
 _rix_001 0x281118
@@ -302,9 +315,19 @@ sceSifBindRpc 0x32b000
 _request_call 0x32b140
 sceSifCallRpc 0x32b1d0
 sceSifCheckStatRpc 0x32b3c8
+sceFsInit 0x32ba10
 sceFsReset 0x32bca8
+sceOpen 0x32bce0
+sceClose 0x32bf68
+sceLseek 0x32c0e8
+sceRead 0x32c320
+sceWrite 0x32c580
 sceSifInitIopHeap 0x32c8a0
 _lf_bind 0x32c940
+sceSifLoadModule 0x32cd08
+sceSifResetIop 0x32cd50
+sceSifSyncIop 0x32cea8
+sceSifRebootIop 0x32cef8
 InitSys 0x32d268
 sceDeci2Open 0x32e568
 sceDeci2ReqSend 0x32e5b8
