@@ -1,0 +1,8 @@
+# Names found by reading SLUS_210.27's code, for bozo_symbolmap.py --reviewed (BozoEngine docs/specs/symbol-map.md).
+# The map is made with:
+#   python -I BozoEngine/tools/symbolmap/bozo_symbolmap.py match game/SLUS_210.27 \
+#       --ref <DC_Recomp>/game/SCUS_971.11 --ref <TMB_Recomp>/game_us/SCUS_971.01 \
+#       --reviewed recomp/tta_symbols_reviewed.txt --out recomp/tta_symbols.txt --report build/bozo/tta_symbols_report.txt
+InitSys 0x32d268 # crt0 (_start 0x110008) calls it after SetupThread/SetupHeap; it runs the SDK's inits in order, InitThread (0x3290b8) among them, and 0x32d158, which installs syscalls 0x83 and 0x5a with SetSyscall (116) and scans kernel memory 0x80000000-0x80080000
+sceSifInitRpc 0x32a9c0 # the prologue (addiu sp,-0x40) of the function the matcher offers as its only candidate at 0x32a9c4 (sceSif shape 0.79, constants 0.88); it disables interrupts (0x32d008), tests an init flag at 0x37d540, re-enables them (0x32d060) and calls sceSifInitCmd (0x32a278), as libsif sceSifInitRpc does
+sceCdInit 0x27dd08 # calls sceSifInitRpc and GetThreadId, then loops on sceSifBindRpc with the RPC id 0x80000592 (the CD/DVD init server) until it has a server, then sceSifCallRpc: libcdvd sceCdInit; just before sceCdReadClock (0x27e0c0)
