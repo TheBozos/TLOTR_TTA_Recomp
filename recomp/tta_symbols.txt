@@ -1,4 +1,4 @@
-# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 343 functions.
+# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 355 functions.
 __do_global_dtors 0x271a78
 __do_global_ctors 0x271ad0
 __main 0x271b80
@@ -75,6 +75,14 @@ sceGsExecLoadImage 0x2768b0
 sceGszbufaddr 0x2774a8
 sceGsSetDefDrawEnv2 0x277570
 sceIpuSync 0x277a78
+scePad2Init 0x277d90
+scePad2End 0x277dd0
+scePad2CreateSocket 0x277e38
+scePad2DeleteSocket 0x277f40
+scePad2Read 0x277f98
+scePad2GetButtonProfile 0x278070
+scePad2GetState 0x278140
+scePad2GetButtonInfo 0x278280
 atanf 0x278618
 ceilf 0x2788c0
 cosf 0x278998
@@ -110,6 +118,8 @@ sceMcFlush 0x27d808
 sceCdInit 0x27dd08
 sceCdMmode 0x27dff0
 sceCdReadClock 0x27e0c0
+sceDbcInit 0x27e210
+sceDbcEnd 0x27e450
 _ri0_000 0x281080
 _rix_001 0x281118
 _ri0_001 0x2811d0
@@ -129,6 +139,8 @@ _copyAddRefImage 0x281cf8
 _copyRefImage 0x281d58
 _ipuSetMPEG1 0x281db8
 decode_motion_vector 0x282ce0
+sceVibGetProfile 0x2858a0
+sceVibSetActParam 0x285920
 sinf 0x314790
 memcmp 0x31cf2c
 memcpy 0x31cfc0
