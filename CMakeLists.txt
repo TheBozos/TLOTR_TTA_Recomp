@@ -59,8 +59,22 @@ target_link_libraries(tta_game PUBLIC bozo_runtime_headers)
 target_include_directories(tta_game PUBLIC ${tta_gen})
 target_compile_options(tta_game PRIVATE -O1 -w -ffp-contract=off)
 
-add_executable(tta-headless ${tta_port_sources})
+# EA's sound driver and LIBSD, statically compiled from the player's disc (docs/native-irx.md in BozoEngine).
+set(tta_audio_gen ${CMAKE_BINARY_DIR}/tta_audio_gen)
+set(tta_audio_outputs ${tta_audio_gen}/tta_audio_modules.h ${tta_audio_gen}/libsd_iop.cpp ${tta_audio_gen}/audiopf_iop.cpp)
+add_custom_command(OUTPUT ${tta_audio_outputs}
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_bozo_audio.py ${TTA_GAME_DIR} ${tta_audio_gen} ${BOZO_ENGINE_DIR}
+  DEPENDS ${TTA_GAME_DIR}/MODULES/LIBSD.IRX ${TTA_GAME_DIR}/MODULES/AUDIOPF.IRX ${CMAKE_SOURCE_DIR}/tools/tta_bozo_audio.py
+          ${BOZO_ENGINE_DIR}/tools/native_irx/relocate.py ${BOZO_ENGINE_DIR}/tools/native_irx/recompile.py
+  COMMENT "Statically compiling EA's sound driver and LIBSD (strict mode)")
+add_library(tta_audio_code OBJECT ${tta_audio_gen}/libsd_iop.cpp ${tta_audio_gen}/audiopf_iop.cpp)
+target_link_libraries(tta_audio_code PRIVATE bozo_runtime_headers)
+target_compile_options(tta_audio_code PRIVATE -O1 -w)
+
+add_executable(tta-headless ${tta_port_sources} $<TARGET_OBJECTS:tta_audio_code>)
 target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
+target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
+set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
 target_compile_definitions(tta-headless PRIVATE TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
                                                 TTA_SYMBOL_MAP="${tta_symbols}")
 if(MINGW)

@@ -1,4 +1,4 @@
-# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 340 functions.
+# Symbol map of SLUS_210.27: bozo_symbolmap.py match, 343 functions.
 __do_global_dtors 0x271a78
 __do_global_ctors 0x271ad0
 __main 0x271b80
@@ -61,6 +61,8 @@ __register_frame_info_table 0x275578
 __deregister_frame_info 0x2755a0
 __frame_state_for 0x275618
 fde_split 0x2757f0
+sceGsResetPath 0x275968
+sceGsSyncPath 0x275a08
 sceGsResetGraph 0x275a90
 sceGsPutDispEnv 0x276058
 sceGsSetDefDrawEnv 0x276118
@@ -299,6 +301,7 @@ kprintf 0x32a188
 scePrintf 0x32a1c0
 _set_sreg 0x32a220
 _change_addr 0x32a240
+sceSifGetSreg 0x32a250
 sceSifInitCmd 0x32a278
 sceSifExitCmd 0x32a4f8
 _sceSifSendCmd 0x32a610

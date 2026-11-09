@@ -4,6 +4,7 @@
 #include "bozo/ee/dispatcher.h"
 #include "bozo/host/free_host.h"
 #include "bozo/port.h"
+#include "tta_audio.h"
 #include "tta_functions.h"
 #include "tta_host_profile.h"
 #include "tta_port.h"
@@ -51,6 +52,7 @@ int main(int argc, char **argv)
 
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
+    tta::installAudio(host.libraries(), d.runtime().memory.ram());
     d.setFunctions(tta_function_table, tta_function_count, tta_resume_table, tta_resume_count);
     bozo::port::Registry registry;
     tta::install(d.runtime(), registry);

@@ -1,7 +1,7 @@
 """tta_overrides_list.py <runtime dir> <out.txt>: every guest address the port overrides.
 
-Scans runtime/*.cpp for registerFunction(0x...) and writes one address per line, the --overrides list bozo-externals
-reads (BozoEngine tools/externals). An address the port registers must be an override in the generated code, or a
+Scans runtime/*.cpp for registerFunction(0x...) and writes one "override 0xADDR" line per address, the --overrides
+list bozo-externals reads (BozoEngine tools/externals). An address the port registers must be an override in the generated code, or a
 direct call would skip the port's function.
 """
 import pathlib
@@ -18,7 +18,7 @@ def main() -> int:
     addresses = set()
     for source in sorted(runtime.glob("*.cpp")):
         addresses.update(int(a, 16) for a in pattern.findall(source.read_text(encoding="utf-8")))
-    out.write_text("".join(f"0x{a:x}\n" for a in sorted(addresses)), encoding="utf-8")
+    out.write_text("".join(f"override 0x{a:x}\n" for a in sorted(addresses)), encoding="utf-8")
     return 0
 
 
