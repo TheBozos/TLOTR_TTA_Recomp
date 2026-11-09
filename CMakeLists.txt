@@ -71,7 +71,15 @@ add_library(tta_audio_code OBJECT ${tta_audio_gen}/libsd_iop.cpp ${tta_audio_gen
 target_link_libraries(tta_audio_code PRIVATE bozo_runtime_headers)
 target_compile_options(tta_audio_code PRIVATE -O1 -w)
 
-add_executable(tta-headless ${tta_port_sources} $<TARGET_OBJECTS:tta_audio_code>)
+# TTA's VU0 microprograms as native C++, from the microcode in the player's ELF.
+set(tta_vu0_programs ${tta_gen}/tta_vu0_programs.cpp)
+add_custom_command(OUTPUT ${tta_vu0_programs}
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py ${tta_elf} ${tta_vu0_programs}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py
+  COMMENT "Translating the VU0 microprograms")
+
+add_executable(tta-headless ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
+set_source_files_properties(${tta_vu0_programs} PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off;-frounding-math")
 target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
 target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
 set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
