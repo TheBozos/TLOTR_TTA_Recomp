@@ -12,6 +12,8 @@
 #include "tta_audio_modules.h"
 
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <functional>
@@ -24,12 +26,14 @@ namespace tta
     namespace
     {
         // libsif's command data in SLUS_210.27 (sceSifInitCmd 0x32a278): the packet buffer the SIF interrupt hands to
-        // a handler, and the user handler table's address and size (sceSifSetCmdBuffer 0x32a530 writes them).
+        // a handler, and the user handler table's address and entry count (sceSifSetCmdBuffer 0x32a530 writes them).
         constexpr uint32_t kSifCommandData = 0x41b018;
         constexpr uint32_t kPacketBuffer = 0x41af40;
         constexpr uint32_t kSetSreg = 0x80000001u;
 
         std::unique_ptr<bozo::native::irx::CompiledLibraries> sound;
+        // TTA_AUDIO_TRACE=1: the commands each way and the handlers run, on stderr.
+        const bool trace = [] { const char *v = std::getenv("TTA_AUDIO_TRACE"); return v && *v == '1'; }();
         bozo::libs::Libraries *libs = nullptr;
         uint8_t *ram = nullptr; // EE RAM, for the first packet of a delivery (later ones go through the handler's end)
         uint32_t gameGp = 0;
@@ -57,16 +61,21 @@ namespace tta
             const uint32_t table = read(kSifCommandData + 0x14), count = read(kSifCommandData + 0x18);
             if (!table || packet.command >= count)
                 throw std::runtime_error("AUDIOPF sent a user command the game has no handler table entry for");
-            const uint32_t handler = read(table + packet.command * 8), argument = read(table + packet.command * 8 + 4);
+            // libsif's entries are {function, data, gp} (sceSifAddCmdHandler 0x32a548: 12 bytes each, its caller's gp).
+            const uint32_t entryAt = table + packet.command * 12;
+            const uint32_t handler = read(entryAt), argument = read(entryAt + 4), gp = read(entryAt + 8);
             if (!handler)
                 throw std::runtime_error("AUDIOPF sent a user command the game registered no handler for");
             writePacket(packet.data);
+            if (trace)
+                std::fprintf(stderr, "[tta:audio] driver command %u to the game's handler 0x%x\n", packet.command, handler);
             bozo::ee::QueuedHandler h;
             h.kind = bozo::ee::kInvokeSifCommand;
             h.pc = handler;
             h.a[0] = kPacketBuffer;
             h.a[1] = argument;
-            h.gp = gameGp;
+            h.gp = gp ? gp : gameGp;
+            h.completion = true; // its end delivers the next one
             delivering = true;
             l.queueHandler(h, [](bozo::libs::Libraries &l, bozo::libs::Guest &g)
             {
@@ -90,6 +99,9 @@ namespace tta
             if (size < 16 || size > 112)
                 throw std::runtime_error("sceSifSendCmd with a packet size outside 16..112");
             uint32_t result = 0;
+            if (trace)
+                std::fprintf(stderr, "[tta:audio] game command 0x%x (%u bytes, extra %u to 0x%x)\n", command, size, extraSize,
+                             extraDestination);
             if (command == kSetSreg)
             {
                 libs->sif.iopSreg[read32(rdram, packet + 0x10) & 31u] = read32(rdram, packet + 0x14);
@@ -132,11 +144,20 @@ namespace tta
             pending.clear();
             delivering = false;
         };
-        libraries.sif.receiveCommand = [](uint32_t command, std::span<const uint8_t> data, uint32_t,
+        libraries.sif.receiveCommand = [](uint32_t command, std::span<const uint8_t> data, uint32_t destination,
                                           std::span<const uint8_t> extra) -> uint32_t
         {
+            // The extra data lands in EE RAM before the command, as the SIF DMA puts it there first.
             if (!extra.empty())
-                throw std::runtime_error("AUDIOPF sent a user command with extra data (not wired)");
+            {
+                const uint32_t at = destination & 0x1ffffffu;
+                if (uint64_t(at) + extra.size() > 0x2000000u)
+                    throw std::runtime_error("AUDIOPF's extra data is outside EE RAM");
+                std::memcpy(ram + at, extra.data(), extra.size());
+            }
+            if (trace)
+                std::fprintf(stderr, "[tta:audio] driver sends command %u (%zu bytes)%s\n", command, data.size(),
+                             delivering ? ", queued" : "");
             Packet packet{command, {data.begin(), data.end()}};
             if (delivering)
                 pending.push_back(std::move(packet));

@@ -21,6 +21,21 @@ namespace tta
         // 0x21b348 (called from 0x1c2d30): zeroes four quadwords of VU1 data memory (0x1100c840..0x1100c870), the VU1
         // state its microprograms keep, then the seven words +0x40..+0x58 of the structure at *(0x3779b4). There is no
         // VU1: only the game's own words are cleared.
+        // sceIpuInit (0x277b58): resets the IPU and loads its default matrices through its FIFO. There is no IPU (libmpeg
+        // decodes natively); the game calls it at boot (0x218070) besides sceMpegInit.
+        void ipuInit(uint8_t *, R5900Context *ctx, Runtime *)
+        {
+            ctx->pc = ctx->r[31].uw[0];
+        }
+
+        // 0x216118: the graphics paths still busy, as a mask (VIF1 DMA 1, GIF DMA 2, VIF1 4, VU1 8, GIF 0x10); the main
+        // loop (0x1c0158, 0x1c36b8) waits on it. There are no paths: all idle.
+        void busyPaths(uint8_t *, R5900Context *ctx, Runtime *)
+        {
+            ctx->r[2].ud[0] = 0;
+            ctx->pc = ctx->r[31].uw[0];
+        }
+
         void resetVu1State(uint8_t *rdram, R5900Context *ctx, Runtime *)
         {
             const uint32_t base = read32(rdram, 0x3779b4);
@@ -34,5 +49,7 @@ namespace tta
         installAudioOverrides(registry);
         installVu0(registry);
         registry.registerFunction(0x21b348, resetVu1State);
+        registry.registerFunction(0x277b58, ipuInit);
+        registry.registerFunction(0x216118, busyPaths);
     }
 }

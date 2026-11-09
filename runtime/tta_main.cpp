@@ -25,6 +25,8 @@ int main(int argc, char **argv)
     options.iso = TTA_DEFAULT_ISO;
     options.frames = 600;
     options.printGameOutput = true;
+    // The game waits for EA's sound driver (compiled, tta_audio.cpp) to answer commands before its first frame.
+    options.advanceLibrariesWhileStalled = true;
     for (int i = 1; i < argc; ++i)
     {
         const std::string a = argv[i];
@@ -53,6 +55,8 @@ int main(int argc, char **argv)
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
     tta::installAudio(host.libraries(), d.runtime().memory.ram());
+    // TTA plays its movies the SDK's way: raw video through sceMpegAddBs from its Nodata callback, its own pacing.
+    host.libraries().mpegOptions = {.referenceLayout = false, .paced = false, .sdkNodata = true};
     d.setFunctions(tta_function_table, tta_function_count, tta_resume_table, tta_resume_count);
     bozo::port::Registry registry;
     tta::install(d.runtime(), registry);
