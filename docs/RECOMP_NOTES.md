@@ -2,6 +2,51 @@
 
 How the port is brought up, every fix and how it was found, and what remains open.
 
+## BozoEngine (since 2026-11-09)
+
+The port moved off the PS2Recomp fork onto [BozoEngine](https://github.com/TheBozos/BozoEngine) (submodule
+`BozoEngine/`), as DC, TMB and SC3 did: no PS2 hardware model at any level, every library and kernel call answered
+natively. Everything below this section, from "The disc" on, is the PS2Recomp era, kept for its findings (addresses,
+the game's behaviour); its code is in the history before `8ade037`.
+
+- **Build** (CMakeLists.txt, modelled on DC_Recomp's): `tools/tta_overrides_list.py` lists the addresses `runtime/`
+  registers, `bozo-externals` the externals from them and the symbol map, `bozo-recomp` translates SLUS_210.27 into 32
+  files (`build/bozo/tta_gen/`, ~40 s), `tta-headless` (runtime/tta_main.cpp) runs it on the free host and prints
+  what is not native yet (unknown device accesses by site, library calls by name, the end reason).
+- **Symbol map.** The ELF is stripped. `bozo_symbolmap.py` against Dark Cloud's and Twisted Metal: Black's
+  executables names 314 functions: the kernel calls, libc/libm, much of libgraph and libsif. Their SDKs (2000-2001)
+  are older than TTA's (2004), so libcdvd, libmc, the fileio client and libpad2 did not match: those were read from
+  the code into `recomp/tta_symbols_reviewed.txt`, one line of evidence each. `tools/tta_rpc_names.py` pairs every
+  sceSifCallRpc caller with (bound server id, function number) in TTA and the references: that alone named libmc's 12
+  clients (server 0x80000400) and fileio's 6 (0x80000001). `scripts/symbols.sh <reference ELFs>` rebuilds the map.
+- **Boot, step by step** (each was a stop of the headless runner): syscall 116 at 0x32d25c (SetSyscall from the SDK's
+  kernel patch: `InitSys` 0x32d268 named, the engine answers it); syscall 120 (`sceSifSetDChain` inside
+  `sceSifInitCmd`: `sceSifInitRpc` 0x32a9c0 named); the CD init's bind loop on 0x80000592 (`sceCdInit` 0x27dd08, then
+  `sceCdMmode` 0x27dff0, S-command 0x22 with 2 = DVD); syscall 107 in the IOP reset (`sceSifResetIop` 0x32cd50,
+  `sceSifRebootIop` 0x32cef8, `sceSifSyncIop` 0x32cea8, `sceSifLoadModule` 0x32cd08); EA's sound handshake (below);
+  `sceGsResetPath` 0x275968 (VIF1/GIF reset registers) and `sceGsSyncPath` 0x275a08; libpad2's bind loop on DBCMAN
+  0x80001300 (below). Frames 0 and 1 then end through the native sceGsSyncV.
+- **EA's sound driver** (runtime/tta_audio.cpp, tools/tta_bozo_audio.py). AUDIOPF.IRX and LIBSD.IRX are relocated to
+  0x4b400 and 0x45a00 and translated by `tools/native_irx` (422 + 63 functions); two AUDIOPF functions are only reached
+  through pointers (0x4b400, libsd's transfer callback; 0x4c69c, a thread body) and are given as entries. The game
+  (0x226bd0) and the driver (0x5926c) talk only through SIF commands and software registers: each sends set-sreg
+  (0x80000001) with the address of its buffers (registers 0x1e and 0x1f) and polls its own until the other has
+  written it; the driver also sends user commands to the handlers the game registers (0, 1, 2 at 0x226b60/80/a0, in
+  libsif's table at 0x41b018+0x14). The port overrides the game's `sceSifSendCmd`/`isceSifSendCmd` (set-sreg into the
+  IOP side's registers, user commands to the driver) and runs the driver's commands as the game's handlers on
+  libsif's packet buffer (0x41af40), one at a time. AUDIOPF's start polls a libsd transfer's completion flag in a
+  call-free loop and clears its buffers byte by byte: BozoEngine#80 adds the IOP software registers, sifcmd 4-7,
+  cdvdman 4/10/13/75, `useReadyAudioCompletionsAfterImports()` and `setRootCallBudget()` (TTA: 50,000,000).
+- **Pads: libpad2** over libdbc (DBCMAN 0x80001300, DS2U_D). EA's pad manager (init 0x2154b8, end 0x2156d0, per frame
+  0x2153e8/0x214f10 after a 10-frame warm-up) calls scePad2Init/CreateSocket (ports 0 and 1)/GetState/
+  GetButtonProfile/Read/GetButtonInfo and libvib's sceVibGetProfile/SetActParam. BozoEngine#81 answers them natively
+  on libpad's controllers: an 18-byte report (libpad's DualShock 2 report without its header, pressures in the
+  controller's order L1 R1 L2 R2), a 4-byte profile (the game compares it every frame: a fifth byte would drop the
+  pad), state 1 with a controller. Note: the 0x27ea40 cluster (IPU DMA registers) is libmpeg/libipu, not the pads.
+- **Next stop**: the game stores to VU1 data memory (0x1100c870 at 0x21b348) when its rendering starts. That is where
+  the native draw hooks begin: 3D, 2D and movies from the game's own data, textures and meshes converted offline
+  from the player's disc (room rules of 2026-10-31).
+
 ## The disc
 
 - `SYSTEM.CNF`: `BOOT2 = cdrom0:\SLUS_210.27;1`, `VMODE = NTSC`.

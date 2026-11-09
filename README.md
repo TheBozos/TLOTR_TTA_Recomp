@@ -3,12 +3,12 @@
 # TLOTR_TTA_Recomp
 
 **A native Windows, Linux and macOS port of *The Lord of the Rings: The Third Age* (NTSC-U, `SLUS-21027`), made by statically recompiling the game's PlayStation 2 code to C++.**<br>
-The game's own code (EE, IOP modules) rebuilt as native code. Its graphics still go through a layer of PS2 emulation (VU1 sandbox, GS state machine, GS memory) drawn with OpenGL; removing it is the work in progress, see below.
+Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own toolchain: the game's EE code recompiled to C++, every library and kernel call it makes answered by native code. No PS2 hardware model at any level: no GS, VU, VIF/GIF, DMA, IOP or SPU2.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
-![Based on](https://img.shields.io/badge/based%20on-PS2Recomp-17a35b)
-![Status](https://img.shields.io/badge/status-playable%20to%20the%20first%20battle-e8a317)
+![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
+![Status](https://img.shields.io/badge/status-boots%20headless%2C%20no%20picture%20yet-e8a317)
 
 </div>
 
@@ -22,46 +22,27 @@ The game's own code (EE, IOP modules) rebuilt as native code. Its graphics still
 
 ## Status
 
-**Plays from the boot to the first battle; not playable through yet.** Windows comes first, then Linux and macOS.
+**Moving to BozoEngine (since 2026-11-09): boots headless, no picture yet.** On the PS2Recomp fork the game played from
+the boot to the first battle (the screenshots below), but its graphics went through a PS2 emulation layer (VU1
+sandbox, GS state machine, GS memory). BozoEngine has none of it, so the picture comes back as native draw hooks are
+written from the game's own data. Windows comes first, then Linux and macOS.
 
-| Milestone | |
+| Milestone on BozoEngine | |
 |---|:---:|
-| Map the stripped main ELF (Ghidra function map, SDK functions from the fork's signature database) | ✅ |
-| Recompile it and link the generated code with the PS2Recomp runtime (Windows) | ✅ |
-| Boot: EE kernel, the game's own IOP modules, EA's heap, first frames on screen | ✅ |
-| Loading, memory card check, legal screen | ✅ |
-| Movies, title screen | ✅ |
-| New Game, the intro cinematic | ✅ |
-| First battle | ✅ |
-| The first battle played and won; the first chapter | 🔧 |
-| Sound and music (the driver runs; not checked by ear yet) | 🔧 |
-| Saving to the memory card | ⏳ |
+| Symbol map of the stripped ELF (BozoEngine's matcher against reference executables, then names read from the code) | ✅ |
+| Recompile with `bozo-recomp`, a headless runner on the engine's free host | ✅ |
+| SDK init, SIF, CD/DVD, memory card, IOP reboot and module loads answered natively | ✅ |
+| EA's sound driver (AUDIOPF.IRX) and LIBSD statically compiled from the disc, its SIF handshake with the game | ✅ |
+| Pads through a native libpad2 (BozoEngine PR #81) | ✅ |
+| Native draw hooks: the game's 3D, 2D and movies from its own data, textures and meshes converted offline | 🔧 |
+| Window, sound output, pad from the PC | ⏳ |
+| The game playable again to the first battle, then through | ⏳ |
 | Linux and macOS builds | ⏳ |
-| Full speed, widescreen, higher resolution | ⏳ |
 
-**Native port** (no PS2 hardware emulation left, not even a small part: the shared goal of the fork's ports). Native
-means the game's draws built straight from its own data (vertices, matrices, materials), with no GIF packet, no GS
-state machine and no copy of GS memory in between.
-
-| Layer | |
-|---|:---:|
-| IOP modules (sound, streaming, pad, memory card) recompiled to C++, none interpreted | ✅ |
-| Game time, sound and IOP on the PC's clock | ✅ |
-| No paraLLEl-GS: OpenGL on the GPU | ✅ |
-| Frame loop on the PC's clock in game and menus (`PS2X_FRAME_CAP`, default 60; movies still on the vblank) | 🔧 |
-| The two hottest VU1 programs (the 3D strips, 0x460 and 0x268) translated to C++, no VU interpreter (`TTA_VU1_PORT=0`: sandbox) | 🔧 |
-| Native draws from the game's data, no GIF packet and no GS front end | ⏳ |
-
-Still emulation, to remove:
-
-- **GS front end and `gsWrites`.** Every draw, the C++ ports' included, still carries the PS2 register writes of its
-  packet (TEX0, CLUT loads, ALPHA, TEST, ...) and the GS front end replays them through its state machine; the OpenGL
-  back end takes textures, CLUTs and targets from that GS state.
-- **VU1 sandbox.** Every VU1 program but 0x460 and 0x268 (the characters: 8df1e059 0x10 / 0x190 / 0x1F8, d43b1a88
-  0x620, ...) runs as VU1 microcode in the native adapter's sandbox, with VU memory, flags and XGKICK packets.
-- **CPU copy of GS memory.** Every texture upload is swizzled pixel by pixel into a CPU copy of GS memory and
-  mirrored to a GPU texture (6.8 MB a frame in battle).
-- **VIF1 unpacks, VU0 microcode (0xA80, the mesh math), the movies' vblank pacing.**
+The engine changes TTA needs are proposed upstream: [BozoEngine#80](https://github.com/TheBozos/BozoEngine/pull/80)
+(IOP software registers, more cdvdman, audio completions after imports, root call budget) and
+[BozoEngine#81](https://github.com/TheBozos/BozoEngine/pull/81) (native libpad2 and libvib); the submodule points at
+`tta/integration`, the two merged, until they land.
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
 
@@ -69,6 +50,8 @@ Still emulation, to remove:
 what remains open.
 
 ## Screenshots
+
+From the PS2Recomp build, until 2026-11-09.
 
 <p align="center">
   <img src="docs/screenshots/2026-10-29-native-vu1-black-riders.png" width="400" alt="Berethor facing three Black Riders in the forest cinematic, drawn without the emulated VU1">
@@ -141,28 +124,24 @@ campaign. Accuracy first; once it is playable, widescreen and higher internal re
 ## How it works
 
 ```
-disc files (game/) ──► Ghidra (headless, EE extension) + ExportPS2Functions ──► recomp/ghidra/tta_functions.csv
-                   ──► ps2_analyzer (SCE SDK signatures) ──► recomp/tta_slus21027.toml (stubs, entry points)
-                                           │
-                     ps2_recomp ──► C++ (one file per function, generated/) · ps2_vu_aot ──► VU microcode (generated/vu1/)
-                     tools/iop_recomp.py ──► the IRX modules as C++ (generated/iop/, scripts/iop_recomp.sh)
-                                           │
-                 CMakeLists.txt ──► PS2Recomp runtime + generated code + runtime/ (TTA's overrides)
-                                           │
-   PS2Recomp runtime: EE kernel HLE · DMAC · GIF + native OpenGL GS renderer · VIF/VU · IPU ─┼─► ps2EntryRunner
-   PS2Recomp IOP:     the game's IRX as recompiled code · SPU2 on the PC's clock · SIO2
+disc (your ISO) ──► scripts/extract_iso.sh ──► game/ (SLUS_210.27, MODULES/*.IRX)
+                                   │
+ recomp/tta_symbols.txt (names for the stripped ELF: scripts/symbols.sh) + runtime/ overrides
+                                   │
+        bozo-externals ──► the externals list   bozo-recomp ──► C++ (build/bozo/tta_gen/)
+        tools/tta_bozo_audio.py ──► AUDIOPF.IRX and LIBSD.IRX as C++ (BozoEngine tools/native_irx)
+                                   │
+              CMakeLists.txt ──► BozoEngine runtime + generated code + runtime/ ──► tta-headless
 ```
 
-- The retail executable is stripped. Ghidra with the Emotion Engine extension maps its functions, and `ps2_analyzer`
-  names the Sony SDK functions that have runtime handlers from the fork's signature database (102 at first pass).
-- PS2Recomp turns every function into C++ and emits the address-indexed function table.
-- The top-level `CMakeLists.txt` builds the fork's runtime, swaps its placeholder function table for the generated one
-  and links everything into `ps2EntryRunner`.
-- `runtime/tta_overrides.cpp` holds the game-specific bindings and defaults (native GS renderer, recompiled IOP
-  modules, COP0 Count on the PC's clock, drive-like CD timing); `runtime/tta_native.cpp` the native rendering work.
-
-The PS2Recomp fork lives in `PS2Recomp/` (git submodule, [TheBozos/PS2Recomp](https://github.com/TheBozos/PS2Recomp)),
-shared with the *Twisted Metal: Black*, *Valkyrie Profile 2* and *Drakengard* recompilations.
+- The retail executable is stripped. `recomp/tta_symbols.txt` names its library and kernel functions:
+  BozoEngine's `bozo_symbolmap.py` matches them against executables that keep their symbols, and
+  `recomp/tta_symbols_reviewed.txt` adds the ones read from the code, each with its evidence
+  (`tools/tta_rpc_names.py` pairs SIF RPC clients with their server and function number to help).
+  Every named function BozoEngine knows is answered natively.
+- `runtime/tta_port.cpp` registers the port's overrides by address; `runtime/tta_audio.cpp` runs EA's sound driver
+  in the engine's compiled-library host and connects it to the game (SIF commands, software registers).
+- Nothing derived from the disc is committed: the generated code and the compiled IRX are in `build/`.
 
 ## Requirements
 
@@ -170,8 +149,7 @@ shared with the *Twisted Metal: Black*, *Valkyrie Profile 2* and *Drakengard* re
 - CMake 3.21+, Ninja, GCC 13+ or Clang with C++20
 - FFmpeg development libraries (`libavcodec`, `libavformat`, `libavutil`, `libswresample`, `libswscale`) and `pkg-config`
 - `bsdtar` (libarchive) to extract the disc, Python 3
-- To regenerate the function map: [Ghidra](https://ghidra-sre.org/) 12 with the
-  [Emotion Engine extension](https://github.com/chaoticgd/ghidra-emotionengine-reloaded) and a JDK 21
+- To regenerate the symbol map: reference executables that keep their symbols (scripts/symbols.sh)
 - A CPU with AVX2 (the runtime is built for `x86-64-v3`)
 - Your own copy of `SLUS-21027` (check the hash above)
 
@@ -181,12 +159,8 @@ shared with the *Twisted Metal: Black*, *Valkyrie Profile 2* and *Drakengard* re
 git clone --recurse-submodules https://github.com/TheBozos/TLOTR_TTA_Recomp.git
 cd TLOTR_TTA_Recomp
 scripts/extract_iso.sh "/path/to/Lord of the Rings, The - The Third Age (USA).iso"   # disc files -> game/
-scripts/build_tools.sh                                   # ps2_recomp, ps2_analyzer, ps2_vu_aot -> build/tools
-GHIDRA_INSTALL_DIR=/path/to/ghidra scripts/ghidra.sh     # only to regenerate recomp/ghidra/tta_functions.csv
-scripts/recomp.sh                                        # ELF + recomp/tta_slus21027.toml -> generated/
-scripts/iop_recomp.sh                                    # boots once, recompiles the IRX modules -> generated/iop/
-scripts/build_runtime.sh                                 # runtime + generated code -> build/game
-scripts/run.sh                                           # ps2EntryRunner game/SLUS_210.27
+scripts/build_runtime.sh                       # recompile + sound driver + runtime -> build/bozo
+scripts/run.sh --frames 600                    # tta-headless: runs and reports what is not native yet
 ```
 
 ### Windows
@@ -197,20 +171,14 @@ The same scripts run in an MSYS2 **UCRT64** shell, with MSYS2's GCC (MSVC is not
 pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,ffmpeg,libarchive,python} git
 ```
 
-`scripts/stage_dlls.sh` copies the DLLs the runner needs next to `ps2EntryRunner.exe`, so it can also be started
-outside the MSYS2 shell.
-
-`scripts/analyze.sh` regenerates the TOML from scratch; it discards manual edits, so diff before committing.
-
 ## Sharing the machine with other ports
 
-Several PS2Recomp ports are developed on the same machine and share a two-slot bench lock (the fork's
-`tools/bench_lock.sh`): a game run takes one slot, a build or a timed run takes both, in arrival order.
+The Bozos' ports share a two-slot bench lock (BozoEngine's `tools/bench_lock.sh`): a game run takes one slot, a build
+or a timed run both, in arrival order.
 
 ```bash
-scripts/bench_lock.sh take 15 "boot check"           # a game run: one slot
-scripts/bench_lock.sh take 20 "full rebuild" alone   # a build or a timed run: the whole bench
-scripts/bench_lock.sh release
+scripts/bench_run.sh 5 "headless boot" scripts/run.sh --frames 600
+scripts/bench_run.sh --alone 30 "full rebuild" scripts/build_runtime.sh
 ```
 
 ## Legal
