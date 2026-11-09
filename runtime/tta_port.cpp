@@ -3,10 +3,33 @@
 
 #include "tta_audio.h"
 
+#include <cstring>
+
 namespace tta
 {
+    namespace
+    {
+        uint32_t read32(const uint8_t *rdram, uint32_t address)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + (address & 0x1ffffffu), 4);
+            return v;
+        }
+
+        // 0x21b348 (called from 0x1c2d30): zeroes four quadwords of VU1 data memory (0x1100c840..0x1100c870), the VU1
+        // state its microprograms keep, then the seven words +0x40..+0x58 of the structure at *(0x3779b4). There is no
+        // VU1: only the game's own words are cleared.
+        void resetVu1State(uint8_t *rdram, R5900Context *ctx, Runtime *)
+        {
+            const uint32_t base = read32(rdram, 0x3779b4);
+            std::memset(rdram + ((base + 0x40) & 0x1ffffffu), 0, 7 * 4);
+            ctx->pc = ctx->r[31].uw[0];
+        }
+    }
+
     void install(Runtime &, bozo::port::Registry &registry)
     {
         installAudioOverrides(registry);
+        registry.registerFunction(0x21b348, resetVu1State);
     }
 }
