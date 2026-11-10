@@ -34,8 +34,16 @@ Geometry by shader type:
     draw the packet of the node with instance# 1 and the same group (table 0x448b20 filled by
     0x220f30 at create, copied by 0x220f88 after LLObj_Create): geometry is shared, matrix and
     colour table are per node.
-  * type 17 (scbm WeightedSkin), type 19 (water): not converted (kind 2); the structure of every
-    type-17 geometry is listed in <out>/scbm.txt (see scbm_summary).
+  * type 17 (scbm WeightedSkin, VU1 set 8df1e059, batch program 0x378): kind 3, see skin_batch /
+    skin_sections. Per kind-1 section ("part"): a byte stream of DMA chunks (palette entries
+    {skeleton bone, VU offset}, material index) and a VIF stream; per MSCNT 3-qword vertices
+    (normal*1024 + influence, position*geometry+0x18 scale + matrix-cache slot), V4-8 influence
+    records (4 palette offsets, 4 weights*127), and one entry per GS strip vertex (s, t /1024,
+    source vertex, output slot | drawn flag) that may name a vertex of the previous batch.
+    Material = name record -> texture id by the game's name hash 0x26ce88 (see load_name_hash).
+    Parts with another layout (the "few*" geometries) are skipped with a warning.
+    The structure of every type-17 geometry is also listed in <out>/scbm.txt (scbm_summary).
+  * type 19 (water): not converted (kind 2).
 
 Keys: (type, index, record offset) is unique within one .SCP but NOT across the disc: every level
 SCP reuses the same 'ter '/'scbm' indices for different payloads. Identical payloads share one file;
@@ -45,12 +53,20 @@ resources whose packets differ); adding the record's bounding sphere (record +0x
 through runtime node+0) makes every key unique on the disc. index.txt carries the payload size.
 
 Output: one file per resource <type>_<index>[_v<n>].mesh and index.txt. File layout (little endian):
-    header : 'TTAM' u32 version (1), u32 node count, char[4] type, u32 index, u32 payload size
+    header : 'TTAM' u32 version (2), u32 node count, char[4] type, u32 index, u32 payload size
     node   : u32 record offset, i8 shader type, u8 kind (0 own batches, 1 type-21 instance of
-             another node's batches, 2 not converted), u16 node#, u32 batch count, u32 vertex count,
-             u32 master node# (kind 1, else 0xffffffff),
+             another node's batches, 2 not converted, 3 skinned), u16 node#, u32 batch count (all
+             sections), u32 vertex count, u32 master node# (kind 1, else 0xffffffff),
              if shader type 21: 16 f32 matrix, u16 instance#, u16 group, u32 +0x4c word, 256 u32 colours
-             then the batches
+             then the batches; kind 3 instead: u32 section count, per section {u32 section index
+             (its bit in the visibility mask G+0x280), u32 batch count, batches}
+    skinned batch: as below but each vertex is 64 bytes {f32 x, y, z (bind/model space, already
+             times the geometry+0x18 scale), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (0x80808080:
+             the mesh carries no vertex colour, the VU lights it), u8 bone[4] (skeleton indices into
+             *(G+0x290); the 3-byte palette entries could carry u16 indices but the disc's maximum
+             is 148: a larger one is a warning), f32 weight[4] (/127, as the VU uses them; unused =
+             0), u8 adc, 7 pad}; PRIM 0x1c (strip, the GIF tag is built by
+             the VU from constants), no registers.
     batch  : u64 texture id (TEX0 of the A+D block in force, 0 = none), u16 GS PRIM (effective: type
              | IIP<<3 | TME<<4 | FGE<<5 | ABE<<6 | AA1<<7 | FST<<8 | CTXT<<9 | FIX<<10), u8 colour
              mode (0 RGBA, 1 index into the node's colour table), u8 register count, u32 vertex count,
@@ -69,7 +85,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tta_textures as tex  # noqa: E402  (SCP container parser)
 
 MESH_TYPES = ('ter ', 'Cobj', 'scbm')
-VERSION = 1
+VERSION = 2
 
 # ----------------------------------------------------------------------------------------
 # LLObj node tree (0x2173d8 / 0x217520)
@@ -184,13 +200,13 @@ def vif_batches(p, a, e, warn):
             n = num or 256
             cnt = n if wl <= cl else cl * (n // wl) + min(n % wl, cl)
             size = (UNPACK_SIZE[vt] * cnt + 3) & ~3
-            if cl != 1 or wl != 1:
-                warn('STCYCL %d/%d' % (cl, wl))
+            if wl > cl:
+                warn('STCYCL filling write %d/%d' % (cl, wl))
             usn, masked = bool(imm & 0x4000), bool(cmd & 0x10)
             u = Unpack(uid, vt, imm & 0x3ff, n, usn, masked)
             uid += 1
             for i, v in enumerate(_elements(vt, usn, p[a:a + size], cnt)):
-                addr = (u.addr + i) & 0x3ff
+                addr = (u.addr + (i // wl) * cl + i % wl if wl < cl else u.addr + i) & 0x3ff  # skipping write
                 old = b.mem.get(addr, [0, 0, 0, 0])
                 cyc = min(i % max(wl, 1), 3)  # the write cycle selects the mask row and the column
                 m = (mask >> (8 * cyc)) & 0xff if masked else 0
@@ -232,6 +248,7 @@ def vif_batches(p, a, e, warn):
             direct += gif_ad(p, a, a + n * 16)
             a += n * 16
         elif cmd in (0x14, 0x15, 0x17):
+            b.end = a  # stream offset just after the MSCNT
             yield b, direct
             b, direct = Batch(), []
         elif cmd == 0x4a:
@@ -441,8 +458,12 @@ def convert_resource(p, warn):
                     n['batches'] += terrain_batches(b, gs, warn)
                 n['kind'] = 0
                 groups[grp] = n
-        elif st in (17, 19):
-            pass  # WeightedSkin / water: not a plain VIF stream here
+        elif st == 17:
+            n['sections'] = skin_sections(p, n, warn)
+            n['batches'] = [bt for _, bts in n['sections'] for bt in bts]
+            n['kind'] = 3
+        elif st == 19:
+            pass  # water: not a plain VIF stream here
         else:
             gs = GsState()
             for b, direct in vif_batches(p, g, e, warn):
@@ -457,6 +478,190 @@ def convert_resource(p, warn):
             else:
                 n['kind'], n['master'] = 1, master['num']
     return nodes
+
+
+# ----------------------------------------------------------------------------------------
+# type 17 WeightedSkin (VU1 set 8df1e059, batch program 0x378 / 0xb10, skin build 0x16e0)
+
+NAME_HASH = None  # (char map, weights) of 0x26ce88, read from the executable
+
+
+def load_name_hash(game):
+    """0x26ce88: material name -> 64-bit texture id (chars 0-5 -> low word, 6-11 -> high word,
+    each the sum of map[c] * weight[i]; map at 0x378898, weights 1, 40, 40^2 ... at 0x3789c0)."""
+    global NAME_HASH
+    import glob
+    for path in sorted(glob.glob(os.path.join(game, 'SLUS_*'))):
+        with open(path, 'rb') as f:
+            e = f.read()
+        base = 0x110000 - 0x1000  # the executable's single PT_LOAD segment
+        NAME_HASH = (e[0x378898 - base:0x378898 - base + 256], struct.unpack_from('<6I', e, 0x3789c0 - base))
+        return
+
+
+def name_id(name):
+    cmap, w = NAME_HASH
+    lo = sum(cmap[c] * w[i] for i, c in enumerate(name[:6])) & 0xffffffff
+    hi = sum(cmap[c] * w[i] for i, c in enumerate(name[6:12])) & 0xffffffff
+    return lo | hi << 32
+
+
+def skin_chunks(p, s, e):
+    """The part's byte stream (0x21d9f8): per DMA chunk (VIF qword count, material index or None,
+    [(skeleton bone index, VU palette offset)])."""
+    out, o = [], s
+    while o < e:
+        b0 = p[o]
+        o += 1
+        cnt, mat, ents = b0 & 0x7f, None, []
+        if b0 & 0x80:
+            b1 = p[o]
+            o += 1
+            if b1 & 0x80:
+                mat = p[o]
+                o += 1
+            if b1 & 0x40:
+                cnt |= p[o] << 7
+                o += 1
+            for _ in range(b1 & 0x1f):
+                if b1 & 0x20:
+                    ents.append(((p[o] << 8) | p[o + 1], p[o + 2]))
+                    o += 3
+                else:
+                    ents.append((p[o], p[o + 1]))
+                    o += 2
+        out.append((cnt, mat, ents))
+    if o != e:
+        raise ValueError('skin byte stream ends at +%d of %d' % (o - s, e - s))
+    return out
+
+
+def _s(x, bits=16):
+    x &= (1 << bits) - 1
+    return x - (1 << bits) if x >> (bits - 1) else x
+
+
+SKIN_STATS = Counter()
+
+
+def skin_batch(b, palette, cache, prev, scale, tex, warn):
+    """One MSCNT: q0 = (output count, vertex end | 0x8000, ..), q1.y = vertex start | 0x8000; vertices
+    are 3 qwords {normal x y z (x1024), w}, {position x y z (x geometry scale), w = blended-matrix
+    cache slot (| flag)}, {VU scratch}; normal.w: 0x8000 | record address = blend the record's bones
+    (and keep the result in the cache slot), 0x8000 alone = as the previous vertex, < 0x8000 = the
+    matrix cached at that slot (possibly by an earlier batch: the cache persists in VU memory); influence records are 2 V4-8
+    qwords {4 palette offsets (< 0 unused), 4 weights * 127}; output entries from TOP+3, one per GS
+    vertex: {s, t (/1024), source vertex address | 0x8000, output slot * 3 | 0x8000 = drawn} in [3, vertex start);
+    entries [3, q1.z) are one per vertex in order, [q1.z, q1.w) repeat vertices of this batch, and
+    [q1.w, vertex start) name vertices of the previous batch (still in VU memory). prev: that batch's
+    vertices; returns (batch, vertices) or (None, None)."""
+    m = b.mem
+    if 0 not in m or 1 not in m:
+        warn('skin batch without header')
+        return None, None
+    nout = m[0][0] & 0x7fff
+    vstart, vend, pfirst = m[1][1] & 0x3ff, m[0][1] & 0x3ff, m[1][3] & 0x3ff
+    if pfirst == 0:  # q1.w = 0x8000: no entry names the previous batch
+        pfirst = vstart
+    if m[0][0] & 0x8000 or vend < vstart or vstart > 0x80 or not 3 <= pfirst <= vstart:
+        warn('skin batch layout (not the 0x378 program)')
+        return None, None
+    verts = {}
+    infl = ((0, 0, 0, 0), (1.0, 0.0, 0.0, 0.0))
+    for a in range(vstart, vend, 3):
+        if a not in m or a + 1 not in m:
+            warn('skin vertex missing')
+            return None, None
+        nq, pq = m[a], m[a + 1]
+        ptr, cslot = nq[3] & 0xffff, pq[3] & 0x7fff
+        if not ptr & 0x8000:
+            if ptr not in cache:
+                warn('skin matrix cache slot never filled')
+                return None, None
+            infl = cache[ptr]
+        elif ptr & 0x7fff:
+            ptr &= 0x7fff
+            rec, wts = m.get(ptr & 0x3ff), m.get((ptr + 1) & 0x3ff)
+            if rec is None or wts is None:
+                warn('skin influence record missing')
+                return None, None
+            bones, ws = [], []
+            for k in range(4):
+                off = _s(rec[k], 8)
+                if off < 0:
+                    bones.append(0)
+                    ws.append(0.0)
+                    continue
+                if off not in palette:
+                    warn('palette offset without bone')
+                bones.append(palette.get(off, 0))
+                ws.append(_s(wts[k], 8) / 127.0)
+            infl = (tuple(bones), tuple(ws))
+            cache[cslot] = infl
+            SKIN_STATS['influences %d' % sum(1 for x in ws if x)] += 1
+        nx, ny, nz = (_s(x) / 1024.0 for x in nq[:3])
+        ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+        verts[a] = ((_s(pq[0]) * scale, _s(pq[1]) * scale, _s(pq[2]) * scale),
+                    (nx / ln, ny / ln, nz / ln), infl)
+    out = [None] * nout
+    for e in range(3, vstart):  # entries fill [3, vertex start); the last ones may repeat (padding)
+        q = m.get(e)
+        if q is None:
+            warn('skin output entry missing')
+            return None, None
+        src, slot = q[2] & 0x3ff, (q[3] & 0x7fff) // 3
+        if slot >= nout:
+            continue  # padding entry
+        vv = (verts if e < pfirst else prev or {}).get(src)
+        if vv is None:
+            warn('skin output entry out of range')
+            return None, None
+        pos, nrm, (bones, ws) = vv
+        out[slot] = pos + nrm + (_s(q[0]) / 1024.0, _s(q[1]) / 1024.0, 0x80808080) + bones + ws + (
+            0 if q[3] & 0x8000 else 1,)
+    if any(v is None for v in out):
+        warn('skin output slot not filled')
+        return None, None
+    return dict(tex=tex, prim=0x1c, cmode=0, regs=[], verts=out, skin=True), verts
+
+
+def skin_sections(p, n, warn):
+    """[(section index, [batches])] of a type-17 geometry (header: see scbm_summary)."""
+    B = n['geo']
+    if p[B + 8:B + 12] != b'ENOB':
+        warn('type 17 without BONE header')
+        return []
+    scale = struct.unpack_from('<f', p, B + 0x18)[0]
+    cnt, toff = struct.unpack_from('<II', p, B + 0x20)
+    res = []
+    for si, o in enumerate(struct.unpack_from('<%dI' % cnt, p, B + toff)):
+        if p[B + o] != 1:
+            continue
+        nmat, arr, blen, woff, vlen, voff = struct.unpack_from('<6I', p, B + o + 4)
+        names = [p[B + so:B + so + 16].split(bytes(1))[0] for so in struct.unpack_from('<%dI' % nmat, p, B + arr)]
+        ids = [name_id(x) if NAME_HASH else 0 for x in names]
+        starts, q = [], 0
+        for c in skin_chunks(p, B + woff, B + woff + blen):
+            starts.append((B + voff + q * 16, c))
+            q += c[0]
+        palette, cache, prev, mat, k, batches = {}, {}, None, None, 0, []
+        for b, _ in vif_batches(p, B + voff, B + voff + vlen, warn):
+            while k < len(starts) and starts[k][0] < b.end:
+                _, (_, m_, ents) = starts[k]
+                if m_ is not None:
+                    mat = m_
+                for idx, slot in ents:
+                    if idx > 255:
+                        warn('skeleton bone index > 255')
+                    palette[slot] = idx
+                    SKIN_STATS['max bone'] = max(SKIN_STATS['max bone'], idx)
+                k += 1
+            tex = ids[mat] if mat is not None and mat < len(ids) else 0
+            bt, prev = skin_batch(b, palette, cache, prev, scale, tex, warn)
+            if bt:
+                batches.append(bt)
+        res.append((si, batches))
+    return res
 
 
 def scbm_summary(p, n):
@@ -507,13 +712,28 @@ def pack_resource(rtype, idx, payload_size, nodes):
             else:
                 m, inst, grp, w4c, cols = (0.0,) * 16, 0, 0, 0, (0,) * 256
             out += struct.pack('<16fHHI256I', *m, inst, grp, w4c, *cols)
+        if n['kind'] == 3:
+            out += struct.pack('<I', len(n['sections']))
+            for si, bts in n['sections']:
+                out += struct.pack('<II', si, len(bts))
+                for bt in bts:
+                    pack_batch(out, bt)
+            continue
         for bt in n['batches']:
-            out += struct.pack('<QHBBI', bt['tex'], bt['prim'], bt['cmode'], len(bt['regs']), len(bt['verts']))
-            for r, v in bt['regs']:
-                out += struct.pack('<B7xQ', r, v)
-            for v in bt['verts']:
-                out += struct.pack('<5fIB3x', *v)
+            pack_batch(out, bt)
     return bytes(out)
+
+
+def pack_batch(out, bt):
+    out += struct.pack('<QHBBI', bt['tex'], bt['prim'], bt['cmode'], len(bt['regs']), len(bt['verts']))
+    for r, v in bt['regs']:
+        out += struct.pack('<B7xQ', r, v)
+    if bt.get('skin'):
+        for v in bt['verts']:
+            out += struct.pack('<8fI4B4fB7x', *v)
+    else:
+        for v in bt['verts']:
+            out += struct.pack('<5fIB3x', *v)
 
 
 # ----------------------------------------------------------------------------------------
@@ -525,7 +745,7 @@ def triangles(bt):
     vs, typ = bt['verts'], bt['prim'] & 7
     tris = []
     for i in range(2, len(vs)):
-        if vs[i][6]:
+        if vs[i][-1]:
             continue
         if typ == 3:
             if i % 3 == 2:
@@ -561,7 +781,8 @@ def write_obj(path, nodes):
                 f.write('g node%d_b%d tex_%016x\n' % (n['num'], bi, bt['tex']))
                 for v in bt['verts']:
                     x, y, z = xform(m, v)
-                    f.write('v %.4f %.4f %.4f\nvt %.5f %.5f\n' % (x, y, z, v[3], 1.0 - v[4]))
+                    st = (v[6], v[7]) if bt.get('skin') else (v[3], v[4])
+                    f.write('v %.4f %.4f %.4f\nvt %.5f %.5f\n' % (x, y, z, st[0], 1.0 - st[1]))
                 for i, j, k in triangles(bt):
                     f.write('f %d/%d %d/%d %d/%d\n' % (base + i, base + i, base + j, base + j, base + k, base + k))
                 base += len(bt['verts'])
@@ -609,6 +830,7 @@ def main():
                     '(default: <game>/../build/bozo/textures/index.txt if present)')
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    load_name_hash(args.game)
     t0 = time.time()
     seen = {}                      # (type, idx) -> {sha1: name}
     index, failures, warnings = [], [], Counter()
@@ -711,6 +933,7 @@ def main():
             known = {int(l.split()[0], 16) for l in f if l[:1] != '#' and l.strip()}
     for t, st in sorted(stats.items()):
         print(t, dict(st))
+    print('skin:', dict(SKIN_STATS))
     nz = {k: v for k, v in tex_ids.items() if k}
     msg = 'texture ids: %d distinct non-zero, batches without texture %d' % (len(nz), tex_ids.get(0, 0))
     if known is not None:

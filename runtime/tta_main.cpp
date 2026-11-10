@@ -81,7 +81,9 @@ int main(int argc, char **argv)
     if (const char *profile = std::getenv("TTA_HOST_PROFILE"); profile && *profile)
         tta::startHostProfile(profile);
 
-    options.realTime = window;
+    // TTA_DETERMINISTIC=1: the window build on the game's clock as tta-headless (reproducible captures, not paced).
+    const bool deterministic = std::getenv("TTA_DETERMINISTIC") != nullptr;
+    options.realTime = window && !deterministic;
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
     tta::installAudio(host.libraries(), d.runtime().memory.ram());
@@ -97,7 +99,7 @@ int main(int argc, char **argv)
         return 2;
     }
     bozo::app::FramePacer pacer;
-    pacer.setPaced(window);
+    pacer.setPaced(window && !deterministic);
     host.onFrame = [&](uint64_t f, const R5900Context *ctx)
     {
         pacer.frameEnd();

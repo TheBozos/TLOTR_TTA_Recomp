@@ -12,6 +12,8 @@
 
 #include "bozo/render/renderer.h"
 
+#include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -71,12 +73,18 @@ namespace tta
             std::vector<bozo::render::Vertex> vertices;
             std::vector<uint8_t> adc;
             std::vector<uint32_t> colours; // as stored (RGBA or an index)
+            // Skinned (kind 3): the batch's section (its bit in the visibility mask G+0x280), per vertex the normal and
+            // four skeleton bones with their weights; positions in the model space the bones blend.
+            uint32_t section = 0;
+            std::vector<std::array<float, 3>> normals;
+            std::vector<std::array<uint8_t, 4>> bones;
+            std::vector<std::array<float, 4>> weights;
         };
 
         struct Node
         {
             int8_t shader = 0;
-            uint8_t kind = 0; // 0 own batches, 1 a type-21 instance of `master`'s, 2 not converted
+            uint8_t kind = 0; // 0 own batches, 1 a type-21 instance of `master`'s, 2 not converted, 3 skinned
             uint16_t number = 0;
             uint32_t master = 0xffffffffu;
             bool hasMatrix = false;
@@ -118,6 +126,58 @@ namespace tta
                     ok = std::fread(node.matrix, 4, 16, f) == 16 && get(f, instance) && get(f, group) && get(f, word);
                     node.colours.resize(256);
                     ok = ok && std::fread(node.colours.data(), 4, 256, f) == 256;
+                }
+                if (ok && node.kind == 3)
+                {
+                    // Skinned: sections of batches, 64-byte vertices (f32 xyz, f32 normal, f32 st, u32 rgba, u8 bone[4],
+                    // f32 weight[4], u8 adc, 7 pad).
+                    uint32_t sections = 0;
+                    ok = get(f, sections);
+                    for (uint32_t sct = 0; ok && sct < sections; ++sct)
+                    {
+                        uint32_t sectionIndex = 0, count = 0;
+                        ok = get(f, sectionIndex) && get(f, count);
+                        for (uint32_t b = 0; ok && b < count; ++b)
+                        {
+                            Batch batch;
+                            batch.section = sectionIndex;
+                            uint8_t registerCount = 0;
+                            uint32_t vertices = 0;
+                            ok = get(f, batch.texture) && get(f, batch.prim) && get(f, batch.colourMode) &&
+                                 get(f, registerCount) && get(f, vertices);
+                            for (uint32_t r = 0; ok && r < registerCount; ++r)
+                            {
+                                uint8_t reg = 0, pad[7];
+                                uint64_t value = 0;
+                                ok = get(f, reg) && std::fread(pad, 1, 7, f) == 7 && get(f, value);
+                                batch.registers.emplace_back(reg, value);
+                            }
+                            batch.vertices.resize(vertices);
+                            batch.adc.resize(vertices);
+                            batch.colours.resize(vertices);
+                            batch.normals.resize(vertices);
+                            batch.bones.resize(vertices);
+                            batch.weights.resize(vertices);
+                            for (uint32_t v = 0; ok && v < vertices; ++v)
+                            {
+                                float p[8];
+                                uint8_t pad[7];
+                                ok = std::fread(p, 4, 8, f) == 8 && get(f, batch.colours[v]) &&
+                                     std::fread(batch.bones[v].data(), 1, 4, f) == 4 &&
+                                     std::fread(batch.weights[v].data(), 4, 4, f) == 4 && get(f, batch.adc[v]) &&
+                                     std::fread(pad, 1, 7, f) == 7;
+                                bozo::render::Vertex &out = batch.vertices[v];
+                                out.x = p[0];
+                                out.y = p[1];
+                                out.z = p[2];
+                                batch.normals[v] = {p[3], p[4], p[5]};
+                                out.u = p[6];
+                                out.v = p[7];
+                            }
+                            node.batches.push_back(std::move(batch));
+                        }
+                    }
+                    batchCount = 0; // read above
                 }
                 for (uint32_t b = 0; ok && b < batchCount; ++b)
                 {
@@ -325,7 +385,7 @@ namespace tta
                 const auto it = m ? m->byOffset.find(offset) : decltype(m->byOffset)::const_iterator{};
                 if (!m || it == m->byOffset.end())
                     count(rdram, g_missing);
-                else if (it->second.kind == 2)
+                else if (it->second.kind == 2 || it->second.kind == 3) // not converted, or skinned (drawSkin)
                     count(rdram, g_unconverted);
                 else
                 {
@@ -406,8 +466,174 @@ namespace tta
         }
     }
 
+    namespace
+    {
+        // ---- Characters: shader type 17, WeightedSkin (build/bozo/skin_spec.md) -----------------------------------
+        // At 0x225fb0(instance = node + 0x28) the game's skin context is G = *(0x403a60) (VisualEntity E = G - 0x1d0):
+        // the bone matrices *(G+0x290) (4x4 floats, rows, model space before W), W = *(G+0x294) (the character's
+        // placement), the visible sections G+0x280 (128 bits), the fade G+0x2bc (0..0x80, 0 = not drawn) and the
+        // lighting: order-2 coefficients at G+0x00..0x9f (C0, xx, yy, zz, xy, xz, yz, x, y, z; float4 RGB each, world
+        // space), applied to the skinned normal: colour = vertex RGBA x max(c, 0). Screen: clip = p W RC+0x260, then
+        // screen = clip / w x A + B (A = RC+0x440.., B = RC+0x450..). The vertices are skinned here, on the CPU.
+        void transformPoint(const float m[16], const float in[3], float w, float out[3])
+        {
+            for (int r = 0; r < 3; ++r)
+                out[r] = m[r] * in[0] + m[4 + r] * in[1] + m[8 + r] * in[2] + m[12 + r] * w;
+        }
+
+        uint32_t g_skinsDrawn = 0;
+
+        void drawSkin(const uint8_t *rdram, uint32_t node)
+        {
+            const uint32_t record = read32(rdram, node);
+            std::string type;
+            uint32_t index = 0, offset = 0, size = 0;
+            if (!resourceAt(record, type, index, offset, size))
+                return;
+            const std::shared_ptr<Mesh> mesh = meshFor(type, index, size);
+            if (!mesh)
+                return;
+            const auto it = mesh->byOffset.find(offset);
+            if (it == mesh->byOffset.end() || it->second.kind != 3)
+                return;
+            const uint32_t g = read32(rdram, 0x403a60);
+            const uint32_t bones = read32(rdram, g + 0x290), placement = read32(rdram, g + 0x294);
+            const uint32_t fade = read32(rdram, g + 0x2bc);
+            if (!bones || !placement || fade == 0)
+                return;
+            uint32_t visible[4];
+            for (int i = 0; i < 4; ++i)
+                visible[i] = read32(rdram, g + 0x280 + i * 4);
+            float lighting[10][3];
+            for (int k = 0; k < 10; ++k)
+                for (int c = 0; c < 3; ++c)
+                    lighting[k][c] = readFloat(rdram, g + k * 16 + c * 4);
+            float w[16];
+            for (int i = 0; i < 16; ++i)
+                w[i] = readFloat(rdram, placement + i * 4);
+            const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
+            float clip[16], viewport[16] = {}, screen[16], matrix[16];
+            for (int i = 0; i < 16; ++i)
+                clip[i] = readFloat(rdram, rc + 0x260 + i * 4);
+            for (int r = 0; r < 3; ++r)
+            {
+                viewport[r * 4 + r] = readFloat(rdram, rc + 0x440 + r * 4);
+                viewport[12 + r] = readFloat(rdram, rc + 0x450 + r * 4);
+            }
+            viewport[15] = 1.0f;
+            multiply(viewport, clip, screen);
+            multiply(screen, w, matrix);
+            for (float &f : matrix)
+                f = -f; // w > 0 in front, as the terrain
+            std::unordered_map<uint32_t, std::array<float, 16>> boneCache;
+            const auto bone = [&](uint8_t b) -> const std::array<float, 16> &
+            {
+                auto [at, fresh] = boneCache.try_emplace(b);
+                if (fresh)
+                    for (int i = 0; i < 16; ++i)
+                        at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
+                return at->second;
+            };
+            auto &renderer = bozo::render::Renderer::instance();
+            std::vector<bozo::render::Vertex> skinned, triangles;
+            for (const Batch &batch : it->second.batches)
+            {
+                if (batch.section < 128 && !(visible[batch.section / 32] & (1u << (batch.section % 32))))
+                    continue;
+                const uint32_t type = batch.prim & 7u;
+                if (type < 3 || type > 5 || batch.vertices.size() < 3)
+                    continue;
+                skinned = batch.vertices;
+                for (size_t v = 0; v < skinned.size(); ++v)
+                {
+                    float p[3] = {}, n[3] = {};
+                    const float in[3] = {batch.vertices[v].x, batch.vertices[v].y, batch.vertices[v].z};
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        const float weight = batch.weights[v][k];
+                        if (weight == 0.0f)
+                            continue;
+                        const auto &m = bone(batch.bones[v][k]);
+                        float bp[3], bn[3];
+                        transformPoint(m.data(), in, 1.0f, bp);
+                        transformPoint(m.data(), batch.normals[v].data(), 0.0f, bn);
+                        for (int c = 0; c < 3; ++c)
+                        {
+                            p[c] += weight * bp[c];
+                            n[c] += weight * bn[c];
+                        }
+                    }
+                    skinned[v].x = p[0];
+                    skinned[v].y = p[1];
+                    skinned[v].z = p[2];
+                    // The lighting, on the world-space normal (W's rotation), normalised.
+                    float wn[3];
+                    transformPoint(w, n, 0.0f, wn);
+                    const float len = std::sqrt(wn[0] * wn[0] + wn[1] * wn[1] + wn[2] * wn[2]);
+                    if (len > 0.0f)
+                        for (float &c : wn)
+                            c /= len;
+                    const float terms[10] = {1.0f, wn[0] * wn[0], wn[1] * wn[1], wn[2] * wn[2], wn[0] * wn[1],
+                                             wn[0] * wn[2], wn[1] * wn[2], wn[0], wn[1], wn[2]};
+                    uint32_t rgba = 0;
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        float light = 0.0f;
+                        for (int k = 0; k < 10; ++k)
+                            light += lighting[k][c] * terms[k];
+                        const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * std::fmax(light, 0.0f);
+                        rgba |= static_cast<uint32_t>(std::fmin(value, 255.0f)) << (c * 8);
+                    }
+                    const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
+                    skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
+                }
+                triangles.clear();
+                for (size_t i = 2; i < skinned.size(); ++i)
+                {
+                    if (batch.adc[i])
+                        continue;
+                    if (type == 3)
+                    {
+                        if (i % 3 == 2)
+                            triangles.insert(triangles.end(), {skinned[i - 2], skinned[i - 1], skinned[i]});
+                    }
+                    else if (type == 4)
+                        triangles.insert(triangles.end(), {skinned[i - 2], skinned[i - 1], skinned[i]});
+                    else
+                        triangles.insert(triangles.end(), {skinned[0], skinned[i - 1], skinned[i]});
+                }
+                if (triangles.empty())
+                    continue;
+                bozo::render::Material material;
+                material.depthTest = true;
+                material.depthWrite = fade >= 0x80;
+                material.blend = fade < 0x80 ? bozo::render::Material::Blend::Alpha : bozo::render::Material::Blend::Opaque;
+                std::shared_ptr<const bozo::render::Texture> texture = batch.texture ? textureById(batch.texture) : nullptr;
+                material.textured = texture != nullptr;
+                if (texture)
+                {
+                    material.tex0 = texture->key;
+                    material.alphaTest = true;
+                    material.alphaFunc = bozo::render::Material::AlphaFunc::Greater;
+                    material.alphaRef = 0x20;
+                }
+                renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+            }
+            ++g_skinsDrawn;
+        }
+
+        void skin(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
+            func_0x225fb0(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+    }
+
     void installThreeD(bozo::port::Registry &registry)
     {
+        registry.registerFunction(0x225fb0, skin);
         registry.registerFunction(0x2204f0, staticRender<0x2204f0, func_0x2204f0>);
         registry.registerFunction(0x21fd30, staticRender<0x21fd30, func_0x21fd30>);
         registry.registerFunction(0x2201a8, staticRender<0x2201a8, func_0x2201a8>);
