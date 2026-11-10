@@ -37,7 +37,8 @@ the 3D. Windows comes first, then Linux and macOS.
 | Pads through a native libpad2 (BozoEngine PR #81) | ✅ |
 | VU0 microprograms translated to C++ from the ELF; movies through a native libmpeg (BozoEngine PR #82) | ✅ |
 | Native frame: the chain built but never sent, the swap publishing to the engine's renderer; the movies drawn | ✅ |
-| Native draw hooks: the game's 2D, text and 3D from its own data, textures and meshes converted offline | 🔧 |
+| Textures converted offline from the disc (tools/tta_textures.py); the 2D of LLPrims drawn natively: the loading screen | ✅ |
+| Native draw hooks: menus (render targets, the UI atlas), text and 3D from the game's own data | 🔧 |
 | Window, sound output, pad from the PC | ✅ |
 | The game playable again to the first battle, then through | ⏳ |
 | Linux and macOS builds | ⏳ |
@@ -54,6 +55,13 @@ submodule points at `tta/integration`, the three merged, until they land.
 what remains open.
 
 ## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-loading-screen.png" width="400" alt="The loading screen in the BozoEngine window: the One Ring's inscription and an Elvish line, drawn natively">
+</p>
+
+**2026-11-10.** The loading screen drawn natively: the game's own primitive calls and draw state, with its
+textures converted once from the disc and found by the game's texture records. No GS packet is read.
 
 <p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-ea-games-movie.png" width="400" alt="The EA GAMES logo movie in the BozoEngine window">

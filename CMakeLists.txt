@@ -82,14 +82,23 @@ add_custom_command(OUTPUT ${tta_vu0_programs}
   COMMENT "Translating the VU0 microprograms")
 add_custom_target(tta_vu0_generate DEPENDS ${tta_vu0_programs})
 
+# The textures, converted once from the player's disc (tools/tta_textures.py): one file per texture id, read by the
+# 2D and 3D draws (runtime/tta_2d.cpp). Never committed.
+set(tta_textures ${CMAKE_BINARY_DIR}/textures)
+add_custom_command(OUTPUT ${tta_textures}/index.txt
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_textures.py ${TTA_GAME_DIR} ${tta_textures}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_textures.py
+  COMMENT "Converting the disc's textures (once, ~1 min)")
+add_custom_target(tta_textures_generate DEPENDS ${tta_textures}/index.txt)
+
 add_executable(tta-headless ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
 set_source_files_properties(${tta_vu0_programs} PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off;-frounding-math")
-add_dependencies(tta-headless tta_vu0_generate)
+add_dependencies(tta-headless tta_vu0_generate tta_textures_generate)
 target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
 target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
 set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
 target_compile_definitions(tta-headless PRIVATE TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
-                                                TTA_SYMBOL_MAP="${tta_symbols}")
+                                                TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}")
 if(MINGW)
   target_link_options(tta-headless PRIVATE -static)
 endif()
@@ -98,10 +107,10 @@ endif()
 if(TTA_WINDOW)
   add_executable(tta ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
   target_link_libraries(tta PRIVATE tta_game bozo_host bozo_app)
-  add_dependencies(tta tta_vu0_generate)
+  add_dependencies(tta tta_vu0_generate tta_textures_generate)
   target_include_directories(tta PRIVATE ${tta_audio_gen})
   target_compile_definitions(tta PRIVATE TTA_WITH_WINDOW TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
-                                         TTA_SYMBOL_MAP="${tta_symbols}")
+                                         TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}")
   if(MINGW)
     target_link_options(tta PRIVATE -static)
   endif()

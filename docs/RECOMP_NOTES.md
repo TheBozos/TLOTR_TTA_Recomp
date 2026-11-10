@@ -68,6 +68,27 @@ the game's behaviour); its code is in the history before `8ade037`.
   Result (2026-11-10): 600 headless frames with no unknown register access; in the window the EA GAMES and THX movies
   play at 60 frames/s. Next: the 2D through LLPrims 0x218910 (legal screen, loading screen, title, menus), text, then
   the 3D shaders with meshes and textures converted offline from the player's disc.
+- **2D** (runtime/tta_2d.cpp, 2026-11-10). LLPrims 0x218910(prim, xyz, rgba, st, n) is the game's immediate
+  primitive (loading screen, title, menus, effects). Nothing is read from the packets the game builds (room rule:
+  no GIF/VIF scanning, no GS register shadow):
+  - vertices: the call's own floats, through the matrix the game picked (P = *(0x36f870), P+0x90: 0 P+0x40, 1 RC+0x60,
+    2 RC+0x2e0, RC = **(0x36f350)), divided by w when w != 1, colours x 255 truncated, as its VU0 code does;
+  - material: the game's draw state LLDisSt DS = *(0x36f850), read only. Context 1 block: ALPHA +0x100, TEST +0x140,
+    FRAME +0x150, CLAMP +0x170, TEX0 +0x1a0, TEX1 +0x1b0 (context 2 at +0xe0 more); PRMODE +0x6b0 (TME 0x10, ABE 0x40);
+  - target: only the displayed frame, double-buffered at FBP 0 and 0x70. The menus draw into an off-screen 256-wide
+    target at FBP 0x1c0 (TBP 0x3800 when read back: blurred background), not drawn yet. The full-screen opaque sprite
+    0x211de4 draws at each frame start is the frame's clear (Renderer::setClearColour), not a quad over the movie.
+  - textures: tools/tta_textures.py converts every texture group on the disc once (build/bozo/textures, ~40 s, 3,690
+    files): the SCP chunk streams (SHOC/SHDR, zlib `Ldat`), every "TXF " v0x212 container in any resource payload
+    (txfe/txfs/txs3/txs4/txfx, and the UI's apxf: 5,366 groups) plus the loading screen's group in the ELF (0x260880);
+    the pixel block is written as PSMCT32 into a GS-memory model and read back per PSM (T4, T8, CT32; CLUTs CT32
+    CSM1), offline only. At runtime 0x1babe8 (the resource manager's load: object +0 payload, +0x1c type, +0x20 index,
+    +0x24 size) tracks where each resource lies, and 0x219ca8 (a group's upload) maps each record's relocated TBP0
+    and PSM to its converted file: by (type, index, offset in the payload, record) first (the UI reuses small ids:
+    0x1c names 582 images), else by the record's 64-bit id. A draw uses the texture only when its TEX0 window is the
+    record's size: the UI renderer 0x305330 reads a group's memory as one 512 x 512 8-bit image (TBW 8 over 32 x 32
+    records, CLUT at the group's base), which no record describes; open.
+  Result: the loading screen (the One Ring and its Elvish line) drawn natively.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
