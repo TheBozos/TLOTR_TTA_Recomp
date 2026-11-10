@@ -310,7 +310,66 @@ namespace tta
         // 255; none: P+0xc0) and texture coordinates (float4: s, t), as primitive `prim` (the GS's types: 3 triangles,
         // 4 strip, 5 fan, 6 sprites). The game's own code still runs (its buffers stay as it keeps them).
         void drawImmediate(uint8_t *rdram, uint32_t ra, uint32_t type, uint32_t xyz, uint32_t rgba, uint32_t st,
-                           uint32_t n, uint32_t p, const float m[16]);
+                           uint32_t n, uint32_t p, const float m[16], uint32_t adcMask = 0);
+
+        // A vertex between two (x, y, u, v and each colour byte interpolated).
+        bozo::render::Vertex lerp(const bozo::render::Vertex &a, const bozo::render::Vertex &b, float t)
+        {
+            bozo::render::Vertex r = a;
+            r.x = a.x + (b.x - a.x) * t;
+            r.y = a.y + (b.y - a.y) * t;
+            r.z = a.z + (b.z - a.z) * t;
+            r.u = a.u + (b.u - a.u) * t;
+            r.v = a.v + (b.v - a.v) * t;
+            r.q = a.q + (b.q - a.q) * t;
+            uint32_t c = 0;
+            for (int k = 0; k < 4; ++k)
+            {
+                const float ca = static_cast<float>((a.rgba >> (k * 8)) & 0xffu), cb = static_cast<float>((b.rgba >> (k * 8)) & 0xffu);
+                c |= static_cast<uint32_t>(ca + (cb - ca) * t + 0.5f) << (k * 8);
+            }
+            r.rgba = c;
+            return r;
+        }
+
+        // Triangles cut to the rectangle [x0, x1) x [y0, y1) (Sutherland-Hodgman per triangle, then fanned again).
+        std::vector<bozo::render::Vertex> clipTriangles(const std::vector<bozo::render::Vertex> &in, float x0, float y0, float x1,
+                                                        float y1)
+        {
+            std::vector<bozo::render::Vertex> out, poly, next;
+            for (size_t t = 0; t + 2 < in.size(); t += 3)
+            {
+                poly.assign(in.begin() + static_cast<std::ptrdiff_t>(t), in.begin() + static_cast<std::ptrdiff_t>(t) + 3);
+                for (int edge = 0; edge < 4 && !poly.empty(); ++edge)
+                {
+                    const auto inside = [&](const bozo::render::Vertex &v)
+                    { return edge == 0 ? v.x >= x0 : edge == 1 ? v.x <= x1 : edge == 2 ? v.y >= y0 : v.y <= y1; };
+                    const auto cut = [&](const bozo::render::Vertex &a, const bozo::render::Vertex &b)
+                    {
+                        const float da = edge == 0 ? a.x - x0 : edge == 1 ? x1 - a.x : edge == 2 ? a.y - y0 : y1 - a.y;
+                        const float db = edge == 0 ? b.x - x0 : edge == 1 ? x1 - b.x : edge == 2 ? b.y - y0 : y1 - b.y;
+                        return lerp(a, b, da / (da - db));
+                    };
+                    next.clear();
+                    for (size_t i = 0; i < poly.size(); ++i)
+                    {
+                        const auto &a = poly[i], &b = poly[(i + 1) % poly.size()];
+                        if (inside(a))
+                        {
+                            next.push_back(a);
+                            if (!inside(b))
+                                next.push_back(cut(a, b));
+                        }
+                        else if (inside(b))
+                            next.push_back(cut(a, b));
+                    }
+                    poly.swap(next);
+                }
+                for (size_t i = 2; i < poly.size(); ++i)
+                    out.insert(out.end(), {poly[0], poly[i - 1], poly[i]});
+            }
+            return out;
+        }
 
         void primitive(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
@@ -332,8 +391,8 @@ namespace tta
         void strip(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
-            const uint32_t type = ctx->r[4].uw[0] & 0xffu, xyz = ctx->r[5].uw[0], rgba = ctx->r[7].uw[0], // a2: the vertices that close no triangle (bits)
-                           st = ctx->r[8].uw[0], n = ctx->r[9].uw[0];
+            const uint32_t type = ctx->r[4].uw[0] & 0xffu, xyz = ctx->r[5].uw[0], rgba = ctx->r[7].uw[0],
+                           st = ctx->r[8].uw[0], n = ctx->r[9].uw[0], adcMask = ctx->r[6].uw[0]; // bit i: vertex i closes no triangle
             const uint32_t p = read32(rdram, 0x36f870);
             float m[16];
             const uint32_t at = matrixAddress(rdram, p);
@@ -341,11 +400,11 @@ namespace tta
                 m[i] = readFloat(rdram, at + i * 4);
             func_0x218fb8(rdram, ctx, rt);
             ctx->pc = ra;
-            drawImmediate(rdram, ra, type, xyz, rgba, st, n, p, m);
+            drawImmediate(rdram, ra, type, xyz, rgba, st, n, p, m, adcMask);
         }
 
         void drawImmediate(uint8_t *rdram, uint32_t ra, uint32_t type, uint32_t xyz, uint32_t rgba, uint32_t st,
-                           uint32_t n, uint32_t p, const float m[16])
+                           uint32_t n, uint32_t p, const float m[16], uint32_t adcMask)
         {
             if (traceLevel() >= 6)
             {
@@ -494,10 +553,30 @@ namespace tta
                 triangles.assign(points.begin(), points.begin() + (n / 3) * 3);
             else if (type == 4)
                 for (uint32_t i = 2; i < n; ++i)
+                {
+                    if (i < 32 && (adcMask >> i) & 1u) // the GS's ADC: this vertex closes no triangle
+                        continue;
                     triangles.insert(triangles.end(), {points[i - 2], points[i - 1], points[i]});
+                }
             else
                 for (uint32_t i = 2; i < n; ++i)
                     triangles.insert(triangles.end(), {points[0], points[i - 1], points[i]});
+            // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):
+            // EA Apt clips its minimap and panels with it. The overlay has no clip of its own: the triangles are cut.
+            {
+                const uint64_t scissor = read64(rdram, read32(rdram, 0x36f850) + 0x110);
+                const float sx0 = 1792.0f + static_cast<float>(scissor & 0x7ffu),
+                            sx1 = 1792.0f + static_cast<float>((scissor >> 16) & 0x7ffu) + 1.0f,
+                            sy0 = 1824.0f + static_cast<float>((scissor >> 32) & 0x7ffu),
+                            sy1 = 1824.0f + static_cast<float>((scissor >> 48) & 0x7ffu) + 1.0f;
+                if (traceLevel() >= 7 && (points[0].rgba & 0xffffffu) == 0x31492bu)
+                    std::printf("[tta:2d] scissor %llx -> (%.0f,%.0f)-(%.0f,%.0f), DS+0x1f0 %llx frame %llx\n",
+                                static_cast<unsigned long long>(scissor), sx0, sy0, sx1, sy1,
+                                static_cast<unsigned long long>(test), static_cast<unsigned long long>(alpha),
+                                static_cast<unsigned long long>(frameReg));
+                if (sx0 > 1792.0f || sy0 > 1824.0f || sx1 < 2304.0f || sy1 < 2272.0f)
+                    triangles = clipTriangles(triangles, sx0, sy0, sx1, sy1);
+            }
             if (triangles.empty())
                 return count(rdram, false);
             bozo::render::Renderer::instance().drawOverlay(material, triangles.data(),

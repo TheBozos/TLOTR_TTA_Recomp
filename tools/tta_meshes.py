@@ -41,7 +41,10 @@ Geometry by shader type:
     records (4 palette offsets, 4 weights*127), and one entry per GS strip vertex (s, t /1024,
     source vertex, output slot | drawn flag) that may name a vertex of the previous batch.
     Material = name record -> texture id by the game's name hash 0x26ce88 (see load_name_hash).
-    Parts with another layout (the "few*" geometries) are skipped with a warning.
+    Parts with the other layout (header q0.x with bit 15, vertices at a 2-qword stride, then V4-16 / V3-16 / S-16
+    index streams, no s/t or colour) are skipped with a warning: they are not drawn by the 8df1e059 programs but
+    are shadow-volume / silhouette meshes (edges {v0, face, face, v1}, faces {3 refs}) read by the set-5 code
+    (0x355780: four header ranges in q0/q1 .x/.y/.z/.w, OPMULA face normals), with no morph data.
     The structure of every type-17 geometry is also listed in <out>/scbm.txt (scbm_summary).
   * type 19 (water): not converted (kind 2).
 
@@ -66,8 +69,8 @@ Output: one file per resource <type>_<index>[_v<n>].mesh and index.txt. File lay
              the bias leaves v/1024; normals and s, t use the same /1024), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (0x80808080:
              the mesh carries no vertex colour, the VU lights it), u8 bone[4] (skeleton indices into
              *(G+0x290); the 3-byte palette entries could carry u16 indices but the disc's maximum
-             is 148: a larger one is a warning), f32 weight[4] (/127, as the VU uses them; unused =
-             0), u8 adc, 7 pad}; PRIM 0x7c (strip, Gouraud, textured, fog, blend: the tag
+             is 148: a larger one is a warning), f32 weight[4] (the record's /127 values renormalised
+             to sum 1; unused = 0), u8 adc, 7 pad}; PRIM 0x7c (strip, Gouraud, textured, fog, blend: the tag
              template at VU 40 from that packet), no registers.
     batch  : u64 texture id (TEX0 of the A+D block in force, 0 = none), u16 GS PRIM (effective: type
              | IIP<<3 | TME<<4 | FGE<<5 | ABE<<6 | AA1<<7 | FST<<8 | CTXT<<9 | FIX<<10), u8 colour
@@ -551,7 +554,10 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
     are 3 qwords {normal x y z (x1024), w}, {position x y z (/1024 x geometry scale), w = blended-matrix
     cache slot (| flag)}, {VU scratch}; normal.w: 0x8000 | record address = blend the record's bones
     (and keep the result in the cache slot), 0x8000 alone = as the previous vertex, < 0x8000 = the
-    matrix cached at that slot (possibly by an earlier batch: the cache persists in VU memory); influence records are 2 V4-8
+    matrix cached at that slot (possibly by an earlier batch: the cache persists in VU memory). The VU sees
+    w ^ 0x8000 (MTIR / ILW of the unpacked float 8224 + w/1024), so in the raw data: normal.w 0x8000 = no
+    rebuild, 0x8000 | n = blend record n, n < 0x8000 = load slot n (VU 211 + n, 7 qwords); a blend is
+    stored to slot position.w only when position.w lacks bit 15; influence records are 2 V4-8
     qwords {4 palette offsets (< 0 unused), 4 weights * 127}; output entries from TOP+3, one per GS
     vertex: {s, t (/1024), source vertex address | 0x8000, output slot * 3 | 0x8000 = drawn} in [3, vertex start);
     entries [3, q1.z) are one per vertex in order, [q1.z, q1.w) repeat vertices of this batch, and
@@ -599,8 +605,18 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
                     warn('palette offset without bone')
                 bones.append(palette.get(off, 0))
                 ws.append(_s(wts[k], 8) / 127.0)
+            tot = sum(ws)
+            if tot > 0:
+                # The records' weights are rounded independently (64 + 64 = 128 of 127): the VU blends with that
+                # sum (a 1/127 too large blended matrix, +0.8% of the vertex's model-space distance from the
+                # origin), which tears lips and eyelids apart in close-ups; the converted weights sum to 1.
+                ws = [w / tot for w in ws]
             infl = (tuple(bones), tuple(ws))
-            cache[cslot] = infl
+            if not pq[3] & 0x8000:
+                # 0x16e0 stores the blended matrix only when position.w, as the VU reads it (ILW of the
+                # float 8224 + w/1024, i.e. w ^ 0x8000), is negative: raw w without bit 15. A raw w with bit 15
+                # keeps the slot as it is (another vertex's matrix may still be cached there).
+                cache[cslot] = infl
             SKIN_STATS['influences %d' % sum(1 for x in ws if x)] += 1
         nx, ny, nz = (_s(x) / 1024.0 for x in nq[:3])
         ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0

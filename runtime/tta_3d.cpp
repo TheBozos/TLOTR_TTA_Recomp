@@ -649,6 +649,26 @@ namespace tta
                     std::printf("\n");
                 }
             }
+            // TTA_BONE_DUMP=<frame>: each character drawn that frame: its W and bone matrices to build/bones_<scbm>.bin
+            // (u32 index, u32 bone count, 16 f32 W, then the bones, 16 f32 each), for checking the skin offline.
+            if (env("TTA_BONE_DUMP") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_BONE_DUMP"))))
+            {
+                const uint32_t e = g - 0x1d0, e4 = read32(rdram, e + 4);
+                int16_t which = 0;
+                std::memcpy(&which, rdram + ((e + 8) & kMask), 2);
+                const uint32_t rec = e4 ? read32(rdram, e4 + 0x1c) + static_cast<uint32_t>(which) * 0x18 : 0;
+                const uint32_t count = rec ? read32(rdram, rec) : 0;
+                char path[96];
+                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/bones_%u.bin", index);
+                if (FILE *f = std::fopen(path, "wb"))
+                {
+                    std::fwrite(&index, 4, 1, f);
+                    std::fwrite(&count, 4, 1, f);
+                    std::fwrite(w, 4, 16, f);
+                    std::fwrite(rdram + (bones & kMask), 64, count, f);
+                    std::fclose(f);
+                }
+            }
             static int skinProbes = 0;
             if (env("TTA_SKIN_PROBE") && skinProbes < 4 && !it->second.batches.empty() &&
                 !it->second.batches[0].vertices.empty())
@@ -772,9 +792,9 @@ namespace tta
                 if (texture)
                 {
                     material.tex0 = texture->key;
-                    material.alphaTest = true;
-                    material.alphaFunc = bozo::render::Material::AlphaFunc::Greater;
-                    material.alphaRef = 0x20;
+                    // The skin's texels' alpha is not a cut-out (eyes and lips keep low alpha): no alpha test, and the
+                    // texture's alpha is not the draw's coverage (TEX0.TCC off) unless the character fades.
+                    material.textureAlpha = false;
                 }
                 renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
