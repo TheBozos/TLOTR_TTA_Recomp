@@ -293,10 +293,6 @@ namespace tta
                 multiply(screen, node.matrix, matrix);
             else
                 std::memcpy(matrix, screen, sizeof(matrix));
-            // The game's projection gives w < 0 in front of the camera (its VU programs divide by it all the same); the
-            // PC clips w < 0 away. -M gives the same x / w, y / w, z / w with w > 0.
-            for (float &f : matrix)
-                f = -f;
             auto &renderer = bozo::render::Renderer::instance();
             std::vector<bozo::render::Vertex> triangles;
             for (const Batch &batch : source->batches)
@@ -356,7 +352,17 @@ namespace tta
                     texture = textureById(batch.texture);
                 material.textured = texture != nullptr;
                 if (texture)
+                {
                     material.tex0 = texture->key;
+                    // Without a TEST of its own the batch keeps the shader's cut-out test (leaves, grass, branches: their
+                    // texels are 0 or 0x80 in alpha).
+                    if (!material.alphaTest)
+                    {
+                        material.alphaTest = true;
+                        material.alphaFunc = bozo::render::Material::AlphaFunc::Greater;
+                        material.alphaRef = 0x20;
+                    }
+                }
                 renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
         }
@@ -523,8 +529,6 @@ namespace tta
             viewport[15] = 1.0f;
             multiply(viewport, clip, screen);
             multiply(screen, w, matrix);
-            for (float &f : matrix)
-                f = -f; // w > 0 in front, as the terrain
             std::unordered_map<uint32_t, std::array<float, 16>> boneCache;
             const auto bone = [&](uint8_t b) -> const std::array<float, 16> &
             {
@@ -534,6 +538,42 @@ namespace tta
                         at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
                 return at->second;
             };
+            static int skinProbes = 0;
+            if (std::getenv("TTA_SKIN_PROBE") && skinProbes < 4 && !it->second.batches.empty() &&
+                !it->second.batches[0].vertices.empty())
+            {
+                ++skinProbes;
+                const Batch &b0 = it->second.batches[0];
+                std::printf("[tta:skin] %s %u +%x G %x bones %x W %x fade %u\n", type.c_str(), index, offset, g, bones,
+                            placement, fade);
+                std::printf("[tta:skin] W:");
+                for (float f : w)
+                    std::printf(" %.4g", f);
+                std::printf("\n");
+                for (int v = 0; v < 3 && v < static_cast<int>(b0.vertices.size()); ++v)
+                {
+                    std::printf("[tta:skin] v%d %.4g %.4g %.4g bones %u %u %u %u w %.3f %.3f %.3f %.3f\n", v, b0.vertices[v].x,
+                                b0.vertices[v].y, b0.vertices[v].z, b0.bones[v][0], b0.bones[v][1], b0.bones[v][2],
+                                b0.bones[v][3], b0.weights[v][0], b0.weights[v][1], b0.weights[v][2], b0.weights[v][3]);
+                    const auto &m = bone(b0.bones[v][0]);
+                    std::printf("[tta:skin]   bone %u:", b0.bones[v][0]);
+                    for (float f : m)
+                        std::printf(" %.4g", f);
+                    std::printf("\n");
+                }
+                const auto &m = bone(b0.bones[0][0]);
+                const float in[3] = {b0.vertices[0].x, b0.vertices[0].y, b0.vertices[0].z};
+                float bp[3];
+                transformPoint(m.data(), in, 1.0f, bp);
+                float wp[4];
+                for (int r = 0; r < 4; ++r)
+                    wp[r] = w[r] * bp[0] + w[4 + r] * bp[1] + w[8 + r] * bp[2] + w[12 + r];
+                float sp[4];
+                for (int r = 0; r < 4; ++r)
+                    sp[r] = matrix[r] * bp[0] + matrix[4 + r] * bp[1] + matrix[8 + r] * bp[2] + matrix[12 + r];
+                std::printf("[tta:skin] model %.4g %.4g %.4g world %.4g %.4g %.4g screen %.4g %.4g (w %.4g)\n", bp[0], bp[1],
+                            bp[2], wp[0], wp[1], wp[2], sp[0] / sp[3], sp[1] / sp[3], sp[3]);
+            }
             auto &renderer = bozo::render::Renderer::instance();
             std::vector<bozo::render::Vertex> skinned, triangles;
             for (const Batch &batch : it->second.batches)
@@ -625,7 +665,8 @@ namespace tta
         void skin(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
-            drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
+            if (std::getenv("TTA_SKIN")) // the characters: off until their bones and scale are right (notes)
+                drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
             func_0x225fb0(rdram, ctx, rt);
             ctx->pc = ra;
         }
