@@ -137,6 +137,11 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **The first battle, native** (2026-11-10): the GS readback 0x228118 (an 8 x 5 StoreImage through the GIF FIFO from
   the frame end's 0x1d3e58) is a no-op: there is no GS memory. The intro cinematic and the first battle play at 60
   frames/s with everything drawn natively (the diagnostic switches are read once: tta::env).
+- **Faces** (2026-11-10): the skin influence records store each weight rounded to x/127 (a 50/50 vertex sums to
+  128/127); blended as stored, a face ~1.8 units above the model origin moves ~6% of its width: torn lips, eyelids
+  over the eyes. tools/tta_meshes.py normalises the weights; the faces are clean (offline check with the runtime
+  bones: TTA_BONE_DUMP=<frame>). Also: the skin VU stores a blended matrix in its cache slot only when position.w lacks
+  bit 15. The second skinned layout (150 parts) is shadow/silhouette meshes for the set-5 VU1 program, not drawn yet.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
