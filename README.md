@@ -8,7 +8,7 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
-![Status](https://img.shields.io/badge/status-boots%20headless%2C%20no%20picture%20yet-e8a317)
+![Status](https://img.shields.io/badge/status-intro%20movies%20in%20a%20window-e8a317)
 
 </div>
 
@@ -22,10 +22,11 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 
 ## Status
 
-**Moving to BozoEngine (since 2026-11-09): boots headless, no picture yet.** On the PS2Recomp fork the game played from
-the boot to the first battle (the screenshots below), but its graphics went through a PS2 emulation layer (VU1
-sandbox, GS state machine, GS memory). BozoEngine has none of it, so the picture comes back as native draw hooks are
-written from the game's own data. Windows comes first, then Linux and macOS.
+**Moving to BozoEngine (since 2026-11-09): the intro movies play in a window.** On the PS2Recomp fork the game
+played from the boot to the first battle (the older screenshots below), but its graphics went through a PS2 emulation
+layer (VU1 sandbox, GS state machine, GS memory). BozoEngine has none of it, so the picture comes back as native draw
+hooks are written from the game's own data: the frame and the movies first (2026-11-10), then the 2D, the text and
+the 3D. Windows comes first, then Linux and macOS.
 
 | Milestone on BozoEngine | |
 |---|:---:|
@@ -34,15 +35,18 @@ written from the game's own data. Windows comes first, then Linux and macOS.
 | SDK init, SIF, CD/DVD, memory card, IOP reboot and module loads answered natively | ✅ |
 | EA's sound driver (AUDIOPF.IRX) and LIBSD statically compiled from the disc, its SIF handshake with the game | ✅ |
 | Pads through a native libpad2 (BozoEngine PR #81) | ✅ |
-| Native draw hooks: the game's 3D, 2D and movies from its own data, textures and meshes converted offline | 🔧 |
-| Window, sound output, pad from the PC | ⏳ |
+| VU0 microprograms translated to C++ from the ELF; movies through a native libmpeg (BozoEngine PR #82) | ✅ |
+| Native frame: the chain built but never sent, the swap publishing to the engine's renderer; the movies drawn | ✅ |
+| Native draw hooks: the game's 2D, text and 3D from its own data, textures and meshes converted offline | 🔧 |
+| Window, sound output, pad from the PC | ✅ |
 | The game playable again to the first battle, then through | ⏳ |
 | Linux and macOS builds | ⏳ |
 
 The engine changes TTA needs are proposed upstream: [BozoEngine#80](https://github.com/TheBozos/BozoEngine/pull/80)
 (IOP software registers, more cdvdman, audio completions after imports, root call budget) and
-[BozoEngine#81](https://github.com/TheBozos/BozoEngine/pull/81) (native libpad2 and libvib); the submodule points at
-`tta/integration`, the two merged, until they land.
+[BozoEngine#81](https://github.com/TheBozos/BozoEngine/pull/81) (native libpad2 and libvib) and
+[BozoEngine#82](https://github.com/TheBozos/BozoEngine/pull/82) (libmpeg on the SDK's model: sceMpegAddBs); the
+submodule points at `tta/integration`, the three merged, until they land.
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
 
@@ -50,6 +54,14 @@ The engine changes TTA needs are proposed upstream: [BozoEngine#80](https://gith
 what remains open.
 
 ## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-ea-games-movie.png" width="400" alt="The EA GAMES logo movie in the BozoEngine window">
+  <img src="docs/screenshots/2026-11-10-bozo-thx-movie.png" width="400" alt="The THX Certified Game logo movie in the BozoEngine window">
+</p>
+
+**2026-11-10.** The first pictures on BozoEngine: the intro movies, decoded by the engine's native libmpeg and shown
+by its renderer, at 60 frames/s. The game builds its frame's DMA chain as before; nothing of it is sent anywhere.
 
 From the PS2Recomp build, until 2026-11-09.
 

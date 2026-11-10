@@ -16,9 +16,10 @@ set(TTA_GAME_DIR "${CMAKE_SOURCE_DIR}/game" CACHE PATH "User-owned extracted dis
 set(TTA_ISO "${CMAKE_SOURCE_DIR}/Lord of the Rings, The - The Third Age (USA).iso" CACHE FILEPATH
     "User-owned NTSC-U disc image")
 set(BOZO_ENGINE_DIR "${CMAKE_SOURCE_DIR}/BozoEngine" CACHE PATH "Pinned native engine source")
-option(TTA_WINDOW "Build the SDL3 native game window" OFF)
+option(TTA_WINDOW "Build the SDL3 native game window (tta) next to tta-headless" ON)
 set(BOZO_APP ${TTA_WINDOW} CACHE BOOL "" FORCE)
 set(BOZO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BOZO_REQUIRE_FFMPEG ON CACHE BOOL "The movies need native decoding" FORCE)
 add_subdirectory("${BOZO_ENGINE_DIR}" BozoEngine)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -72,14 +73,18 @@ target_link_libraries(tta_audio_code PRIVATE bozo_runtime_headers)
 target_compile_options(tta_audio_code PRIVATE -O1 -w)
 
 # TTA's VU0 microprograms as native C++, from the microcode in the player's ELF.
-set(tta_vu0_programs ${tta_gen}/tta_vu0_programs.cpp)
+set(tta_vu0_gen ${CMAKE_BINARY_DIR}/tta_vu0_gen)
+file(MAKE_DIRECTORY ${tta_vu0_gen})
+set(tta_vu0_programs ${tta_vu0_gen}/tta_vu0_programs.cpp) # bozo-recomp clears tta_gen when it runs
 add_custom_command(OUTPUT ${tta_vu0_programs}
   COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py ${tta_elf} ${tta_vu0_programs}
   DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py
   COMMENT "Translating the VU0 microprograms")
+add_custom_target(tta_vu0_generate DEPENDS ${tta_vu0_programs})
 
 add_executable(tta-headless ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
 set_source_files_properties(${tta_vu0_programs} PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off;-frounding-math")
+add_dependencies(tta-headless tta_vu0_generate)
 target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
 target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
 set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
@@ -87,4 +92,17 @@ target_compile_definitions(tta-headless PRIVATE TTA_DEFAULT_ELF="${tta_elf}" TTA
                                                 TTA_SYMBOL_MAP="${tta_symbols}")
 if(MINGW)
   target_link_options(tta-headless PRIVATE -static)
+endif()
+
+# The game in a window (SDL3, OpenGL 3.3): the same port, the PC's pads and sound.
+if(TTA_WINDOW)
+  add_executable(tta ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
+  target_link_libraries(tta PRIVATE tta_game bozo_host bozo_app)
+  add_dependencies(tta tta_vu0_generate)
+  target_include_directories(tta PRIVATE ${tta_audio_gen})
+  target_compile_definitions(tta PRIVATE TTA_WITH_WINDOW TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
+                                         TTA_SYMBOL_MAP="${tta_symbols}")
+  if(MINGW)
+    target_link_options(tta PRIVATE -static)
+  endif()
 endif()

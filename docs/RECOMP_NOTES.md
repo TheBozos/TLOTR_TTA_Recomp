@@ -43,9 +43,35 @@ the game's behaviour); its code is in the history before `8ade037`.
   on libpad's controllers: an 18-byte report (libpad's DualShock 2 report without its header, pressures in the
   controller's order L1 R1 L2 R2), a 4-byte profile (the game compares it every frame: a fifth byte would drop the
   pad), state 1 with a controller. Note: the 0x27ea40 cluster (IPU DMA registers) is libmpeg/libipu, not the pads.
-- **Next stop**: the game stores to VU1 data memory (0x1100c870 at 0x21b348) when its rendering starts. That is where
-  the native draw hooks begin: 3D, 2D and movies from the game's own data, textures and meshes converted offline
-  from the player's disc (room rules of 2026-10-31).
+- **VU0 microprograms** (tools/tta_vu0_gen.py): the 23 VCALLMS entries of the two microcode images in the ELF (file
+  offsets 0x249a84 and 0x239d94) translated to C++ at build time, one function per entry, registered with
+  `Registry::vu0Program`. 0x21b348 (it cleared VU1 data memory) keeps only its seven words of the game's own.
+- **Movies: libmpeg on the SDK's model** (BozoEngine#82, `MpegOptions{referenceLayout = false, paced = false,
+  sdkNodata = true}`): TTA feeds raw MPEG-2 video (the .PS2 files: 0x1000-byte "MPG2" blocks) through
+  `sceMpegAddBs` from its Nodata callback 0x1be698 and ends the input with a 0 there; it paces itself.
+- **Rendering** (runtime/tta_render.cpp, from a map of the game's renderer kept locally in build/bozo/render_spec.md).
+  Every draw goes through one VIF1 DMA chain per frame (LLList, 0x3b5be8), built as plain memory: natively it is
+  built and never sent, and the draws are taken at the game functions that append them.
+  - 0x212478, the frame swap (frame counter, sceGsSyncV, sceGsSwapDBuffDc, the display registers): publishes the
+    frame to BozoEngine's renderer and is the frame boundary. `port::frameEnd` defers a stop, so it is the last thing
+    the override does.
+  - 0x216470, the chain kick: the END tag and the game's {Count, done} bookkeeping, nothing sent.
+  - 0x216530, the game's quadword memcpy (native): its one source outside RAM, the frame end's copy of the VU1
+    programs' statistics from VU1 data memory (0x1c3718), reads zeros. That frame end then clears those four VU1
+    quadwords with `sq` (0x1c3740): called from there, the copy returns to the game's own clear of its seven words
+    (label 0x1c3770, v0/a0 set as the loop wants), past the VU1 stores. (A native frame end calling the game's
+    functions was tried first: a callee that blocks, here 0x26c290 at frame 365, leaves an override no way to go on.)
+  - 0x22af40, the movie picture's upload (one GS image transfer per 16x16 macroblock): nothing uploaded; the picture
+    libmpeg decoded (`moviePictureHook`) is the frame's backdrop when the game drew its movie that frame.
+  - The renderer has to be switched on by the port (`setEnabled(true)`, `setPresentsAlone(true)`), as TMB does: off,
+    the window presents nothing.
+  Result (2026-11-10): 600 headless frames with no unknown register access; in the window the EA GAMES and THX movies
+  play at 60 frames/s. Next: the 2D through LLPrims 0x218910 (legal screen, loading screen, title, menus), text, then
+  the 3D shaders with meshes and textures converted offline from the player's disc.
+- **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
+  pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
+  saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
+  clears `tta_gen/` when it runs.
 
 ## The disc
 
