@@ -701,6 +701,7 @@ namespace tta
         }
 
         uint32_t g_skinsDrawn = 0;
+        bool g_flatDebug = false; // the type-18 pass under TTA_TYPE18_DEBUG: drawn flat magenta
 
         void drawSkin(const uint8_t *rdram, uint32_t node)
         {
@@ -754,6 +755,12 @@ namespace tta
             uint32_t visible[4];
             for (int i = 0; i < 4; ++i)
                 visible[i] = read32(rdram, g + 0x280 + i * 4);
+            if (g_flatDebug)
+            {
+                static int n = 0;
+                if (n++ < 6)
+                    std::printf("[tta:t18] visible %08x %08x %08x %08x\n", visible[0], visible[1], visible[2], visible[3]);
+            }
             float lighting[10][3];
             for (int k = 0; k < 10; ++k)
                 for (int c = 0; c < 3; ++c)
@@ -1019,6 +1026,12 @@ namespace tta
                 material.blend = fade < 0x80 ? bozo::render::Material::Blend::Alpha : bozo::render::Material::Blend::Opaque;
                 std::shared_ptr<const bozo::render::Texture> texture = batch.texture ? textureById(batch.texture) : nullptr;
                 material.textured = texture != nullptr;
+                if (g_flatDebug)
+                {
+                    material.textured = false;
+                    for (auto &v : triangles)
+                        v.rgba = 0x80ff00ffu;
+                }
                 if (texture)
                     material.tex0 = texture->key;
                 clipToDepthRange(triangles, matrix);
@@ -1215,6 +1228,58 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // TTA_SHADOW_PROBE=<game frame>: the 14-qword VU block 0x21d438 uploads (VU 0..13) in that frame, by caller.
+        void vuBlock(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            if (const char *f = env("TTA_SHADOW_PROBE"); f && frame(rdram) == static_cast<uint32_t>(std::atoi(f)))
+            {
+                const uint32_t block = ctx->r[5].uw[0], g = read32(rdram, 0x403a60);
+                std::printf("[tta:vublock] from %x G %x G+298 %x G+2b4 %x:\n", ra, g, read32(rdram, g + 0x298), read32(rdram, g + 0x2b4));
+                for (int q = 0; q < 14; ++q)
+                    std::printf("  %2d: %g %g %g %g\n", q, readFloat(rdram, block + q * 16), readFloat(rdram, block + q * 16 + 4),
+                                readFloat(rdram, block + q * 16 + 8), readFloat(rdram, block + q * 16 + 12));
+            }
+            func_0x21d438(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
+        // 0x2255d0: the type-18 render (PRMODE 0x40 flat untextured, template 0x377a10) on a skinned node.
+        void type18(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            if (env("TTA_TYPE18_DEBUG"))
+            {
+                static uint32_t n = 0;
+                if (n++ < 40)
+                {
+                    const uint32_t ds = read32(rdram, 0x36f850);
+                    {
+                        std::string type;
+                        uint32_t index = 0, offset = 0, size = 0;
+                        const uint32_t rec = read32(rdram, ctx->r[4].uw[0] - 0x28);
+                        const bool ok = resourceAt(rec, type, index, offset, size);
+                        const auto mesh = ok ? meshFor(type, index, size) : nullptr;
+                        const auto it = mesh ? mesh->byOffset.find(offset) : decltype(mesh->byOffset)::const_iterator{};
+                        const uint32_t g = read32(rdram, 0x403a60);
+                        std::printf("[tta:t18] node %s %u +%x mesh %d kind %d G %x fade %x bones %x W %x\n", type.c_str(), index, offset,
+                                    mesh != nullptr, mesh && it != mesh->byOffset.end() ? it->second.kind : -1, g,
+                                    read32(rdram, g + 0x2bc), read32(rdram, g + 0x290), read32(rdram, g + 0x294));
+                    }
+                    std::printf("[tta:t18] frame %u FRAME_1 %llx ZBUF_1 %llx SCISSOR %llx XYOFF %llx\n", frame(rdram),
+                                static_cast<unsigned long long>(read64(rdram, ds + 0x150)),
+                                static_cast<unsigned long long>(read64(rdram, ds + 0x120)),
+                                static_cast<unsigned long long>(read64(rdram, ds + 0x110)),
+                                static_cast<unsigned long long>(read64(rdram, ds + 0x100)));
+                }
+                g_flatDebug = true;
+                drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
+                g_flatDebug = false;
+            }
+            func_0x2255d0(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
         void skin(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             ++(g_inVisualEntity ? g_skinInside : g_skinOutside);
@@ -1232,6 +1297,7 @@ namespace tta
     void installThreeD(bozo::port::Registry &registry)
     {
         registry.registerFunction(0x225fb0, skin);
+        registry.registerFunction(0x21d438, vuBlock);
         registry.registerFunction(0x1b1b18, visualEntity);
         registry.registerFunction(0x225920, setSkinContext);
         registry.registerFunction(0x2251b0, setSkinContextChr);
@@ -1256,6 +1322,11 @@ namespace tta
         registry.registerFunction(0x221928, staticRender<0x221928, func_0x221928>);
         registry.registerFunction(0x221a10, staticRender<0x221a10, func_0x221a10>);
         registry.registerFunction(0x221a18, staticRender<0x221a18, func_0x221a18>);
+        registry.registerFunction(0x2255d0, type18);
+        registry.registerFunction(0x21a778, staticRender<0x21a778, func_0x21a778>);
+        registry.registerFunction(0x21aa88, staticRender<0x21aa88, func_0x21aa88>);
+        registry.registerFunction(0x2132c8, staticRender<0x2132c8, func_0x2132c8>);
+        registry.registerFunction(0x21d9f8, staticRender<0x21d9f8, func_0x21d9f8>);
         registry.registerFunction(0x1bdbe8, render);
         registry.registerFunction(0x221178, terrain);
         registry.registerFunction(0x2221b8, water);

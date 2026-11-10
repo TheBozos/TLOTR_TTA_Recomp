@@ -167,6 +167,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   fade, no Z writes). Open: 0x80000 (a coincident copy of the screaming Nazgul, drawn untextured in FOGCOL on the PS2
   per the template) is still drawn textured; 0x20000's render-target switches. TTA_SKIN_LAYERS=<mask> (1, 2, 4, 8,
   16 for 0x80000) draws only some layers; TTA_3D_TRACE=2 lists the modes by model.
+- **Character shadows are shadow volumes** (2026-11-10, mapped, not drawn yet). The type-18 render 0x2255d0 runs on a
+  skinned node (only Berethor's scbm 70063 so far, ~1-2 a frame) with G+0x280 = only the model's shadow section (the
+  second part layout the converter skips: vertices, then edge {v0, face, face, v1} and face lists). It sets PRMODE
+  0x40 (flat, untextured, blended), the template 0x377a10 (ALPHA 0x44, TEST 0x50000: no alpha test, Z GEQUAL),
+  clears FBA, and uploads 14 qwords to VU 0 through 0x21d438 (the matrices from 0x225218: clip, W, the light vector
+  from G+0x298, default 0x377990, at row 8; viewport rows 9-11). Set 5's program 0x178 (overlay 0x355780) transforms
+  the mesh, finds the silhouette edges from the faces' facing to the light, extrudes them and draws the caps and
+  sides through 0xce8 with +/- signs (front / back faces): a counting pass. The darkening is then the set-5
+  full-screen passes (layer hooks 0x21a778 / 0x21aa88, MSCAL 0x1ea8). A native port needs the shadow parts
+  converted, the volume built on the CPU, a counting target (BozoEngine has no stencil) and the darkening pass.
+  Probes: TTA_SHADOW_PROBE=<game frame> (the VU block), TTA_TYPE18_DEBUG=1 (the pass's nodes and GS target).
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
