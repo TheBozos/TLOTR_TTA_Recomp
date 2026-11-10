@@ -545,6 +545,12 @@ namespace tta
 
     bool resourceAt(uint32_t address, std::string &type, uint32_t &index, uint32_t &offset)
     {
+        uint32_t size = 0;
+        return resourceAt(address, type, index, offset, size);
+    }
+
+    bool resourceAt(uint32_t address, std::string &type, uint32_t &index, uint32_t &offset, uint32_t &size)
+    {
         auto it = g_resources.upper_bound(address);
         if (it == g_resources.begin())
             return false;
@@ -554,7 +560,15 @@ namespace tta
         type = it->second.type;
         index = it->second.index;
         offset = address - it->first;
+        size = it->second.end - it->first;
         return true;
+    }
+
+    std::shared_ptr<const bozo::render::Texture> textureById(uint64_t id)
+    {
+        const Index &idx = index();
+        auto it = idx.byId.find(id);
+        return it == idx.byId.end() ? nullptr : texture(it->second);
     }
 
     void installTwoD(bozo::port::Registry &registry)

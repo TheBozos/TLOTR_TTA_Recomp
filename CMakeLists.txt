@@ -90,16 +90,24 @@ add_custom_command(OUTPUT ${tta_textures}/index.txt
   DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_textures.py
   COMMENT "Converting the disc's textures (once, ~1 min)")
 add_custom_target(tta_textures_generate DEPENDS ${tta_textures}/index.txt)
+# The meshes (terrain, trees, static objects) converted the same way (tools/tta_meshes.py): one file per resource, the
+# game's VIF packets turned into vertex batches once, never parsed at runtime (runtime/tta_3d.cpp).
+set(tta_meshes ${CMAKE_BINARY_DIR}/meshes)
+add_custom_command(OUTPUT ${tta_meshes}/index.txt
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_meshes.py ${TTA_GAME_DIR} ${tta_meshes}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_meshes.py ${CMAKE_SOURCE_DIR}/tools/tta_textures.py
+  COMMENT "Converting the disc's meshes (once, ~1 min)")
+add_custom_target(tta_meshes_generate DEPENDS ${tta_meshes}/index.txt)
 
 add_executable(tta-headless ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
 set_source_files_properties(${tta_vu0_programs} PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off;-frounding-math")
-add_dependencies(tta-headless tta_vu0_generate tta_textures_generate)
+add_dependencies(tta-headless tta_vu0_generate tta_textures_generate tta_meshes_generate)
 target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
 target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
 set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
 target_compile_definitions(tta-headless PRIVATE TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
                                                 TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}"
-                                                TTA_MESH_DIR="${CMAKE_BINARY_DIR}/meshes")
+                                                TTA_MESH_DIR="${tta_meshes}")
 if(MINGW)
   target_link_options(tta-headless PRIVATE -static)
 endif()
@@ -108,7 +116,7 @@ endif()
 if(TTA_WINDOW)
   add_executable(tta ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
   target_link_libraries(tta PRIVATE tta_game bozo_host bozo_app)
-  add_dependencies(tta tta_vu0_generate tta_textures_generate)
+  add_dependencies(tta tta_vu0_generate tta_textures_generate tta_meshes_generate)
   if(WIN32)
     # The window's icon (docs/branding/make_logo.py tta), the UTF-8 manifest and the version information.
     enable_language(RC)
@@ -119,7 +127,7 @@ if(TTA_WINDOW)
   target_include_directories(tta PRIVATE ${tta_audio_gen})
   target_compile_definitions(tta PRIVATE TTA_WITH_WINDOW TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
                                          TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}"
-                                                TTA_MESH_DIR="${CMAKE_BINARY_DIR}/meshes")
+                                                TTA_MESH_DIR="${tta_meshes}")
   if(MINGW)
     target_link_options(tta PRIVATE -static)
   endif()
