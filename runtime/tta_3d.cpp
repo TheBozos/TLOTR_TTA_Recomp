@@ -1310,7 +1310,13 @@ namespace tta
                 v.rgba = 0x80808080u;
                 return v;
             };
-            std::vector<bozo::render::Vertex> up, down, face;
+            // Reused between frames (a character's volume is a few thousand faces each frame).
+            static std::vector<bozo::render::Vertex> up, down, face;
+            up.clear();
+            down.clear();
+            up.reserve(g_shadowWorld.size() * 8);
+            down.reserve(g_shadowWorld.size() * 8);
+            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
             const auto addFace = [&](std::array<float, 3> a, std::array<float, 3> b, std::array<float, 3> c, const float centre[3])
             {
                 // Outward: the face's normal away from the prism's centre.
@@ -1321,6 +1327,32 @@ namespace tta
                     return;
                 if (out < 0.0f)
                     std::swap(b, c);
+                // The common case: all three in front of the camera and inside the Z range: no clipping, the screen
+                // winding from the projected points directly.
+                const std::array<float, 3> *p[3] = {&a, &b, &c};
+                float sx[3], sy[3];
+                bool inside = true;
+                for (int k = 0; k < 3 && inside; ++k)
+                {
+                    const auto &q = *p[k];
+                    const float w = m[3] * q[0] + m[7] * q[1] + m[11] * q[2] + m[15];
+                    const float z = m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14];
+                    inside = w > kWMin && z >= 0.0f && z <= kDepthMax * w;
+                    if (inside)
+                    {
+                        sx[k] = (m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12]) / w;
+                        sy[k] = (m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13]) / w;
+                    }
+                }
+                if (inside)
+                {
+                    const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);
+                    auto &into = area > 0.0f ? up : down;
+                    into.push_back(vertex(a));
+                    into.push_back(vertex(b));
+                    into.push_back(vertex(c));
+                    return;
+                }
                 face = {vertex(a), vertex(b), vertex(c)};
                 clipToDepthRange(face, m);
                 for (size_t i = 0; i + 2 < face.size(); i += 3)
