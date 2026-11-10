@@ -200,6 +200,30 @@ namespace tta
         };
         std::map<std::pair<uint32_t, uint32_t>, Placed> g_placed;
 
+        // The game's off-screen targets by FBP: the renderer's auxiliary target (1..7) and the size drawn into it.
+        struct Target
+        {
+            uint8_t index = 0;
+            float width = 0.0f, height = 0.0f;
+        };
+        std::map<uint32_t, Target> g_targets;
+        uint32_t g_frameFbp = 0; // the frame buffer the scene is drawn into this frame (0 or 0x70)
+
+        uint8_t targetFor(uint32_t fbp)
+        {
+            auto &t = g_targets[fbp];
+            if (!t.index)
+            {
+                uint8_t used = 0;
+                for (const auto &[k, v] : g_targets)
+                    used = std::max(used, v.index);
+                if (used >= 7)
+                    return 0;
+                t.index = static_cast<uint8_t>(used + 1);
+            }
+            return t.index;
+        }
+
         // 0x2c80e8: sends the UI's text canvas (EA Apt's text manager TM = *(0x37c490), canvas S = TM+0x18: +0 width,
         // +4 height, +8 TBP, +0x20 pitch, +0x2c the pixels) and its palette, CBP = TBP - 0x10 (ui_spec 1). The canvas is
         // plain 8-bit linear memory the game's font rasteriser (0x2fb040) fills, its palette (i << 24) | 0xbfbfbf: each
@@ -477,6 +501,12 @@ namespace tta
             // Only the displayed frame, double-buffered at FBP 0 and 0x70 (512 x 448 x 4 bytes = 0x70 pages): the
             // off-screen targets (FBP 0x1c0: the menus' blurred background) are not drawn yet.
             const uint32_t fbp = frameReg & 0x1ffu;
+            // Off-screen targets (FBP 0x1c0: the screen filters' 256 x 256 image, 0x1c0d34 .. 0x1ce4d4; the menus' blurred
+            // background) are the renderer's auxiliary targets 1..7, one per FBP, FBW x 64 wide and as tall as the scissor;
+            // the game draws into them through a window centred on 2048 (seen in a PCSX2 GS dump). TTA_NO_TARGETS=1 drops
+            // them as before.
+            uint8_t target = 0;
+            float targetWidth = 0.0f, targetHeight = 0.0f;
             if (fbp != 0 && fbp != 0x70)
             {
                 if (traceLevel() >= 2)
@@ -484,7 +514,18 @@ namespace tta
                                 frame(rdram), static_cast<uint32_t>(frameReg & 0x1ffu),
                                 static_cast<uint32_t>((frameReg >> 16) & 0x3fu), static_cast<uint32_t>((frameReg >> 24) & 0x3fu),
                                 type, n, ra, textured ? 1 : 0, static_cast<uint32_t>(tex0 & 0x3fffu));
-                return count(rdram, false);
+                if (env("TTA_NO_TARGETS"))
+                    return count(rdram, false);
+                target = targetFor(fbp);
+                if (!target)
+                    return count(rdram, false);
+                const uint64_t scissor = read64(rdram, ds + 0x110);
+                targetWidth = static_cast<float>(((frameReg >> 16) & 0x3fu) * 64u);
+                targetHeight = static_cast<float>(((scissor >> 48) & 0x7ffu) + 1u);
+                if (targetWidth <= 0.0f || targetHeight <= 1.0f)
+                    return count(rdram, false);
+                bozo::render::Renderer::instance().setTargetSize(target, static_cast<uint16_t>(targetWidth),
+                                                                 static_cast<uint16_t>(targetHeight));
             }
             // The movie's sprites (0x22b050) draw the picture the backdrop already shows.
             if (ra == 0x22b5ec)
@@ -587,7 +628,49 @@ namespace tta
                 material.alphaRef = static_cast<uint8_t>((test >> 4) & 0xffu);
             }
             std::shared_ptr<const bozo::render::Texture> picture;
-            if (textured)
+            // A texture that is a frame buffer or a target: the screen filters' copies (the frame into the 256 x 256 target,
+            // its blur, the target back over the frame). Source 0 is the frame being drawn, kPreviousFrame the other half of
+            // the double buffer, n an auxiliary target; s, t become 0..1 of that image.
+            int source = -1;
+            float scaleU = 1.0f, scaleV = 1.0f;
+            if (textured && !env("TTA_NO_TARGETS"))
+            {
+                const uint32_t tbp0 = tex0 & 0x3fffu;
+                const float texW = static_cast<float>(1u << ((tex0 >> 26) & 0xfu)), texH = static_cast<float>(1u << ((tex0 >> 30) & 0xfu));
+                if (tbp0 == g_frameFbp * 32u || tbp0 == 0u || tbp0 == 0x70u * 32u)
+                {
+                    source = tbp0 == g_frameFbp * 32u ? 0 : bozo::render::Material::kPreviousFrame;
+                    scaleU = texW / 512.0f;
+                    scaleV = texH / 448.0f;
+                }
+                else if (const auto at = g_targets.find(tbp0 / 32u); at != g_targets.end() && tbp0 % 32u == 0u)
+                {
+                    source = at->second.index;
+                    scaleU = texW / at->second.width;
+                    scaleV = texH / at->second.height;
+                }
+            }
+            if (target)
+            {
+                auto &t = g_targets[fbp];
+                t.width = targetWidth;
+                t.height = targetHeight;
+            }
+            if (source >= 0)
+            {
+                material.textured = true;
+                material.fromFrame = 1u;
+                material.source = static_cast<uint8_t>(source);
+                material.textureAlpha = false; // a 24-bit frame: the GS's alpha is TEXA.TA0 (0x80), i.e. the vertex's
+                const uint32_t tfx = (tex0 >> 35) & 3u;
+                material.textureFunction = static_cast<bozo::render::Material::TextureFunction>(tfx);
+                for (auto &q : points)
+                {
+                    q.u *= scaleU;
+                    q.v *= scaleV;
+                }
+            }
+            else if (textured)
             {
                 const uint32_t tbp0 = tex0 & 0x3fffu, psm = (tex0 >> 20) & 0x3fu;
                 const auto placed = g_placed.find({tbp0, psm});
@@ -650,6 +733,30 @@ namespace tta
             }
             if (masked)
                 triangles = clipToMask(triangles);
+            // Into a target or from one: the 3D frame's list (the overlay is composited after it and samples nothing), in GS
+            // screen space; a target's window (centred on 2048) spread over the screen rectangle the renderer maps onto it.
+            if (target || source >= 0)
+            {
+                if (target)
+                    for (auto &q : triangles)
+                    {
+                        q.x = 1792.0f + (q.x - (2048.0f - targetWidth * 0.5f)) * 512.0f / targetWidth;
+                        q.y = 1824.0f + (q.y - (2048.0f - targetHeight * 0.5f)) * 448.0f / targetHeight;
+                    }
+                material.target = target;
+                material.frameWidth = 512u;
+                material.frameHeight = 448u;
+                static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                if (!triangles.empty())
+                    bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                if (traceLevel() >= 2)
+                    std::printf("[tta:2d] frame %u: post draw from %x into target %u (FBP %x, frame FBP %x) from source %d (TBP0 %x), "
+                                "%zu triangles, blend %d, alpha %llx, rgba %08x\n",
+                                frame(rdram), ra, target, fbp, g_frameFbp, source, static_cast<uint32_t>(tex0 & 0x3fffu),
+                                triangles.size() / 3, static_cast<int>(material.blend), static_cast<unsigned long long>(alpha),
+                                points[0].rgba);
+                return count(rdram, true);
+            }
             // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):
             // EA Apt clips its minimap and panels with it. The overlay has no clip of its own: the triangles are cut.
             {
@@ -737,6 +844,16 @@ namespace tta
         const Index &idx = index();
         auto it = idx.byId.find(id);
         return it == idx.byId.end() ? nullptr : texture(it->second);
+    }
+
+    void noteSceneFbp(uint32_t fbp) { g_frameFbp = fbp; }
+
+    std::shared_ptr<const bozo::render::Texture> textureAtPlace(uint32_t tbp0, uint32_t psm)
+    {
+        const auto placed = g_placed.find({tbp0, psm});
+        if (placed == g_placed.end())
+            return nullptr;
+        return placed->second.live ? placed->second.live : placed->second.file.empty() ? nullptr : texture(placed->second.file);
     }
 
     void installTwoD(bozo::port::Registry &registry)

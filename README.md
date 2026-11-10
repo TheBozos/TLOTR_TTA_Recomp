@@ -60,6 +60,13 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-10, evening.** The console's look: the screen filters (the frame blurred through an off-screen target and
+graded back) and the forest's mist, native; shadows at the game's strength.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-forest-haze.png" width="400" alt="Berethor riding through the misty green forest on BozoEngine, with the game's screen filters drawn natively">
+</p>
+
 **2026-11-10, later.** The battle's ground: the bridge and the forest floor under the Black Riders (scene depth writes
 and near-plane clipping fixed).
 

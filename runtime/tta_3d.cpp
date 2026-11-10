@@ -12,6 +12,7 @@
 
 #include "bozo/render/renderer.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -503,6 +504,7 @@ namespace tta
                 count(rdram, g_offscreen);
                 return;
             }
+            noteSceneFbp(fbp);
             {
                 const uint32_t record = read32(rdram, node);
                 std::string type;
@@ -641,7 +643,8 @@ namespace tta
                                 frame(rdram));
                 }
             }
-            drawFor(rdram, ctx->r[4].uw[0] - 0x28);
+            if (env("TTA_MIST_AT_REST"))
+                drawFor(rdram, ctx->r[4].uw[0] - 0x28);
             func_0x2221b8(rdram, ctx, rt);
             ctx->pc = ra;
         }
@@ -1528,6 +1531,177 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // ---- Mist banks: the type-19 module's animator 0x2236a0 (the forest's haze) ---------------------------------------
+        // 0x2236a0(output buffer a0, object a1 (the geometry below), time a2, mask a3, interpolated ST t0, .., second layer t2, ..; f12 / f13 the
+        // texture's scroll, f14 a scale), called by the driver 0x2246e8 per layer once it has set the layer's texture
+        // (TEX0_1 at DS+0x1a0, uploaded by 0x219ca8). Geometry: +8 u8 ?, +9 u8 subdivisions n, +0xe u16 wave amplitude
+        // (x 0.001), +0x14 u16 edge count, +0x18 the edges, +0x1c a record (+0x30 / +0x32: the world-mapped ST's offsets).
+        // An edge is two 60-byte vertices {x y z, s t, R G B A bytes, dx dy dz, ds dt, dR dG dB dA}: n + 1 rows from the
+        // vertex to vertex + d, each a pair of the strip, everything interpolated; y moves by amplitude x 0.001 x a sine
+        // of the 32-entry quarter-wave table 0x403788 at ((x + y + z) x 16 + time) mod 124; ST scrolls by f12 / f13. The
+        // mask pass (a3 != 0: flat colours, alpha 0x80) is not drawn. TTA_NO_MIST=1 turns the native mist off.
+        float mistSine(const uint8_t *rdram, float x, float y, float z, uint32_t time)
+        {
+            const uint32_t at = (static_cast<uint32_t>(static_cast<int32_t>((x + y + z) * 16.0f)) + time) % 124u;
+            uint32_t i = at;
+            float sign = 1.0f;
+            if (at < 62u)
+                i = at < 31u ? at : 62u - at;
+            else
+            {
+                sign = -1.0f;
+                i = at - 62u;
+                if (at >= 93u)
+                    i = 124u - at;
+            }
+            return sign * readFloat(rdram, 0x403788u + i * 4u);
+        }
+
+        void drawMist(const uint8_t *rdram, uint32_t geometry, uint32_t time, bool interpolatedSt, float scrollS, float scrollT,
+                      float fade)
+        {
+            const uint32_t subdivisions = rdram[(geometry + 9) & kMask];
+            const uint32_t edges = read32(rdram, geometry + 0x18), count = read16(rdram, geometry + 0x14);
+            const uint32_t record = read32(rdram, geometry + 0x1c);
+            const float amplitude = static_cast<float>(read16(rdram, geometry + 0xe)) * 0.001f;
+            if (!subdivisions || !count || count > 4096 || !edges)
+                return;
+            const uint32_t ds = read32(rdram, 0x36f850);
+            const uint64_t tex0 = read64(rdram, ds + 0x1a0);
+            const auto texture = textureAtPlace(static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu));
+            const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
+            float matrix[16];
+            for (int i = 0; i < 16; ++i)
+                matrix[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
+            const float step = 1.0f / static_cast<float>(subdivisions);
+            const float offsetS = record ? static_cast<float>(static_cast<int16_t>(read16(rdram, record + 0x30))) : 0.0f;
+            const float offsetT = record ? static_cast<float>(static_cast<int16_t>(read16(rdram, record + 0x32))) : 0.0f;
+            std::vector<bozo::render::Vertex> strip, triangles;
+            for (uint32_t e = 0; e < count; ++e)
+            {
+                const uint32_t edge = edges + e * 0x78u;
+                strip.clear();
+                // Rows run along the edge, A (+0) to B (+0x3c) in n steps; each row pairs the base point with the extruded one
+                // (the vertex + its d), both lines interpolated A -> B (0x223ac0..0x223d28, 0x223f28).
+                const auto f = [&](uint32_t side, uint32_t o) { return readFloat(rdram, edge + side * 0x3cu + o); };
+                const auto byte = [&](uint32_t side, int c)
+                { return static_cast<float>(rdram[(edge + side * 0x3cu + 0x14u + static_cast<uint32_t>(c)) & kMask]); };
+                for (uint32_t row = 0; row <= subdivisions; ++row)
+                {
+                    const float t = static_cast<float>(row) * step;
+                    for (uint32_t extruded = 0; extruded < 2; ++extruded)
+                    {
+                        const auto at = [&](uint32_t o, uint32_t d)
+                        {
+                            const float a = f(0, o) + (extruded ? f(0, d) : 0.0f), b = f(1, o) + (extruded ? f(1, d) : 0.0f);
+                            return a + (b - a) * t;
+                        };
+                        const float x = at(0x00, 0x18), y = at(0x04, 0x1c), z = at(0x08, 0x20);
+                        bozo::render::Vertex out;
+                        out.x = x;
+                        out.y = y + amplitude * mistSine(rdram, x, y, z, time);
+                        out.z = z;
+                        if (interpolatedSt)
+                        {
+                            out.u = at(0x0c, 0x24) + scrollS;
+                            out.v = at(0x10, 0x28) + scrollT;
+                        }
+                        else
+                        {
+                            out.u = x * 0.1f - offsetS;
+                            out.v = z * 0.1f - offsetT;
+                        }
+                        uint32_t rgba = 0;
+                        for (int c = 0; c < 4; ++c)
+                        {
+                            const float a = byte(0, c) + (extruded ? f(0, 0x2cu + static_cast<uint32_t>(c) * 4u) : 0.0f);
+                            const float b = byte(1, c) + (extruded ? f(1, 0x2cu + static_cast<uint32_t>(c) * 4u) : 0.0f);
+                            float value = a + (b - a) * t;
+                            if (c == 3)
+                                value *= fade;
+                            rgba |= static_cast<uint32_t>(std::clamp(value, 0.0f, 255.0f)) << (c * 8);
+                        }
+                        out.rgba = rgba;
+                        strip.push_back(out);
+                    }
+                }
+                for (size_t i = 2; i < strip.size(); ++i)
+                    triangles.insert(triangles.end(), {strip[i - 2], strip[i - 1], strip[i]});
+            }
+            if (triangles.empty())
+                return;
+            bozo::render::Material material;
+            material.depthTest = true;
+            material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0;
+            material.blend = bozo::render::Material::Blend::Alpha;
+            material.alphaTest = true;
+            material.alphaFunc = bozo::render::Material::AlphaFunc::Greater;
+            material.alphaRef = 0;
+            material.textured = texture != nullptr;
+            if (texture)
+                material.tex0 = texture->key;
+            if (env("TTA_MIST_NODEPTH"))
+                material.depthTest = material.depthWrite = false;
+            if (env("TTA_MIST_TRACE") && frame(rdram) % 120 == 0)
+            {
+                uint32_t lo = 255, hi = 0;
+                for (const auto &v : triangles)
+                {
+                    lo = std::min(lo, v.rgba >> 24);
+                    hi = std::max(hi, v.rgba >> 24);
+                }
+                std::printf("[tta:mist] frame %u: alpha %u..%u, first rgba %08x uv %g %g, texture %s %ux%u\n", frame(rdram), lo, hi,
+                            triangles.empty() ? 0u : triangles[0].rgba, triangles.empty() ? 0.0f : triangles[0].u,
+                            triangles.empty() ? 0.0f : triangles[0].v, texture ? "found" : "missing", texture ? texture->width : 0u,
+                            texture ? texture->height : 0u);
+            }
+            if (env("TTA_MIST_SHOW")) // debugging: the sheets in flat magenta over everything
+            {
+                material.textured = false;
+                material.depthTest = false;
+                for (auto &v : triangles)
+                    v.rgba = 0x80ff00ffu;
+            }
+            clipToDepthRange(triangles, matrix);
+            if (!triangles.empty())
+                bozo::render::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()),
+                                                        material.textured ? texture : nullptr);
+            if (traceLevel() >= 2)
+            {
+                static uint32_t last = 0;
+                if (frame(rdram) / 60 != last / 60)
+                    std::printf("[tta:mist] frame %u: geometry %x, %u edges x %u rows, texture %s, %zu triangles\n", frame(rdram),
+                                geometry, count, subdivisions + 1, texture ? "found" : "missing", triangles.size() / 3);
+                last = frame(rdram);
+            }
+        }
+
+        void mistAnimator(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            // a0 is the layer's output buffer; the mist's geometry is on the object (a1).
+            const uint32_t geometry = ctx->r[5].uw[0], time = ctx->r[6].uw[0], mask = ctx->r[7].uw[0];
+            const bool interpolatedSt = ctx->r[8].uw[0] != 0;
+            const float scrollS = ctx->f[12], scrollT = ctx->f[13], scale = ctx->f[14];
+            if (traceLevel() >= 2)
+            {
+                static int calls = 0;
+                if (calls++ < 12)
+                    std::printf("[tta:mist] animator frame %u: geometry %x object %x time %u mask %u st %d layer2 %u scroll %g %g scale %g"
+                                " (n %u, %u edges)\n",
+                                frame(rdram), geometry, ctx->r[5].uw[0], time, mask, interpolatedSt ? 1 : 0, ctx->r[10].uw[0], scrollS,
+                                scrollT, scale, geometry ? rdram[(geometry + 9) & kMask] : 0u, geometry ? read16(rdram, geometry + 0x14) : 0u);
+            }
+            if (!env("TTA_NO_MIST") && mask == 0 && geometry)
+            {
+                const uint32_t ds = read32(rdram, 0x36f850), fbp = read32(rdram, ds + 0x150) & 0x1ffu;
+                if (fbp == 0 || fbp == 0x70)
+                    drawMist(rdram, geometry, time, interpolatedSt, scrollS, scrollT, scale > 0.0f ? std::fmin(scale, 1.0f) : 1.0f);
+            }
+            func_0x2236a0(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
         // 0x2255d0: the type-18 render (PRMODE 0x40 flat untextured, template 0x377a10) on a skinned node.
         void type18(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
@@ -1635,5 +1809,6 @@ namespace tta
         registry.registerFunction(0x1bdbe8, render);
         registry.registerFunction(0x221178, terrain);
         registry.registerFunction(0x2221b8, water);
+        registry.registerFunction(0x2236a0, mistAnimator);
     }
 }

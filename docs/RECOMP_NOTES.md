@@ -219,6 +219,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   by microcode 0x620 of the 422-qword image at 0x350690: random jitter seeded from the position, rotation, alpha
   from a base plus a per-particle term). Probes: TTA_GLOW_DUMP=<game frame> (each glow's DMA blocks and records),
   TTA_POST_DUMP.
+- **The console look: the screen filters, native** (2026-11-10). The PS2 frame was twice as bright as ours (mean 61
+  vs 30 in the intro close-up) and green-hazed in the forest: not the display (PMODE only averages the two read
+  circuits one line apart) but the screen filters 0x1c1d34 .. 0x1d235c, 2D sprites drawn with the frame as a texture:
+  the frame (TBP0 0 / 0xe00 = FBP 0 / 0x70, PSM CT24) into the 256 x 256 target FBP 0x1c0 (FBW 4), blurred onto
+  itself, then composited back over the frame (0x1d235c: 30 draws, alpha ramping) with the grade sprites (an
+  additive 0x7f x As, a tint at alpha ~0x3a). runtime/tta_2d.cpp now gives each off-screen FBP one of the renderer's
+  auxiliary targets (FBW x 64 by the scissor's height; the game's window is centred on 2048), samples TBP0 = FBP x 32
+  from it, the frame being built (source 0; the 3D draws report its FBP) or the other half of the double buffer
+  (kPreviousFrame), and draws these in the 3D frame's list. The intro close-up's mean is now 58 / 59 / 49 against the
+  console's 61 / 58 / 50. TTA_NO_TARGETS=1 for the old look. Also native: the type-19 mist banks from the animator
+  0x2236a0 (rows along each edge, base / extruded, waves; TTA_NO_MIST, TTA_MIST_SHOW): dark ground mist.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are

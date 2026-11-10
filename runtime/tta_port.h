@@ -34,4 +34,9 @@ namespace tta
 
     // A converted texture by its 64-bit id (tta_2d.cpp: the offline pack, tools/tta_textures.py); null if none.
     std::shared_ptr<const bozo::render::Texture> textureById(uint64_t id);
+    // The converted texture the game uploaded at (TBP0, PSM) (tta_2d.cpp tracks the uploads at 0x219ca8); null if none.
+    std::shared_ptr<const bozo::render::Texture> textureAtPlace(uint32_t tbp0, uint32_t psm);
+    // The frame buffer the scene is being drawn into (FBP 0 or 0x70), as the 3D draws see it: tta_2d.cpp's screen
+    // filters tell the frame being built from the other half of the double buffer by it.
+    void noteSceneFbp(uint32_t fbp);
 }
