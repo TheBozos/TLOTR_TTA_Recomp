@@ -208,6 +208,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   no type-9/20 nodes: the glows come from the effects (SFX/SFXGlow.c). On the console they are the forest's haze:
   large mipmapped T4/T8 fans across the screen, huge additive strips (light shafts) and a faint grey-blue veil.
   Types 1-4 never render in the first level; type 5's render is 0x221760 (0x221630 is its per-frame set-up).
+- **The forest haze is the type-19 "water" module (mist banks)**, found in a PCSX2 GS dump of the Black Riders scene:
+  11 huge translucent ribbons (6-vertex strips = 3 rows per edge, vertex alpha 0x1a / 0x40 / 0x66, a 256x256 T4
+  mist texture, (Cs - Cd) As + Cd), each drawn again with alpha 0 (a no-op). Natively the at-rest conversion (one quad
+  per edge) draws one small dark sheet. The geometry is built each frame on the CPU by the animator 0x2236a0 (~1000
+  instructions: rows, the alpha gradient, waves from the sine table 0x403788) and kicked by the driver 0x2246e8;
+  a native port of that animator is the way to the haze. The Glows (types 9/20) are particle billboards (blocks of
+  16 particles at S+0x230, 0x300 bytes each, formatted by 0x21ea28: V4-8 range, 3 x 16 scalars, 16 x {position,
+  (.., angle)}, 16 RGBA5551 colours; texture id = *(S+0xc8); world or S+0x94 object matrix when S+0x84 & 4; drawn
+  by microcode 0x620 of the 422-qword image at 0x350690: random jitter seeded from the position, rotation, alpha
+  from a base plus a per-particle term). Probes: TTA_GLOW_DUMP=<game frame> (each glow's DMA blocks and records),
+  TTA_POST_DUMP.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are

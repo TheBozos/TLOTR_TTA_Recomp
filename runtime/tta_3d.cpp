@@ -1464,6 +1464,70 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // TTA_GLOW_DUMP=<game frame>: a discovery probe (not a render path): while a glow renders (0x21f980), each DMA tag it
+        // chains (0x2163c8(address, qwords, .., tag)) and the qwords it points at, to build/glow_<n>_<k>.bin.
+        bool g_inGlow = false;
+        int g_glowIndex = -1, g_glowTag = 0;
+
+        void glowRender(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            const char *dump = env("TTA_GLOW_DUMP");
+            const bool on = dump && frame(rdram) == static_cast<uint32_t>(std::atoi(dump));
+            if (on)
+            {
+                static int n = 0;
+                g_glowIndex = n++;
+                g_glowTag = 0;
+                const uint32_t s = read32(rdram, ctx->r[4].uw[0] + 4);
+                std::printf("[tta:glow] #%d instance %x S %x: +88 %g +8c %x +a0 %x +a4 %g +c8 %x +134 %x +138 %x\n", g_glowIndex,
+                            ctx->r[4].uw[0], s, readFloat(rdram, s + 0x88), read32(rdram, s + 0x8c), read32(rdram, s + 0xa0),
+                            readFloat(rdram, s + 0xa4), read32(rdram, s + 0xc8), read32(rdram, s + 0x134), read32(rdram, s + 0x138));
+                char path[128];
+                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glowS_%d.bin", g_glowIndex);
+                if (FILE *f = std::fopen(path, "wb"))
+                {
+                    std::fwrite(rdram + (s & kMask), 1, 0x300, f);
+                    std::fclose(f);
+                }
+                const uint32_t parts[3] = {read32(rdram, s + 0xc8), read32(rdram, s + 0xcc), read32(rdram, s + 0x134)};
+                for (int k = 0; k < 3; ++k)
+                {
+                    std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glowR_%d_%d.bin", g_glowIndex, k);
+                    if (parts[k])
+                        if (FILE *f = std::fopen(path, "wb"))
+                        {
+                            std::fwrite(rdram + (parts[k] & kMask), 1, 0x200, f);
+                            std::fclose(f);
+                        }
+                }
+            }
+            g_inGlow = on;
+            func_0x21f980(rdram, ctx, rt);
+            g_inGlow = false;
+            ctx->pc = ra;
+        }
+
+        void dmaTag(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            if (g_inGlow)
+            {
+                const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0], tag = ctx->r[7].uw[0];
+                std::printf("[tta:glow]   tag %x: %u qwords at %x (a2 %x)\n", tag, qwords, address, ctx->r[6].uw[0]);
+                char path[128];
+                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glow_%d_%d.bin", g_glowIndex, g_glowTag++);
+                if (qwords && qwords < 0x10000)
+                    if (FILE *f = std::fopen(path, "wb"))
+                    {
+                        std::fwrite(rdram + (address & kMask), 16, qwords, f);
+                        std::fclose(f);
+                    }
+            }
+            func_0x2163c8(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
         // 0x2255d0: the type-18 render (PRMODE 0x40 flat untextured, template 0x377a10) on a skinned node.
         void type18(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
@@ -1539,12 +1603,13 @@ namespace tta
         registry.registerFunction(0x2201a8, staticRender<0x2201a8, func_0x2201a8>);
         registry.registerFunction(0x221630, staticRender<0x221630, func_0x221630>);
         registry.registerFunction(0x221760, staticRender<0x221760, func_0x221760>);
-        registry.registerFunction(0x21f010, staticRender<0x21f010, func_0x21f010>);
+        registry.registerFunction(0x21f010, postProbe<0x21f010, func_0x21f010>);
         registry.registerFunction(0x21f088, staticRender<0x21f088, func_0x21f088>);
-        registry.registerFunction(0x21f980, staticRender<0x21f980, func_0x21f980>);
+        registry.registerFunction(0x21f980, glowRender);
+        registry.registerFunction(0x2163c8, dmaTag);
         registry.registerFunction(0x21fce8, staticRender<0x21fce8, func_0x21fce8>);
-        registry.registerFunction(0x21c098, staticRender<0x21c098, func_0x21c098>);
-        registry.registerFunction(0x21c420, staticRender<0x21c420, func_0x21c420>);
+        registry.registerFunction(0x21c098, postProbe<0x21c098, func_0x21c098>);
+        registry.registerFunction(0x21c420, postProbe<0x21c420, func_0x21c420>);
         registry.registerFunction(0x2207a8, staticRender<0x2207a8, func_0x2207a8>);
         registry.registerFunction(0x21ffe8, staticRender<0x21ffe8, func_0x21ffe8>);
         registry.registerFunction(0x2205c0, staticRender<0x2205c0, func_0x2205c0>);
