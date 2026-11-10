@@ -362,3 +362,4 @@ __fixdfdi 0x32eba0
 __fixunsdfdi 0x32ec00
 __moddi3 0x32ecf0
 __udivdi3 0x32f358
+sceMcSync 0x27d058

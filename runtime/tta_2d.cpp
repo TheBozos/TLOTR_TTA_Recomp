@@ -182,8 +182,9 @@ namespace tta
             while (it != g_resources.end() && it->first < payload + size)
                 it = g_resources.erase(it);
             g_resources[payload] = {payload + size, name, read32(rdram, res + 0x20)};
-            if (traceLevel() >= 4)
-                std::printf("[tta:res] %s %u at %x, %x bytes\n", name, read32(rdram, res + 0x20), payload, size);
+            if (traceLevel() >= 4 || std::getenv("TTA_RES_TRACE"))
+                std::printf("[tta:res] frame %u: %s %u at %x, %x bytes\n", frame(rdram), name, read32(rdram, res + 0x20),
+                            payload, size);
             func_0x1babe8(rdram, ctx, rt);
             ctx->pc = ra;
         }
@@ -431,8 +432,50 @@ namespace tta
         }
     }
 
+    namespace
+    {
+        std::string guestString(const uint8_t *rdram, uint32_t at, size_t max = 120)
+        {
+            std::string s;
+            for (size_t i = 0; i < max; ++i)
+            {
+                const uint8_t c = rdram[(at + i) & kMask];
+                if (!c)
+                    break;
+                s += c >= 0x20 && c < 0x7f ? static_cast<char>(c) : '.';
+            }
+            return s;
+        }
+
+        // 0x1bbea0(font, text state, string): lays out one queued string (render map 3.2.4).
+        void layoutString(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], a0 = ctx->r[4].uw[0], a1 = ctx->r[5].uw[0], a2 = ctx->r[6].uw[0];
+            if (traceLevel() >= 5 || (std::getenv("TTA_TEXT_TRACE") && frame(rdram) % 30 == 0))
+                std::printf("[tta:text] frame %u: %x %x %x \"%s\" at (%.1f, %.1f)\n", frame(rdram), a0, a1, a2,
+                            guestString(rdram, a2).c_str(), readFloat(rdram, a1 + 0x70), readFloat(rdram, a1 + 0x74));
+            func_0x1bbea0(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+    }
+
+    bool resourceAt(uint32_t address, std::string &type, uint32_t &index, uint32_t &offset)
+    {
+        auto it = g_resources.upper_bound(address);
+        if (it == g_resources.begin())
+            return false;
+        --it;
+        if (address >= it->second.end)
+            return false;
+        type = it->second.type;
+        index = it->second.index;
+        offset = address - it->first;
+        return true;
+    }
+
     void installTwoD(bozo::port::Registry &registry)
     {
+        registry.registerFunction(0x1bbea0, layoutString);
         registry.registerFunction(0x1babe8, loadResource);
         registry.registerFunction(0x219ca8, uploadGroup);
         registry.registerFunction(0x218910, primitive);
