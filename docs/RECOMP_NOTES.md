@@ -102,6 +102,20 @@ the game's behaviour); its code is in the history before `8ade037`.
   sceMcGetInfo forever. Named, a pad script (CROSS at 2600, 3020, 3380, START at 4100) takes a headless run to the
   first battle (Berethor against the Black Riders: the battle HUD at ~6000 frames). TTA_RES_TRACE=1 lists resource
   loads (the scene ~2500, the battle's bMAN/cbin/gmv ~5500), TTA_3D_TRACE=1 the 3D shader renders by node key.
+- **3D** (runtime/tta_3d.cpp; maps in build/bozo/render_spec.md and skin_spec.md, local). tools/tta_meshes.py converts
+  every LLObj resource once (build/bozo/meshes, mesh format 2): the 'OBF ' payload's 0x100-byte node records, each
+  node's VIF packet as vertex batches (types 0-5: float positions, s/t, RGBA, ADC = R & 1; type 21: an instance
+  matrix, a 256-colour table and, for instance 1 of a group, the shared packet: (x y z)(s t index|ADC)), and the
+  skinned 'scbm' (type 17: bind-pose positions, normals, s/t, four skeleton bones + weights from each chunk's palette
+  stream, texture ids from material names through the game's name hash 0x26ce88; 7% of batches use a second layout,
+  skipped). Runtime key: the node's record (node+0) in its resource: (type, index, payload size, record offset).
+  Draws: the type-21 render 0x221178 (instanced terrain, trees), the type-0 render 0x2207a8 (ground, objects), and
+  LLObj_Render 0x1bdbe8; matrix RC+0x2e0 (object -> GS screen, RC = **(0x36f350)) x the instance matrix, negated (the
+  game's w is negative in front of the camera; a PC GPU clips w < 0). Characters at 0x225fb0 from G = *(0x403a60):
+  bones *(G+0x290), W *(G+0x294), sections G+0x280, fade G+0x2bc, lighting G+0x00..0x9f, skinned on the CPU, screen =
+  viewport (RC+0x440/0x450) x RC+0x260 x W. Open: type 5 (0x221630, another argument), water (19), effects, the
+  render targets (blur, glows); the battle's 3D is not yet checked against the console (the camera swings during the
+  Black Riders' attacks; characters come out dark). TTA_DETERMINISTIC=1 runs the window on the game's clock.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
