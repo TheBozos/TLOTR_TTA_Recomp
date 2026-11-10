@@ -178,6 +178,22 @@ the game's behaviour); its code is in the history before `8ade037`.
   full-screen passes (layer hooks 0x21a778 / 0x21aa88, MSCAL 0x1ea8). A native port needs the shadow parts
   converted, the volume built on the CPU, a counting target (BozoEngine has no stencil) and the darkening pass.
   Probes: TTA_SHADOW_PROBE=<game frame> (the VU block), TTA_TYPE18_DEBUG=1 (the pass's nodes and GS target).
+- **Shadow volumes, native (opt-in, TTA_SHADOWS=1)**. tools/tta_meshes.py converts the shadow parts (raw q0.x bit 15;
+  every 16-bit field ^ 0x8000 as the VU sees it): q0 = (vertices, strip length, faces, edge entries), q1 =
+  (influence records, strip start, faces start, edge start); vertices 2 qwords from q2 {x y z /1024 x scale, w: < 0
+  blend the next record and cache it at VU 158 - w, > 0 the matrix cached at VU 159 + w, 0 keep}; strip entries' .w
+  = a vertex (bit 15: no triangle ends there); faces (.x .y .z). Output: skinned triangle lists, prim 0x8003 (never
+  drawn as a surface). Berethor's hull: 415 triangles. At the type-18 pass the runtime skins them, sweeps each
+  triangle along the light (G+0x298, default (2, -2, 0)) into a closed prism, counts the faces into the renderer's
+  stencil by screen winding (z-pass) and blends the frame toward black where the count is not 0 (BozoEngine's
+  Material stencilOp / stencilNotZero / stencilClear, as SC3 does). Opt-in because PCSX2 shows no character shadow in
+  the first battle: the light, reach and strength are not checked against the console. TTA_SHADOW_SHOW=1 draws the
+  volumes in colour, TTA_SHADOW_UP_ONLY=1 / TTA_SHADOW_NO_STENCIL=1 test the stencil, TTA_SHADOW_REACH /
+  TTA_SHADOW_ALPHA tune it, TTA_SHADOW_ORDER=1 prints the pass order, light and bounds.
+- **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
+  (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
+  (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are
+  the biggest remaining difference in the forest and the first battle.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp

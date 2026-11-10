@@ -702,6 +702,10 @@ namespace tta
 
         uint32_t g_skinsDrawn = 0;
         bool g_flatDebug = false; // the type-18 pass under TTA_TYPE18_DEBUG: drawn flat magenta
+        // The type-18 pass (0x2255d0): the shadow section's skinned triangles, in world space, and the screen matrix.
+        bool g_shadowPass = false;
+        std::vector<std::array<float, 3>> g_shadowWorld;
+        float g_shadowScreen[16];
 
         void drawSkin(const uint8_t *rdram, uint32_t node)
         {
@@ -1003,6 +1007,24 @@ namespace tta
                     const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
                     skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
                 }
+                // A shadow-volume mesh (prim 0x8003, the part layout of set 5's program 0x178): never a surface; in the
+                // type-18 pass its triangles go to the volume, in world space (W).
+                if (batch.prim & 0x8000u)
+                {
+                    if (g_shadowPass && type == 3)
+                    {
+                        std::memcpy(g_shadowScreen, screen, sizeof(g_shadowScreen));
+                        for (size_t v = 0; v + 2 < skinned.size(); v += 3)
+                            for (size_t k = 0; k < 3; ++k)
+                            {
+                                const float in[3] = {skinned[v + k].x, skinned[v + k].y, skinned[v + k].z};
+                                std::array<float, 3> out;
+                                transformPoint(w, in, 1.0f, out.data());
+                                g_shadowWorld.push_back(out);
+                            }
+                    }
+                    continue;
+                }
                 triangles.clear();
                 for (size_t i = 2; i < skinned.size(); ++i)
                 {
@@ -1244,6 +1266,166 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // The shadow volume: each triangle of the shadow mesh swept along the light (G+0x298: the light's direction, the
+        // default 0x377990 = (2, -2, 0); y is down) into a closed prism, its faces counted into the stencil (z-pass: up for
+        // one screen winding, down for the other; a pixel whose surface lies inside the swept body keeps a count), then the
+        // frame darkened where the count is not 0. The game does the same with set 5's program 0x178 (the silhouette edges
+        // and caps, +/-) and its full-screen passes. Opt-in (TTA_SHADOWS=1): PCSX2 shows no character shadow in the first battle, so the
+        // light and strength are not checked against the console yet. TTA_SHADOW_REACH (x the mesh's size)
+        // and TTA_SHADOW_ALPHA (0..0x80) tune it.
+        void drawShadowVolume(const uint8_t *rdram)
+        {
+            if (g_shadowWorld.size() < 3)
+                return;
+            const uint32_t g = read32(rdram, 0x403a60), lightAt = read32(rdram, g + 0x298);
+            const uint32_t light = lightAt ? lightAt : 0x377990u;
+            float d[3] = {readFloat(rdram, light), readFloat(rdram, light + 4), readFloat(rdram, light + 8)};
+            const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (!(dl > 0.0f))
+                return;
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (const auto &p : g_shadowWorld)
+                for (int c = 0; c < 3; ++c)
+                {
+                    lo[c] = std::fmin(lo[c], p[c]);
+                    hi[c] = std::fmax(hi[c], p[c]);
+                }
+            const float size = std::fmax(hi[0] - lo[0], std::fmax(hi[1] - lo[1], hi[2] - lo[2]));
+            if (env("TTA_SHADOW_ORDER"))
+                std::printf("[tta:shadow] light %x (%.3g %.3g %.3g) world x %.4g..%.4g y %.4g..%.4g z %.4g..%.4g, %zu triangles\n", light,
+                            d[0], d[1], d[2], lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], g_shadowWorld.size() / 3);
+            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 3.0);
+            for (float &c : d)
+                c *= reach / dl;
+            const float *m = g_shadowScreen;
+            const auto vertex = [](const std::array<float, 3> &p)
+            {
+                bozo::render::Vertex v;
+                v.x = p[0];
+                v.y = p[1];
+                v.z = p[2];
+                v.rgba = 0x80808080u;
+                return v;
+            };
+            std::vector<bozo::render::Vertex> up, down, face;
+            const auto addFace = [&](std::array<float, 3> a, std::array<float, 3> b, std::array<float, 3> c, const float centre[3])
+            {
+                // Outward: the face's normal away from the prism's centre.
+                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, t[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
+                const float out = n[0] * (a[0] - centre[0]) + n[1] * (a[1] - centre[1]) + n[2] * (a[2] - centre[2]);
+                if (out == 0.0f)
+                    return;
+                if (out < 0.0f)
+                    std::swap(b, c);
+                face = {vertex(a), vertex(b), vertex(c)};
+                clipToDepthRange(face, m);
+                for (size_t i = 0; i + 2 < face.size(); i += 3)
+                {
+                    float sx[3], sy[3];
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const auto &v = face[i + k];
+                        const float w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
+                        sx[k] = (m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12]) / w;
+                        sy[k] = (m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13]) / w;
+                    }
+                    const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);
+                    auto &into = area > 0.0f ? up : down;
+                    into.insert(into.end(), face.begin() + static_cast<std::ptrdiff_t>(i),
+                                face.begin() + static_cast<std::ptrdiff_t>(i) + 3);
+                }
+            };
+            for (size_t i = 0; i + 2 < g_shadowWorld.size(); i += 3)
+            {
+                const auto &a = g_shadowWorld[i], &b = g_shadowWorld[i + 1], &c = g_shadowWorld[i + 2];
+                std::array<float, 3> a2, b2, c2;
+                for (int k = 0; k < 3; ++k)
+                {
+                    a2[k] = a[k] + d[k];
+                    b2[k] = b[k] + d[k];
+                    c2[k] = c[k] + d[k];
+                }
+                // A triangle edge-on to the light sweeps no volume.
+                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, t[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
+                const float nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (!(nl > 0.0f) || std::fabs(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) < 1e-4f * nl * reach)
+                    continue;
+                float centre[3];
+                for (int k = 0; k < 3; ++k)
+                    centre[k] = (a[k] + b[k] + c[k]) / 3.0f + d[k] * 0.5f;
+                addFace(a, b, c, centre);
+                addFace(a2, b2, c2, centre);
+                addFace(a, b, b2, centre);
+                addFace(a, b2, a2, centre);
+                addFace(b, c, c2, centre);
+                addFace(b, c2, b2, centre);
+                addFace(c, a, a2, centre);
+                addFace(c, a2, c2, centre);
+            }
+            auto &renderer = bozo::render::Renderer::instance();
+            // TTA_SHADOW_SHOW=1: the volume's faces drawn in colour instead (red one winding, blue the other).
+            if (env("TTA_SHADOW_SHOW"))
+            {
+                bozo::render::Material show;
+                show.textured = false;
+                show.blend = bozo::render::Material::Blend::Alpha;
+                show.depthTest = true;
+                show.depthWrite = false;
+                for (auto &v : up)
+                    v.rgba = 0x300000ffu;
+                for (auto &v : down)
+                    v.rgba = 0x30ff0000u;
+                if (!up.empty())
+                    renderer.draw(show, m, up.data(), static_cast<uint32_t>(up.size()));
+                if (!down.empty())
+                    renderer.draw(show, m, down.data(), static_cast<uint32_t>(down.size()));
+                return;
+            }
+            static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            // The whole GS window (TTA draws to 1792..2304 x 1824..2272).
+            const auto wholeScreen = [&](const bozo::render::Material &material, uint32_t rgba)
+            {
+                bozo::render::Vertex q[6];
+                const float corners[6][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1}};
+                for (int k = 0; k < 6; ++k)
+                {
+                    q[k].x = 1792.0f + corners[k][0] * 512.0f;
+                    q[k].y = 1824.0f + corners[k][1] * 448.0f;
+                    q[k].z = 0.0f;
+                    q[k].rgba = rgba;
+                }
+                renderer.draw(material, identity, q, 6u);
+            };
+            bozo::render::Material volume;
+            volume.textured = false;
+            volume.blend = bozo::render::Material::Blend::Opaque;
+            volume.depthTest = false;
+            volume.depthWrite = false;
+            volume.colourMask = 0u;
+            volume.stencilClear = true;
+            wholeScreen(volume, 0u);
+            volume.stencilClear = false;
+            volume.depthTest = true;
+            volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
+            if (!up.empty())
+                renderer.draw(volume, m, up.data(), static_cast<uint32_t>(up.size()));
+            volume.stencilOp = bozo::render::Material::StencilOp::DecrementWrap;
+            if (!down.empty() && !env("TTA_SHADOW_UP_ONLY"))
+                renderer.draw(volume, m, down.data(), static_cast<uint32_t>(down.size()));
+            bozo::render::Material darken;
+            darken.textured = false;
+            darken.blend = bozo::render::Material::Blend::Alpha;
+            darken.depthTest = false;
+            darken.depthWrite = false;
+            darken.stencilNotZero = !env("TTA_SHADOW_NO_STENCIL");
+            darken.colourMask = 7u;
+            const char *alpha = env("TTA_SHADOW_ALPHA");
+            const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : 0x40u;
+            wholeScreen(darken, std::min<uint32_t>(strength, 0x80u) << 24);
+        }
+
         // 0x2255d0: the type-18 render (PRMODE 0x40 flat untextured, template 0x377a10) on a skinned node.
         void type18(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
@@ -1275,6 +1457,16 @@ namespace tta
                 g_flatDebug = true;
                 drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
                 g_flatDebug = false;
+            }
+            if (env("TTA_SHADOW_ORDER"))
+                std::printf("[tta:shadow] frame %u: type-18 pass after %u nodes drawn\n", frame(rdram), g_drawn);
+            if (env("TTA_SHADOWS"))
+            {
+                g_shadowWorld.clear();
+                g_shadowPass = true;
+                drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
+                g_shadowPass = false;
+                drawShadowVolume(rdram);
             }
             func_0x2255d0(rdram, ctx, rt);
             ctx->pc = ra;

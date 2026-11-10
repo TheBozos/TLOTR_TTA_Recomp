@@ -676,6 +676,86 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
     return dict(tex=tex, prim=0x7c, cmode=0, regs=[], verts=out, skin=True), verts
 
 
+def shadow_batch(b, palette, cache, scale, warn):
+    """A shadow-volume part's batch (the type-18 pass, set 5's program 0x178; the VU sees every 16-bit field
+    ^ 0x8000, the row offset of the unpack): q0 = (vertex count, strip length, face count, edge-entry count),
+    q1 = (influence records, strip start, faces start, edge entries start); vertices at q2, 2 qwords each
+    {x, y, z (/1024 x scale), w: 0 = keep the current influence, else take the next record (2 V4-8 qwords
+    {4 palette offsets, 4 weights * 127}, as the skin's)}; the strip: per entry .w = a vertex address, bit 15 =
+    no triangle ending there (the first two included); faces: (.x, .y, .z) vertex addresses. The edge entries
+    ({v0, face, face, v1}: which strip/list triangles share an edge, for the silhouette) are not needed for
+    closed prisms. Returns the triangles as a skinned list batch (prim 0x8003: a shadow volume, not drawn
+    as a surface), every vertex (pos, normal 0, st 0, rgba, bones, weights, adc 0)."""
+    m = b.mem
+    def vu(x):
+        return (x ^ 0x8000) & 0xffff
+    if 0 not in m or 1 not in m:
+        return None
+    nverts, nstrip, nfaces = vu(m[0][0]), vu(m[0][1]), vu(m[0][2])
+    rec, strip0, faces0 = vu(m[1][0]), vu(m[1][1]), vu(m[1][2])
+    pscale = scale / 1024.0
+    verts, infl = {}, ((0, 0, 0, 0), (1.0, 0.0, 0.0, 0.0))
+    for k in range(nverts):
+        a = 2 + 2 * k
+        q = m.get(a)
+        if q is None:
+            warn('shadow vertex missing')
+            return None
+        wv = _s(vu(q[3]))
+        if wv > 0:  # 0x12d0: the matrix cached at VU 159 + w (stored by this or an earlier batch)
+            if 159 + wv not in cache:
+                warn('shadow matrix cache slot never filled')
+                return None
+            infl = cache[159 + wv]
+        elif wv < 0:  # 0xe30: blend the next record; 0x1288 caches it at VU 160 + (-w - 2) when -w - 2 >= 0
+            r, w = m.get(rec), m.get(rec + 1)
+            rec += 2
+            if r is None or w is None:
+                warn('shadow influence record missing')
+                return None
+            bones, ws = [], []
+            for j in range(4):
+                off = _s(r[j], 8)
+                if off < 0:
+                    bones.append(0)
+                    ws.append(0.0)
+                    continue
+                bones.append(palette.get(off, 0))
+                ws.append(_s(w[j], 8) / 127.0)
+            tot = sum(ws) or 1.0
+            infl = (tuple(bones), tuple(x / tot for x in ws))
+            if -wv - 2 >= 0:
+                cache[158 - wv] = infl
+        verts[a] = ((_s(q[0]) * pscale, _s(q[1]) * pscale, _s(q[2]) * pscale), infl)
+    tris = []
+    ring = []
+    for e in range(strip0, strip0 + nstrip):
+        q = m.get(e)
+        if q is None:
+            warn('shadow strip entry missing')
+            return None
+        a = vu(q[3])
+        ring = (ring + [a & 0x3ff])[-3:]
+        if not a & 0x8000 and len(ring) == 3:
+            tris.append(tuple(ring))
+    for e in range(faces0, faces0 + nfaces):
+        q = m.get(e)
+        if q is None:
+            warn('shadow face missing')
+            return None
+        tris.append(tuple(vu(q[j]) & 0x3ff for j in range(3)))
+    out = []
+    for t in tris:
+        if any(a not in verts for a in t):
+            warn('shadow triangle names no vertex')
+            return None
+        for a in t:
+            pos, (bones, ws) = verts[a]
+            out.append(pos + (0.0, 0.0, 0.0, 0.0, 0.0, 0x80808080) + bones + ws + (0,))
+    SKIN_STATS['shadow triangles'] += len(tris)
+    return dict(tex=0, prim=0x8003, cmode=0, regs=[], verts=out, skin=True)
+
+
 def skin_sections(p, n, warn):
     """[(section index, [batches])] of a type-17 geometry (header: see scbm_summary)."""
     B = n['geo']
@@ -696,6 +776,7 @@ def skin_sections(p, n, warn):
             starts.append((B + voff + q * 16, c))
             q += c[0]
         palette, cache, prev, mat, k, batches = {}, {}, None, None, 0, []
+        shadow_cache = {}
         for b, _ in vif_batches(p, B + voff, B + voff + vlen, warn):
             while k < len(starts) and starts[k][0] < b.end:
                 _, (_, m_, ents) = starts[k]
@@ -708,6 +789,11 @@ def skin_sections(p, n, warn):
                     SKIN_STATS['max bone'] = max(SKIN_STATS['max bone'], idx)
                 k += 1
             tex = ids[mat] if mat is not None and mat < len(ids) else 0
+            if 0 in b.mem and b.mem[0][0] & 0x8000:  # the shadow-volume layout (raw bit 15: VU count < 0x8000)
+                bt = shadow_batch(b, palette, shadow_cache, scale, warn)
+                if bt:
+                    batches.append(bt)
+                continue
             bt, prev = skin_batch(b, palette, cache, prev, scale, tex, warn)
             if bt:
                 batches.append(bt)
