@@ -332,6 +332,54 @@ namespace tta
             return r;
         }
 
+        // EA Apt's masks: shapes drawn with every colour channel masked (FBMSK 0xffffffff) write only depth; the masked
+        // content follows with ZTST GEQUAL / GREATER and lands only inside them. A full-screen mask draw starts a new
+        // mask (it resets the depth). Natively: the mask's triangles, and the content cut to their union.
+        std::vector<bozo::render::Vertex> g_mask;
+        uint32_t g_maskFrame = 0;
+
+        // The part of triangle (a, b, c) inside the convex triangle m.
+        void clipToTriangle(const bozo::render::Vertex *tri, const bozo::render::Vertex *m, std::vector<bozo::render::Vertex> &out)
+        {
+            std::vector<bozo::render::Vertex> poly(tri, tri + 3), next;
+            const float area = (m[1].x - m[0].x) * (m[2].y - m[0].y) - (m[1].y - m[0].y) * (m[2].x - m[0].x);
+            if (area == 0.0f)
+                return;
+            const float sign = area > 0 ? 1.0f : -1.0f;
+            for (int e = 0; e < 3 && !poly.empty(); ++e)
+            {
+                const auto &p0 = m[e], &p1 = m[(e + 1) % 3];
+                const auto side = [&](const bozo::render::Vertex &v)
+                { return sign * ((p1.x - p0.x) * (v.y - p0.y) - (p1.y - p0.y) * (v.x - p0.x)); };
+                next.clear();
+                for (size_t i = 0; i < poly.size(); ++i)
+                {
+                    const auto &a = poly[i], &b = poly[(i + 1) % poly.size()];
+                    const float da = side(a), db = side(b);
+                    if (da >= 0)
+                    {
+                        next.push_back(a);
+                        if (db < 0)
+                            next.push_back(lerp(a, b, da / (da - db)));
+                    }
+                    else if (db >= 0)
+                        next.push_back(lerp(a, b, da / (da - db)));
+                }
+                poly.swap(next);
+            }
+            for (size_t i = 2; i < poly.size(); ++i)
+                out.insert(out.end(), {poly[0], poly[i - 1], poly[i]});
+        }
+
+        std::vector<bozo::render::Vertex> clipToMask(const std::vector<bozo::render::Vertex> &in)
+        {
+            std::vector<bozo::render::Vertex> out;
+            for (size_t t = 0; t + 2 < in.size(); t += 3)
+                for (size_t m = 0; m + 2 < g_mask.size(); m += 3)
+                    clipToTriangle(&in[t], &g_mask[m], out);
+            return out;
+        }
+
         // Triangles cut to the rectangle [x0, x1) x [y0, y1) (Sutherland-Hodgman per triangle, then fanned again).
         std::vector<bozo::render::Vertex> clipTriangles(const std::vector<bozo::render::Vertex> &in, float x0, float y0, float x1,
                                                         float y1)
@@ -443,12 +491,7 @@ namespace tta
                 return count(rdram, false);
             // FRAME's FBMSK (its upper word): a draw that writes no colour channel only writes the alpha the game masks
             // with (EA Apt's masks): nothing to show.
-            if (((frameReg >> 32) & 0xffffffu) == 0xffffffu)
-            {
-                if (traceLevel() >= 2)
-                    std::printf("[tta:2d] frame %u: alpha-only type %u from %x\n", frame(rdram), type, ra);
-                return count(rdram, false);
-            }
+            const bool alphaOnly = ((frameReg >> 32) & 0xffffffu) == 0xffffffu;
 
             std::vector<bozo::render::Vertex> points(n);
             for (uint32_t i = 0; i < n; ++i)
@@ -481,6 +524,44 @@ namespace tta
                 }
                 out.rgba = packed;
             }
+
+            if (traceLevel() >= 8)
+            {
+                float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+                for (const auto &q : points)
+                {
+                    bx0 = std::fmin(bx0, q.x);
+                    by0 = std::fmin(by0, q.y);
+                    bx1 = std::fmax(bx1, q.x);
+                    by1 = std::fmax(by1, q.y);
+                }
+                std::printf("[tta:mask] frame %u from %x type %u n %u FBMSK %08x TEST %llx ALPHA %llx PRMODE %llx tex %d "
+                            "(%.0f,%.0f)-(%.0f,%.0f) rgba %08x\n",
+                            frame(rdram), ra, type, n, static_cast<uint32_t>(frameReg >> 32),
+                            static_cast<unsigned long long>(test), static_cast<unsigned long long>(alpha),
+                            static_cast<unsigned long long>(prmode), textured ? 1 : 0, bx0, by0, bx1, by1, points[0].rgba);
+            }
+            const bool fullScreenMask = alphaOnly && [&]
+            {
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (const auto &q : points)
+                {
+                    x0 = std::fmin(x0, q.x);
+                    y0 = std::fmin(y0, q.y);
+                    x1 = std::fmax(x1, q.x);
+                    y1 = std::fmax(y1, q.y);
+                }
+                return x0 <= 1793.0f && y0 <= 1825.0f && x1 >= 2303.0f && y1 >= 2271.0f;
+            }();
+            if (frame(rdram) != g_maskFrame)
+            {
+                g_mask.clear();
+                g_maskFrame = frame(rdram);
+            }
+            if (fullScreenMask)
+                g_mask.clear();
+            const uint32_t ztest = (test >> 16) & 7u; // ZTE bit 16, ZTST bits 17-18
+            const bool masked = !alphaOnly && (ztest & 1u) && ((ztest >> 1) == 2u || (ztest >> 1) == 3u) && !g_mask.empty();
 
             // An opaque untextured sprite over the whole screen is the frame's clear (0x211de4 at each frame's start):
             // the window's clear colour, not a draw over the movie's backdrop.
@@ -561,6 +642,14 @@ namespace tta
             else
                 for (uint32_t i = 2; i < n; ++i)
                     triangles.insert(triangles.end(), {points[0], points[i - 1], points[i]});
+            if (alphaOnly)
+            {
+                if (!fullScreenMask)
+                    g_mask.insert(g_mask.end(), triangles.begin(), triangles.end());
+                return count(rdram, false);
+            }
+            if (masked)
+                triangles = clipToMask(triangles);
             // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):
             // EA Apt clips its minimap and panels with it. The overlay has no clip of its own: the triangles are cut.
             {

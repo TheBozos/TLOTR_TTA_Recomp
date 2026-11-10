@@ -61,6 +61,13 @@ what remains open.
 ## Screenshots
 
 <p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-exploration.png" width="400" alt="Exploring after the first battle on BozoEngine: Berethor in the forest, the round minimap and the Epic Scene dialog">
+</p>
+
+**2026-11-10.** Past the first battle: exploring the forest, the HUD's minimap and dialogs (EA Apt's depth masks
+done natively).
+
+<p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-nazgul-scream.png" width="400" alt="The first battle on BozoEngine: a Black Rider casting Nazgul Scream, the battle HUD over it">
   <img src="docs/screenshots/2026-11-10-bozo-first-battle.png" width="400" alt="The first battle on BozoEngine: a critical hit, Berethor down and the two Black Riders over him">
 </p>

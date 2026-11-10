@@ -142,6 +142,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   over the eyes. tools/tta_meshes.py normalises the weights; the faces are clean (offline check with the runtime
   bones: TTA_BONE_DUMP=<frame>). Also: the skin VU stores a blended matrix in its cache slot only when position.w lacks
   bit 15. The second skinned layout (150 parts) is shadow/silhouette meshes for the set-5 VU1 program, not drawn yet.
+- **Apt's masks** (2026-11-10): Apt clips with the depth buffer, not alpha. Mask shapes are drawn with every colour
+  channel masked (FRAME FBMSK 0xffffffff: depth writes only; a full-screen one resets), then the masked content with
+  TEST ZTST GEQUAL/GREATER. Natively the mask's triangles are kept and the content is cut to their union (convex
+  clipping, runtime/tta_2d.cpp): the round minimap. Apt strips also carry a per-vertex ADC mask (0x218fb8's a2), and
+  SCISSOR_1 (DS+0x110) clips the 2D on the CPU. TTA_2D_TRACE=8 prints every 2D draw with FBMSK/TEST/ALPHA/PRMODE.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
