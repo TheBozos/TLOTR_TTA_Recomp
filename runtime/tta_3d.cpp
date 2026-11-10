@@ -37,6 +37,13 @@ namespace tta
             return v;
         }
 
+        uint16_t read16(const uint8_t *rdram, uint32_t address)
+        {
+            uint16_t v;
+            std::memcpy(&v, rdram + (address & kMask), 2);
+            return v;
+        }
+
         float readFloat(const uint8_t *rdram, uint32_t address)
         {
             float v;
@@ -528,12 +535,30 @@ namespace tta
             }
             viewport[15] = 1.0f;
             multiply(viewport, clip, screen);
+            // G is set only by the VisualEntity draw 0x1b1b18 (through 0x225920): a skinned node drawn by another path
+            // (the scene 0x1a7108, 0x1b24a8) runs with the last character's G. Fresh, RC+0x20 is the root bone
+            // (bones[E+0x1c6], E = G - 0x1d0) placed by W; otherwise the node's own matrix is RC+0x20, in bind pose.
+            float object[16], expected[16], root[16];
+            for (int i = 0; i < 16; ++i)
+                object[i] = readFloat(rdram, rc + 0x20 + i * 4);
+            const uint32_t rootBone = read16(rdram, g - 0x1d0 + 0x1c6);
+            for (int i = 0; i < 16; ++i)
+                root[i] = readFloat(rdram, bones + rootBone * 64 + i * 4);
+            multiply(w, root, expected);
+            bool fresh = true;
+            for (int i = 0; i < 16 && fresh; ++i)
+                fresh = std::fabs(expected[i] - object[i]) <= 1e-3f * (1.0f + std::fabs(object[i]));
+            if (!fresh)
+                std::memcpy(w, object, sizeof(w));
             multiply(screen, w, matrix);
             std::unordered_map<uint32_t, std::array<float, 16>> boneCache;
+            static const std::array<float, 16> identity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             const auto bone = [&](uint8_t b) -> const std::array<float, 16> &
             {
-                auto [at, fresh] = boneCache.try_emplace(b);
-                if (fresh)
+                if (!fresh)
+                    return identity;
+                auto [at, added] = boneCache.try_emplace(b);
+                if (added)
                     for (int i = 0; i < 16; ++i)
                         at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
                 return at->second;
@@ -545,7 +570,7 @@ namespace tta
                 ++skinProbes;
                 const Batch &b0 = it->second.batches[0];
                 std::printf("[tta:skin] %s %u +%x G %x bones %x W %x fade %u\n", type.c_str(), index, offset, g, bones,
-                            placement, fade);
+                            placement, fade, fresh ? 1 : 0);
                 std::printf("[tta:skin] W:");
                 for (float f : w)
                     std::printf(" %.4g", f);
