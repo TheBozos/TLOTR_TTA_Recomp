@@ -63,7 +63,7 @@ namespace tta
         {
             static const int level = []
             {
-                const char *e = std::getenv("TTA_2D_TRACE");
+                const char *e = env("TTA_2D_TRACE");
                 return e && *e ? std::atoi(e) : 0;
             }();
             return level;
@@ -74,7 +74,7 @@ namespace tta
         // ---- Textures ------------------------------------------------------------------------------------------------
         std::string textureDir()
         {
-            const char *e = std::getenv("TTA_TEXTURE_DIR");
+            const char *e = env("TTA_TEXTURE_DIR");
             return e && *e ? e : TTA_TEXTURE_DIR;
         }
 
@@ -182,7 +182,7 @@ namespace tta
             while (it != g_resources.end() && it->first < payload + size)
                 it = g_resources.erase(it);
             g_resources[payload] = {payload + size, name, read32(rdram, res + 0x20)};
-            if (traceLevel() >= 4 || std::getenv("TTA_RES_TRACE"))
+            if (traceLevel() >= 4 || env("TTA_RES_TRACE"))
                 std::printf("[tta:res] frame %u: %s %u at %x, %x bytes\n", frame(rdram), name, read32(rdram, res + 0x20),
                             payload, size);
             func_0x1babe8(rdram, ctx, rt);
@@ -535,7 +535,7 @@ namespace tta
         void layoutString(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0], a0 = ctx->r[4].uw[0], a1 = ctx->r[5].uw[0], a2 = ctx->r[6].uw[0];
-            if (traceLevel() >= 5 || (std::getenv("TTA_TEXT_TRACE") && frame(rdram) % 30 == 0))
+            if (traceLevel() >= 5 || (env("TTA_TEXT_TRACE") && frame(rdram) % 30 == 0))
                 std::printf("[tta:text] frame %u: %x %x %x \"%s\" at (%.1f, %.1f)\n", frame(rdram), a0, a1, a2,
                             guestString(rdram, a2).c_str(), readFloat(rdram, a1 + 0x70), readFloat(rdram, a1 + 0x74));
             func_0x1bbea0(rdram, ctx, rt);

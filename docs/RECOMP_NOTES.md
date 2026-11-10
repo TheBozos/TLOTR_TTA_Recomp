@@ -134,6 +134,9 @@ the game's behaviour); its code is in the history before `8ade037`.
   (TTA_VU0_DUMP=<entry> writes them) and matched the old translation bit for bit with the old I timing, so that was the
   only difference. With the fix, every pose is unit-length, and the characters (behind no switch now; TTA_NO_SKIN=1
   hides them) ride, walk and fight as in the game. TTA's world has y pointing down.
+- **The first battle, native** (2026-11-10): the GS readback 0x228118 (an 8 x 5 StoreImage through the GIF FIFO from
+  the frame end's 0x1d3e58) is a no-op: there is no GS memory. The intro cinematic and the first battle play at 60
+  frames/s with everything drawn natively (the diagnostic switches are read once: tta::env).
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp

@@ -48,7 +48,7 @@ namespace tta
         // TTA_RENDER_TRACE=1: one line per frame swap.
         bool trace()
         {
-            static const bool on = [] { const char *e = std::getenv("TTA_RENDER_TRACE"); return e && *e == '1'; }();
+            static const bool on = [] { const char *e = env("TTA_RENDER_TRACE"); return e && *e == '1'; }();
             return on;
         }
 
@@ -193,8 +193,17 @@ namespace tta
 
     }
 
+    namespace
+    {
+        // 0x228118(i): reads an 8 x 5 block of GS memory back into *(0x36b228) + i * 0x100 + 0x3c0 (sceGsSetDefStoreImage,
+        // sceGsExecStoreImage through the GIF FIFO), from the frame end's 0x1d3e58. There is no GS memory to read: the
+        // buffer keeps what it holds.
+        void readBack(uint8_t *, R5900Context *ctx, Runtime *) { ctx->pc = ctx->r[31].uw[0]; }
+    }
+
     void installRender(bozo::port::Registry &registry)
     {
+        registry.registerFunction(0x228118, readBack);
         // The port's frame is the whole picture: the window shows what is presented (its frame, the movie, the 2D).
         bozo::render::Renderer &renderer = bozo::render::Renderer::instance();
         renderer.setEnabled(true);

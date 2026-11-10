@@ -3,13 +3,26 @@
 #include "bozo/port.h"
 #include "bozo/render/texture.h"
 
+#include <cstdlib>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 #include <cstdint>
 #include <string>
 
 namespace tta
 {
+    // An environment switch, read once (the draw paths ask per vertex; getenv takes a lock on Windows).
+    inline const char *env(const char *name)
+    {
+        static std::unordered_map<std::string, const char *> cache;
+        auto [at, added] = cache.try_emplace(name, nullptr);
+        if (added)
+            at->second = std::getenv(name);
+        return at->second;
+    }
+
     // The Third Age's overrides on BozoEngine (tta_port.cpp).
     void install(Runtime &runtime, bozo::port::Registry &registry);
 

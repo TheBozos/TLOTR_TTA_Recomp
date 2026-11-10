@@ -157,7 +157,7 @@ namespace tta
                 for (int k = 0; k < 3; ++k)
                     t[k] = readFloat(rdram, entry + 0x10 + k * 4);
                 const float len = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
-                if (std::getenv("TTA_POSE_REBUILD_W") && std::fabs(len - 1.0f) > 0.05f)
+                if (env("TTA_POSE_REBUILD_W") && std::fabs(len - 1.0f) > 0.05f)
                 {
                     // Diagnostic: w rebuilt from xyz (its sign kept). The off-unit quaternions came from the VU0 LOI timing
                     // fixed in tools/tta_vu0_gen.py; none are left.
@@ -169,7 +169,7 @@ namespace tta
                 {
                     ++g_badQuaternions;
                     static int shown = 0;
-                    if (std::getenv("TTA_POSE_TRACE") && shown++ < 12)
+                    if (env("TTA_POSE_TRACE") && shown++ < 12)
                         std::printf("[tta:pose] E %x N %d bone %d q (%.4g %.4g %.4g %.4g) |q|^2 %.4g t (%.4g %.4g %.4g) pose %x\n", e, n, i,
                                     q[0], q[1], q[2], q[3], len, t[0], t[1], t[2], pose);
                 }
@@ -228,14 +228,14 @@ namespace tta
                 const M4 m = inverseBinds ? mul(load(rdram, inverseBinds + static_cast<uint32_t>(i) * 64), b[i]) : b[i];
                 std::memcpy(rdram + ((out + static_cast<uint32_t>(i) * 64) & kMask), m.m, 64);
             }
-            if (std::getenv("TTA_POSE_TRACE") && g_poses % 2000 == 1)
+            if (env("TTA_POSE_TRACE") && g_poses % 2000 == 1)
                 std::printf("[tta:pose] %u poses built natively, %u quaternions off unit length\n", g_poses, g_badQuaternions);
         }
     }
 
     void installPose(bozo::port::Registry &registry)
     {
-        if (!std::getenv("TTA_GAME_POSE")) // TTA_GAME_POSE=1: the game's own builder (VU0, scratchpad), for comparison
+        if (!env("TTA_GAME_POSE")) // TTA_GAME_POSE=1: the game's own builder (VU0, scratchpad), for comparison
             registry.registerFunction(0x133298, buildPose);
     }
 }

@@ -56,7 +56,7 @@ namespace tta
         {
             static const int level = []
             {
-                const char *e = std::getenv("TTA_3D_TRACE");
+                const char *e = env("TTA_3D_TRACE");
                 return e && *e ? std::atoi(e) : 0;
             }();
             return level;
@@ -66,7 +66,7 @@ namespace tta
 
         std::string meshDir()
         {
-            const char *e = std::getenv("TTA_MESH_DIR");
+            const char *e = env("TTA_MESH_DIR");
             return e && *e ? e : TTA_MESH_DIR;
         }
 
@@ -570,7 +570,7 @@ namespace tta
                         at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
                 return at->second;
             };
-            if (std::getenv("TTA_SKIN_PROBE2") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE2"))) && frame(rdram) < static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE2"))) + 2)
+            if (env("TTA_SKIN_PROBE2") && frame(rdram) >= static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE2"))) && frame(rdram) < static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE2"))) + 2)
             {
                 const uint32_t e = g - 0x1d0;
                 const float sx = std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]), sy = std::sqrt(w[4] * w[4] + w[5] * w[5] + w[6] * w[6]);
@@ -580,8 +580,8 @@ namespace tta
                             readFloat(rdram, bones + 48), readFloat(rdram, bones + 52), readFloat(rdram, bones + 56),
                             object[12], object[13], object[14], rootBone);
             }
-            if (std::getenv("TTA_SKIN_PROBE3") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE3"))) &&
-                frame(rdram) < static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE3"))) + 1 && !it->second.batches.empty())
+            if (env("TTA_SKIN_PROBE3") && frame(rdram) >= static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE3"))) &&
+                frame(rdram) < static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE3"))) + 1 && !it->second.batches.empty())
             {
                 const Batch &b0 = it->second.batches[0];
                 std::printf("[tta:skin3] %s %u fresh %d Wpos %.3g %.3g %.3g\n", type.c_str(), index, fresh ? 1 : 0, w[12], w[13], w[14]);
@@ -598,7 +598,7 @@ namespace tta
                                 bp[0], bp[1], bp[2], wp[0], wp[1], wp[2]);
                 }
             }
-            if (std::getenv("TTA_SKIN_PROBE4") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE4"))))
+            if (env("TTA_SKIN_PROBE4") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE4"))))
             {
                 std::map<int, std::pair<int, float>> farBones; // bone -> (vertices, worst distance)
                 size_t total = 0;
@@ -633,7 +633,7 @@ namespace tta
                 }
                 std::printf("\n");
             }
-            if (std::getenv("TTA_SKIN_PROBE5") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE5"))))
+            if (env("TTA_SKIN_PROBE5") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE5"))))
             {
                 const uint32_t e = g - 0x1d0;
                 const uint32_t cur = read32(rdram, e + 0xe0), base = read32(rdram, e + 0xe4), stamp = read32(rdram, e + 0xe8);
@@ -650,7 +650,7 @@ namespace tta
                 }
             }
             static int skinProbes = 0;
-            if (std::getenv("TTA_SKIN_PROBE") && skinProbes < 4 && !it->second.batches.empty() &&
+            if (env("TTA_SKIN_PROBE") && skinProbes < 4 && !it->second.batches.empty() &&
                 !it->second.batches[0].vertices.empty())
             {
                 ++skinProbes;
@@ -741,7 +741,7 @@ namespace tta
                         const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * std::fmax(light, 0.0f);
                         rgba |= static_cast<uint32_t>(std::fmin(value, 255.0f)) << (c * 8);
                     }
-                    if (std::getenv("TTA_SKIN_NOLIGHT"))
+                    if (env("TTA_SKIN_NOLIGHT"))
                         rgba = batch.colours[v] & 0xffffffu;
                     const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
                     skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
@@ -779,7 +779,7 @@ namespace tta
                 renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
             ++g_skinsDrawn;
-            if (std::getenv("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_EXTENT"))))
+            if (env("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_EXTENT"))))
                 std::printf("[tta:extent] %s %u: model x %.3g..%.3g y %.3g..%.3g z %.3g..%.3g; W pos %.4g %.4g %.4g scale %.3g\n",
                             type.c_str(), index, extentMin[0], extentMax[0], extentMin[1], extentMax[1], extentMin[2], extentMax[2],
                             w[12], w[13], w[14], std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]));
@@ -809,7 +809,7 @@ namespace tta
             const float dt = ctx->f[12];
             static uint32_t calls = 0, lastFrame = 0, printed = 0;
             ++calls;
-            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            const char *probe = env("TTA_ANIM_PROBE");
             if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed < 12)
             {
                 ++printed;
@@ -841,7 +841,7 @@ namespace tta
             if (ctx->r[2].uw[0] == 0)
                 ++g_samplerZero;
             static uint32_t printed = 0;
-            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            const char *probe = env("TTA_ANIM_PROBE");
             if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed < 8)
             {
                 ++printed;
@@ -859,7 +859,7 @@ namespace tta
             func_0x13a260(rdram, ctx, rt);
             ctx->pc = ra;
             static uint32_t printed = 0;
-            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            const char *probe = env("TTA_ANIM_PROBE");
             if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed++ < 8)
             {
                 const uint32_t e4 = read32(rdram, e + 4), rec = ctx->r[2].uw[0];
@@ -878,7 +878,7 @@ namespace tta
             ctx->pc = ra;
             ++g_poseCalls;
             static uint32_t posePrinted = 0;
-            if (std::getenv("TTA_POSE_PROBE") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_POSE_PROBE"))) && posePrinted++ < 6)
+            if (env("TTA_POSE_PROBE") && frame(rdram) >= static_cast<uint32_t>(std::atoi(env("TTA_POSE_PROBE"))) && posePrinted++ < 6)
             {
                 const uint32_t cur = read32(rdram, e + 0xe0);
                 std::printf("[tta:pose] E %x (calls so far %u) from %x: E+0xe0 %x E+0x474 %.3g:", e, g_poseCalls, ra, cur,
@@ -898,7 +898,7 @@ namespace tta
         void noteCharacter(const uint8_t *rdram, uint32_t e, uint32_t from, const char *setter)
         {
             g_lastSetter = setter[7] == '9' ? 1 : 2;
-            const char *probe = std::getenv("TTA_CHAR_PROBE");
+            const char *probe = env("TTA_CHAR_PROBE");
             if (!probe || frame(rdram) != static_cast<uint32_t>(std::atoi(probe)))
                 return;
             int16_t stamp, id, which;
@@ -945,8 +945,8 @@ namespace tta
             if (traceLevel() >= 1 && frame(rdram) % 120 == 0 && (g_skinInside + g_skinOutside) % 50 == 1)
                 std::printf("[tta:3d] skins drawn inside VisualEntity %u, outside %u\n", g_skinInside, g_skinOutside);
             const uint32_t ra = ctx->r[31].uw[0];
-            const char *only = std::getenv("TTA_SKIN_ONLY");
-            if (!std::getenv("TTA_NO_SKIN") && (!only || std::atoi(only) == g_lastSetter))
+            const char *only = env("TTA_SKIN_ONLY");
+            if (!env("TTA_NO_SKIN") && (!only || std::atoi(only) == g_lastSetter))
                 drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
             func_0x225fb0(rdram, ctx, rt);
             ctx->pc = ra;

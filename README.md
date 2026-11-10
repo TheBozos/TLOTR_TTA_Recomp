@@ -10,7 +10,7 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
-![Status](https://img.shields.io/badge/status-cinematics%20and%20first%20battle%20in%203D-e8a317)
+![Status](https://img.shields.io/badge/status-first%20battle%20native%20at%2060%20fps-17a35b)
 
 </div>
 
@@ -59,6 +59,14 @@ submodule points at `tta/integration`, the three merged, until they land.
 what remains open.
 
 ## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-nazgul-scream.png" width="400" alt="The first battle on BozoEngine: a Black Rider casting Nazgul Scream, the battle HUD over it">
+  <img src="docs/screenshots/2026-11-10-bozo-first-battle.png" width="400" alt="The first battle on BozoEngine: a critical hit, Berethor down and the two Black Riders over him">
+</p>
+
+**2026-11-10.** The first battle again, all native, at 60 frames/s: the Black Riders' Nazgul Scream and Wraith
+attacks, Berethor falling to the scripted critical hit.
 
 <p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-berethor-riding.png" width="400" alt="Berethor riding his horse through the dead forest, drawn natively on BozoEngine">
