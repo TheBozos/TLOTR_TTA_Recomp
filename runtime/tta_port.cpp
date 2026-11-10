@@ -11,6 +11,7 @@ namespace tta
     void installRender(bozo::port::Registry &registry); // tta_render.cpp
     void installTwoD(bozo::port::Registry &registry);   // tta_2d.cpp
     void installThreeD(bozo::port::Registry &registry); // tta_3d.cpp
+    void installPose(bozo::port::Registry &registry);   // tta_pose.cpp
 
     namespace
     {
@@ -54,6 +55,7 @@ namespace tta
         installRender(registry);
         installTwoD(registry);
         installThreeD(registry);
+        installPose(registry);
         registry.registerFunction(0x21b348, resetVu1State);
         registry.registerFunction(0x277b58, ipuInit);
         registry.registerFunction(0x216118, busyPaths);

@@ -37,7 +37,7 @@ Geometry by shader type:
   * type 17 (scbm WeightedSkin, VU1 set 8df1e059, batch program 0x378): kind 3, see skin_batch /
     skin_sections. Per kind-1 section ("part"): a byte stream of DMA chunks (palette entries
     {skeleton bone, VU offset}, material index) and a VIF stream; per MSCNT 3-qword vertices
-    (normal*1024 + influence, position*geometry+0x18 scale + matrix-cache slot), V4-8 influence
+    (normal*1024 + influence, position + matrix-cache slot), V4-8 influence
     records (4 palette offsets, 4 weights*127), and one entry per GS strip vertex (s, t /1024,
     source vertex, output slot | drawn flag) that may name a vertex of the previous batch.
     Material = name record -> texture id by the game's name hash 0x26ce88 (see load_name_hash).
@@ -60,13 +60,15 @@ Output: one file per resource <type>_<index>[_v<n>].mesh and index.txt. File lay
              if shader type 21: 16 f32 matrix, u16 instance#, u16 group, u32 +0x4c word, 256 u32 colours
              then the batches; kind 3 instead: u32 section count, per section {u32 section index
              (its bit in the visibility mask G+0x280), u32 batch count, batches}
-    skinned batch: as below but each vertex is 64 bytes {f32 x, y, z (bind/model space, already
-             times the geometry+0x18 scale), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (0x80808080:
+    skinned batch: as below but each vertex is 64 bytes {f32 x, y, z (bind/model space: the VU's
+             (int/1024) * the geometry+0x18 scale; the skin set's VIF packet 0x354968 sets STROW
+             8224.0 and VU35.x = 8224.0, so each 16-bit int v unpacks (STMOD 1) to 8224 + v/1024 and
+             the bias leaves v/1024; normals and s, t use the same /1024), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (0x80808080:
              the mesh carries no vertex colour, the VU lights it), u8 bone[4] (skeleton indices into
              *(G+0x290); the 3-byte palette entries could carry u16 indices but the disc's maximum
              is 148: a larger one is a warning), f32 weight[4] (/127, as the VU uses them; unused =
-             0), u8 adc, 7 pad}; PRIM 0x1c (strip, the GIF tag is built by
-             the VU from constants), no registers.
+             0), u8 adc, 7 pad}; PRIM 0x7c (strip, Gouraud, textured, fog, blend: the tag
+             template at VU 40 from that packet), no registers.
     batch  : u64 texture id (TEX0 of the A+D block in force, 0 = none), u16 GS PRIM (effective: type
              | IIP<<3 | TME<<4 | FGE<<5 | ABE<<6 | AA1<<7 | FST<<8 | CTXT<<9 | FIX<<10), u8 colour
              mode (0 RGBA, 1 index into the node's colour table), u8 register count, u32 vertex count,
@@ -546,7 +548,7 @@ SKIN_STATS = Counter()
 
 def skin_batch(b, palette, cache, prev, scale, tex, warn):
     """One MSCNT: q0 = (output count, vertex end | 0x8000, ..), q1.y = vertex start | 0x8000; vertices
-    are 3 qwords {normal x y z (x1024), w}, {position x y z (x geometry scale), w = blended-matrix
+    are 3 qwords {normal x y z (x1024), w}, {position x y z (/1024 x geometry scale), w = blended-matrix
     cache slot (| flag)}, {VU scratch}; normal.w: 0x8000 | record address = blend the record's bones
     (and keep the result in the cache slot), 0x8000 alone = as the previous vertex, < 0x8000 = the
     matrix cached at that slot (possibly by an earlier batch: the cache persists in VU memory); influence records are 2 V4-8
@@ -556,6 +558,7 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
     [q1.w, vertex start) name vertices of the previous batch (still in VU memory). prev: that batch's
     vertices; returns (batch, vertices) or (None, None)."""
     m = b.mem
+    pscale = scale / 1024.0  # (row 8224.0 + v/1024) - VU35.x 8224.0, then * VU33.w = BONE+0x18
     if 0 not in m or 1 not in m:
         warn('skin batch without header')
         return None, None
@@ -601,7 +604,7 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
             SKIN_STATS['influences %d' % sum(1 for x in ws if x)] += 1
         nx, ny, nz = (_s(x) / 1024.0 for x in nq[:3])
         ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
-        verts[a] = ((_s(pq[0]) * scale, _s(pq[1]) * scale, _s(pq[2]) * scale),
+        verts[a] = ((_s(pq[0]) * pscale, _s(pq[1]) * pscale, _s(pq[2]) * pscale),
                     (nx / ln, ny / ln, nz / ln), infl)
     out = [None] * nout
     for e in range(3, vstart):  # entries fill [3, vertex start); the last ones may repeat (padding)
@@ -622,7 +625,7 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
     if any(v is None for v in out):
         warn('skin output slot not filled')
         return None, None
-    return dict(tex=tex, prim=0x1c, cmode=0, regs=[], verts=out, skin=True), verts
+    return dict(tex=tex, prim=0x7c, cmode=0, regs=[], verts=out, skin=True), verts
 
 
 def skin_sections(p, n, warn):

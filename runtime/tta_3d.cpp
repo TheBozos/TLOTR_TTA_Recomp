@@ -498,6 +498,13 @@ namespace tta
 
         void drawSkin(const uint8_t *rdram, uint32_t node)
         {
+            // Only the passes into the displayed frame (FBP 0 / 0x70): a character is also drawn into off-screen targets
+            // (shadows, reflections) with other cameras.
+            {
+                const uint32_t ds = read32(rdram, 0x36f850), fbp = read32(rdram, ds + 0x150) & 0x1ffu;
+                if (fbp != 0 && fbp != 0x70)
+                    return;
+            }
             const uint32_t record = read32(rdram, node);
             std::string type;
             uint32_t index = 0, offset = 0, size = 0;
@@ -563,6 +570,85 @@ namespace tta
                         at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
                 return at->second;
             };
+            if (std::getenv("TTA_SKIN_PROBE2") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE2"))) && frame(rdram) < static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE2"))) + 2)
+            {
+                const uint32_t e = g - 0x1d0;
+                const float sx = std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]), sy = std::sqrt(w[4] * w[4] + w[5] * w[5] + w[6] * w[6]);
+                std::printf("[tta:skin2] %s %u +%x fresh %d E %x scale474 %.4g Wscale %.3g/%.3g Wpos %.4g %.4g %.4g bone0 %.4g %.4g %.4g t %.4g %.4g %.4g RC20pos %.4g %.4g %.4g root %u\n",
+                            type.c_str(), index, offset, fresh ? 1 : 0, e, readFloat(rdram, e + 0x474), sx, sy, w[12], w[13], w[14],
+                            readFloat(rdram, bones), readFloat(rdram, bones + 20), readFloat(rdram, bones + 40),
+                            readFloat(rdram, bones + 48), readFloat(rdram, bones + 52), readFloat(rdram, bones + 56),
+                            object[12], object[13], object[14], rootBone);
+            }
+            if (std::getenv("TTA_SKIN_PROBE3") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE3"))) &&
+                frame(rdram) < static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE3"))) + 1 && !it->second.batches.empty())
+            {
+                const Batch &b0 = it->second.batches[0];
+                std::printf("[tta:skin3] %s %u fresh %d Wpos %.3g %.3g %.3g\n", type.c_str(), index, fresh ? 1 : 0, w[12], w[13], w[14]);
+                for (size_t v = 0; v < b0.vertices.size() && v < 2; ++v)
+                {
+                    const uint8_t bi = b0.bones[v][0];
+                    const auto &m = bone(bi);
+                    const float in[3] = {b0.vertices[v].x, b0.vertices[v].y, b0.vertices[v].z};
+                    float bp[3], wp[3];
+                    transformPoint(m.data(), in, 1.0f, bp);
+                    transformPoint(w, bp, 1.0f, wp);
+                    std::printf("[tta:skin3]  v%zu (%.3g %.3g %.3g) bone %u [%.3g %.3g %.3g | %.3g %.3g %.3g | %.3g %.3g %.3g | t %.3g %.3g %.3g] -> model %.3g %.3g %.3g world %.4g %.4g %.4g\n",
+                                v, in[0], in[1], in[2], bi, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10], m[12], m[13], m[14],
+                                bp[0], bp[1], bp[2], wp[0], wp[1], wp[2]);
+                }
+            }
+            if (std::getenv("TTA_SKIN_PROBE4") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE4"))))
+            {
+                std::map<int, std::pair<int, float>> farBones; // bone -> (vertices, worst distance)
+                size_t total = 0;
+                for (const Batch &b : it->second.batches)
+                    for (size_t v = 0; v < b.vertices.size(); ++v)
+                    {
+                        ++total;
+                        const float in[3] = {b.vertices[v].x, b.vertices[v].y, b.vertices[v].z};
+                        float p[3] = {};
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            if (b.weights[v][k] == 0.0f)
+                                continue;
+                            float bp[3];
+                            transformPoint(bone(b.bones[v][k]).data(), in, 1.0f, bp);
+                            for (int c = 0; c < 3; ++c)
+                                p[c] += b.weights[v][k] * bp[c];
+                        }
+                        const float d = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                        if (d > 3.0f)
+                        {
+                            auto &e = farBones[b.bones[v][0]];
+                            ++e.first;
+                            e.second = std::fmax(e.second, d);
+                        }
+                    }
+                std::printf("[tta:skin4] %s %u: %zu vertices, bones used far (model space, > 3 units):", type.c_str(), index, total);
+                for (const auto &[bi, e] : farBones)
+                {
+                    const auto &m = bone(static_cast<uint8_t>(bi));
+                    std::printf(" b%d x%d max %.3g [t %.3g %.3g %.3g s %.3g]", bi, e.first, e.second, m[12], m[13], m[14], m[0]);
+                }
+                std::printf("\n");
+            }
+            if (std::getenv("TTA_SKIN_PROBE5") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_PROBE5"))))
+            {
+                const uint32_t e = g - 0x1d0;
+                const uint32_t cur = read32(rdram, e + 0xe0), base = read32(rdram, e + 0xe4), stamp = read32(rdram, e + 0xe8);
+                std::printf("[tta:skin5] %s %u E %x G+0x290 %x E+0xe0 %x E+0xe4 %x E+0xe8 %x frameid %x\n", type.c_str(), index, e, bones,
+                            cur, base, stamp, read32(rdram, 0x35fc94));
+                const uint32_t ptrs[3] = {cur, base, base + 64 * 64};
+                for (uint32_t p : ptrs)
+                {
+                    std::printf("[tta:skin5]   at %x:", p);
+                    for (int b = 0; b < 6; ++b)
+                        std::printf(" b%d[s %.3g t %.3g %.3g %.3g]", b, readFloat(rdram, p + b * 64), readFloat(rdram, p + b * 64 + 48),
+                                    readFloat(rdram, p + b * 64 + 52), readFloat(rdram, p + b * 64 + 56));
+                    std::printf("\n");
+                }
+            }
             static int skinProbes = 0;
             if (std::getenv("TTA_SKIN_PROBE") && skinProbes < 4 && !it->second.batches.empty() &&
                 !it->second.batches[0].vertices.empty())
@@ -649,6 +735,8 @@ namespace tta
                         const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * std::fmax(light, 0.0f);
                         rgba |= static_cast<uint32_t>(std::fmin(value, 255.0f)) << (c * 8);
                     }
+                    if (std::getenv("TTA_SKIN_NOLIGHT"))
+                        rgba = batch.colours[v] & 0xffffffu;
                     const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
                     skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
                 }
@@ -687,8 +775,135 @@ namespace tta
             ++g_skinsDrawn;
         }
 
+        // The VisualEntity draw 0x1b1b18(E, W, ...): the only one that sets G (0x225920) for its skinned nodes.
+        int g_inVisualEntity = 0;
+        uint32_t g_skinInside = 0, g_skinOutside = 0;
+
+        void visualEntity(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            ++g_inVisualEntity;
+            func_0x1b1b18(rdram, ctx, rt);
+            --g_inVisualEntity;
+            ctx->pc = ra;
+        }
+
+        std::map<uint32_t, uint32_t> g_setters;
+
+        uint32_t g_samplerCalls = 0, g_samplerZero = 0, g_deferred = 0;
+
+        // Discovery: the per-frame animation update 0x137800(E, f12 = dt) (skin_spec 7).
+        void animate(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], e = ctx->r[4].uw[0];
+            const float dt = ctx->f[12];
+            static uint32_t calls = 0, lastFrame = 0, printed = 0;
+            ++calls;
+            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed < 12)
+            {
+                ++printed;
+                int16_t e8;
+                std::memcpy(&e8, rdram + ((e + 8) & kMask), 2);
+                const uint32_t e4 = read32(rdram, e + 4);
+                std::printf("[tta:anim] frame %u from %x E %x *E %x E+4 %x (+0x1c %x) E+8 %d E+0xc %x dt %.4g calls %u\n", frame(rdram), ra,
+                            e, read32(rdram, e), e4, e4 ? read32(rdram, e4 + 0x1c) : 0, e8, read32(rdram, e + 0xc), dt, calls);
+            }
+            if (frame(rdram) != lastFrame)
+            {
+                if (probe && frame(rdram) % 600 == 0)
+                    std::printf("[tta:anim] frame %u: %u updates, %u samplings (%u gave 0), %u stopped inside\n", frame(rdram), calls, g_samplerCalls, g_samplerZero, g_deferred);
+                lastFrame = frame(rdram);
+            }
+            func_0x137800(rdram, ctx, rt);
+            if (rt->stopDeferred || ctx->pc != ra)
+                ++g_deferred;
+            ctx->pc = ra;
+        }
+
+        // Discovery: the animation sampler 0x13ea30(E): the pose buffer, 0 when nothing samples (skin_spec 7).
+        void sample(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], e = ctx->r[4].uw[0];
+            func_0x13ea30(rdram, ctx, rt);
+            ctx->pc = ra;
+            ++g_samplerCalls;
+            if (ctx->r[2].uw[0] == 0)
+                ++g_samplerZero;
+            static uint32_t printed = 0;
+            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed < 8)
+            {
+                ++printed;
+                const uint32_t anim = read32(rdram, e + 0xc);
+                std::printf("[tta:anim] sampler(E %x) from %x -> %x; anim %x: %x %x %x %x %x %x %x %x\n", e, ra, ctx->r[2].uw[0], anim,
+                            read32(rdram, anim), read32(rdram, anim + 4), read32(rdram, anim + 8), read32(rdram, anim + 12),
+                            read32(rdram, anim + 16), read32(rdram, anim + 20), read32(rdram, anim + 24), read32(rdram, anim + 28));
+            }
+        }
+
+        // Discovery: the skeleton record 0x13a260(E) (skin_spec 7).
+        void skeletonRecord(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], e = ctx->r[4].uw[0];
+            func_0x13a260(rdram, ctx, rt);
+            ctx->pc = ra;
+            static uint32_t printed = 0;
+            const char *probe = std::getenv("TTA_ANIM_PROBE");
+            if (probe && frame(rdram) >= static_cast<uint32_t>(std::atoi(probe)) && printed++ < 8)
+            {
+                const uint32_t e4 = read32(rdram, e + 4), rec = ctx->r[2].uw[0];
+                std::printf("[tta:anim] skeleton(E %x) from %x -> %x (N %u); E+4 %x, *(E+4)+0x1c %x, *that %x\n", e, ra, rec,
+                            rec ? read32(rdram, rec) : 0, e4, e4 ? read32(rdram, e4 + 0x1c) : 0,
+                            e4 ? read32(rdram, read32(rdram, e4 + 0x1c)) : 0);
+            }
+        }
+
+        // Discovery: the pose builder 0x133298(E, localPose, 1) (skin_spec 6).
+        uint32_t g_poseCalls = 0;
+        void buildPose(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], e = ctx->r[4].uw[0];
+            func_0x133298(rdram, ctx, rt);
+            ctx->pc = ra;
+            ++g_poseCalls;
+            static uint32_t posePrinted = 0;
+            if (std::getenv("TTA_POSE_PROBE") && frame(rdram) >= static_cast<uint32_t>(std::atoi(std::getenv("TTA_POSE_PROBE"))) && posePrinted++ < 6)
+            {
+                const uint32_t cur = read32(rdram, e + 0xe0);
+                std::printf("[tta:pose] E %x (calls so far %u) from %x: E+0xe0 %x E+0x474 %.3g:", e, g_poseCalls, ra, cur,
+                            readFloat(rdram, e + 0x474));
+                for (int b = 0; b < 5; ++b)
+                    std::printf(" b%d[%.3g %.3g %.3g | t %.3g %.3g %.3g]", b, readFloat(rdram, cur + b * 64),
+                                readFloat(rdram, cur + b * 64 + 20), readFloat(rdram, cur + b * 64 + 40),
+                                readFloat(rdram, cur + b * 64 + 48), readFloat(rdram, cur + b * 64 + 52), readFloat(rdram, cur + b * 64 + 56));
+                std::printf("\n");
+            }
+        }
+
+        void setSkinContext(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            if (traceLevel() >= 1)
+            {
+                ++g_setters[ra];
+                static bool printed = false;
+                if (frame(rdram) >= 5000 && !printed && (printed = true))
+                {
+                    for (const auto &[at, n] : g_setters)
+                        std::printf("[tta:3d] G set from %x: %u\n", at, n);
+                    g_setters.clear();
+                }
+            }
+            func_0x225920(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
         void skin(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
+            ++(g_inVisualEntity ? g_skinInside : g_skinOutside);
+            if (traceLevel() >= 1 && frame(rdram) % 120 == 0 && (g_skinInside + g_skinOutside) % 50 == 1)
+                std::printf("[tta:3d] skins drawn inside VisualEntity %u, outside %u\n", g_skinInside, g_skinOutside);
             const uint32_t ra = ctx->r[31].uw[0];
             if (std::getenv("TTA_SKIN")) // the characters: off until their bones and scale are right (notes)
                 drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
@@ -700,6 +915,11 @@ namespace tta
     void installThreeD(bozo::port::Registry &registry)
     {
         registry.registerFunction(0x225fb0, skin);
+        registry.registerFunction(0x1b1b18, visualEntity);
+        registry.registerFunction(0x225920, setSkinContext);
+        registry.registerFunction(0x137800, animate);
+        registry.registerFunction(0x13ea30, sample);
+        registry.registerFunction(0x13a260, skeletonRecord);
         registry.registerFunction(0x2204f0, staticRender<0x2204f0, func_0x2204f0>);
         registry.registerFunction(0x21fd30, staticRender<0x21fd30, func_0x21fd30>);
         registry.registerFunction(0x2201a8, staticRender<0x2201a8, func_0x2201a8>);

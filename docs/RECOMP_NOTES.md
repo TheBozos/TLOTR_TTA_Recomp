@@ -116,6 +116,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   viewport (RC+0x440/0x450) x RC+0x260 x W. Open: type 5 (0x221630, another argument), water (19), effects, the
   render targets (blur, glows); the battle's 3D is not yet checked against the console (the camera swings during the
   Black Riders' attacks; characters come out dark). TTA_DETERMINISTIC=1 runs the window on the game's clock.
+- **3D, 2026-11-10 continued.** The projection is the game's: w > 0 in front (an earlier "negate the matrix" came from a
+  probe vertex behind the camera and drew the scene behind the camera through the centre). The intro cinematic's forest
+  now looks as on the console. Textured batches keep a cut-out alpha test. Characters (behind TTA_SKIN=1 for now):
+  the skinned vertices carry the skin program's /1024 (unit-height models; scale E+0x474 in bone 0); the pose builder
+  0x133298/0x133148 is native (runtime/tta_pose.cpp: quaternion rows as VU0 0xc28, B[i] = Local . B[parent], bone
+  controllers E+0x164, B[i] = InvBind[i] . B[i] read from main RAM; skin_spec.md section 8). Open: (1) the sampled pose's
+  quaternions have a wrong w (|q|^2 up to 60, x/y/z plausible): the blends' VU0 program 0xdb0 as translated by
+  tools/tta_vu0_gen.py is the suspect; w is rebuilt from xyz meanwhile (TTA_POSE_KEEP_W=1 keeps the game's);
+  (2) some drawn characters are never posed by this path (their E+0xe8 stamp lags the frame id): another pose path,
+  or G pointing at another object (G = E + 0x1d0 from 0x1b1b18 and 0x11ab40/0x2251b0). Probes: TTA_SKIN_PROBE[2-5],
+  TTA_ANIM_PROBE, TTA_POSE_TRACE.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
