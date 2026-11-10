@@ -89,6 +89,19 @@ the game's behaviour); its code is in the history before `8ade037`.
     record's size: the UI renderer 0x305330 reads a group's memory as one 512 x 512 8-bit image (TBW 8 over 32 x 32
     records, CLUT at the group's base), which no record describes; open.
   Result: the loading screen (the One Ring and its Elvish line) drawn natively.
+- **The UI: EA Apt** (2026-11-10; map in build/bozo/ui_spec.md, local). TTA's front end and HUD are EA Apt movies
+  ('apxf' resources: titl, apti, cons, txf_ ...); 'fuse' resources are PFR fonts (Frutiger, Neue Hammer Unziale),
+  'subT' the localised strings. Shapes and bitmaps go through 0x2c9a08 to the strips 0x218fb8(prim, xyz, adc mask,
+  rgba, st, n), drawn natively like LLPrims (a2 is a "closes no triangle" bit mask, a3 the colours: 0 = P+0xc0). Text:
+  each field's string is rasterised by the game's own PFR code (0x2fb040) into a 512 x 512 8-bit canvas in EE memory
+  (TM = *(0x37c490), canvas TM+0x18: +0 w, +4 h, +8 TBP, +0x20 pitch, +0x2c pixels; palette (i << 24) | 0xbfbfbf, the
+  coverage over grey): plain linear pixels, made a texture each time the game sends the canvas (0x2c80e8). Apt's
+  masks write alpha only (FRAME FBMSK 0xffffff): skipped. The title screen is complete.
+- **libmc: sceMcSync** (0x27d058) was missing from the symbol map (TTA's SDK is newer than the references'): the
+  game's own copy waited on a semaphore the native libmc never signals, and after New Game the save manager polled
+  sceMcGetInfo forever. Named, a pad script (CROSS at 2600, 3020, 3380, START at 4100) takes a headless run to the
+  first battle (Berethor against the Black Riders: the battle HUD at ~6000 frames). TTA_RES_TRACE=1 lists resource
+  loads (the scene ~2500, the battle's bMAN/cbin/gmv ~5500), TTA_3D_TRACE=1 the 3D shader renders by node key.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp

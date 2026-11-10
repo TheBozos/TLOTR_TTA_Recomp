@@ -8,7 +8,7 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
-![Status](https://img.shields.io/badge/status-intro%20movies%20in%20a%20window-e8a317)
+![Status](https://img.shields.io/badge/status-first%20battle%20reached%2C%203D%20next-e8a317)
 
 </div>
 
@@ -38,7 +38,8 @@ the 3D. Windows comes first, then Linux and macOS.
 | VU0 microprograms translated to C++ from the ELF; movies through a native libmpeg (BozoEngine PR #82) | ✅ |
 | Native frame: the chain built but never sent, the swap publishing to the engine's renderer; the movies drawn | ✅ |
 | Textures converted offline from the disc (tools/tta_textures.py); the 2D of LLPrims drawn natively: the loading screen | ✅ |
-| Native draw hooks: menus (render targets, the UI atlas), text and 3D from the game's own data | 🔧 |
+| The UI (EA Apt: title, menus, battle HUD) and its text drawn natively; the boot reaches the first battle | ✅ |
+| 3D: terrain and characters from meshes converted offline, matrices from the game | 🔧 |
 | Window, sound output, pad from the PC | ✅ |
 | The game playable again to the first battle, then through | ⏳ |
 | Linux and macOS builds | ⏳ |
@@ -55,6 +56,14 @@ submodule points at `tta/integration`, the three merged, until they land.
 what remains open.
 
 ## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-title-screen.png" width="400" alt="The title screen in the BozoEngine window: Minas Tirith, the logo and New Game / Load Game / More, drawn natively">
+  <img src="docs/screenshots/2026-11-10-bozo-first-battle-hud.png" width="400" alt="The first battle's HUD in the BozoEngine window: Berethor 177 HP, 65 AP, and the Black Rider's Wraith Thrust; the 3D is not drawn yet">
+</p>
+
+**2026-11-10.** The title screen (EA Apt's background, logo and menu, its text rasterised by the game's own fonts)
+and the first battle reached again: its HUD is native, the 3D (forest, Berethor, the Black Riders) comes next.
 
 <p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-loading-screen.png" width="400" alt="The loading screen in the BozoEngine window: the One Ring's inscription and an Elvish line, drawn natively">
