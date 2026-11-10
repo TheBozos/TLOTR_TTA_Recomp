@@ -1270,8 +1270,8 @@ namespace tta
         // default 0x377990 = (2, -2, 0); y is down) into a closed prism, its faces counted into the stencil (z-pass: up for
         // one screen winding, down for the other; a pixel whose surface lies inside the swept body keeps a count), then the
         // frame darkened where the count is not 0. The game does the same with set 5's program 0x178 (the silhouette edges
-        // and caps, +/-) and its full-screen passes. Opt-in (TTA_SHADOWS=1): PCSX2 shows no character shadow in the first battle, so the
-        // light and strength are not checked against the console yet. TTA_SHADOW_REACH (x the mesh's size)
+        // and caps, +/-) and its full-screen pass (0x21ae10: the frame x (1 - TA0/128) where the count is not 0; checked in a PCSX2 GS dump).
+        // TTA_NO_SHADOWS=1 turns it off. TTA_SHADOW_REACH (x the mesh's size)
         // and TTA_SHADOW_ALPHA (0..0x80) tune it.
         void drawShadowVolume(const uint8_t *rdram)
         {
@@ -1422,8 +1422,46 @@ namespace tta
             darken.stencilNotZero = !env("TTA_SHADOW_NO_STENCIL");
             darken.colourMask = 7u;
             const char *alpha = env("TTA_SHADOW_ALPHA");
-            const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : 0x40u;
+            // The game's strength (0x21ae10's TEXA.TA0 = *(0x3779a0), set by 0x225218 from G+0x2b4 when the character has
+            // its own light at G+0x298): the frame times 1 - TA0 / 128 where a volume counted (0x13..0x20 seen: -15..25%).
+            const uint32_t gameStrength = (lightAt ? read32(rdram, g + 0x2b4) : read32(rdram, 0x3779a0)) & 0xffu;
+            const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : gameStrength;
             wholeScreen(darken, std::min<uint32_t>(strength, 0x80u) << 24);
+        }
+
+        // TTA_POST_DUMP=<game frame>: a discovery probe (not a render path): the packet bytes the post passes build in
+        // that frame (the packet pointer *(0x3b5bf8) before and after each call) to build/post_<function>_<n>.bin, with the
+        // draw state (FRAME_1, TEST, ALPHA, ZBUF) printed, for decoding offline.
+        template <uint32_t Address, void (*Original)(uint8_t *, R5900Context *, Runtime *)>
+        void postProbe(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            const char *dump = env("TTA_POST_DUMP");
+            const bool on = dump && frame(rdram) >= static_cast<uint32_t>(std::atoi(dump)) &&
+                            frame(rdram) < static_cast<uint32_t>(std::atoi(dump)) + 2;
+            const uint32_t a0 = ctx->r[4].uw[0], before = read32(rdram, 0x3b5bf8);
+            Original(rdram, ctx, rt);
+            if (on)
+            {
+                static int n = 0;
+                const uint32_t after = read32(rdram, 0x3b5bf8);
+                char path[128];
+                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/post_%x_%d.bin", Address, n++);
+                if (after > before && after - before < 0x100000)
+                    if (FILE *f = std::fopen(path, "wb"))
+                    {
+                        std::fwrite(rdram + (before & kMask), 1, after - before, f);
+                        std::fclose(f);
+                    }
+                const uint32_t ds = read32(rdram, 0x36f850);
+                std::printf("[tta:post] frame %u %x(a0 %x): %u bytes at %x -> %s; FRAME_1 %llx TEST %llx ALPHA %llx ZBUF %llx\n",
+                            frame(rdram), Address, a0, after - before, before, path,
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x150)),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x140)),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x100)),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x120)));
+            }
+            ctx->pc = ra;
         }
 
         // 0x2255d0: the type-18 render (PRMODE 0x40 flat untextured, template 0x377a10) on a skinned node.
@@ -1460,7 +1498,7 @@ namespace tta
             }
             if (env("TTA_SHADOW_ORDER"))
                 std::printf("[tta:shadow] frame %u: type-18 pass after %u nodes drawn\n", frame(rdram), g_drawn);
-            if (env("TTA_SHADOWS"))
+            if (!env("TTA_NO_SHADOWS"))
             {
                 g_shadowWorld.clear();
                 g_shadowPass = true;
@@ -1515,8 +1553,11 @@ namespace tta
         registry.registerFunction(0x221a10, staticRender<0x221a10, func_0x221a10>);
         registry.registerFunction(0x221a18, staticRender<0x221a18, func_0x221a18>);
         registry.registerFunction(0x2255d0, type18);
-        registry.registerFunction(0x21a778, staticRender<0x21a778, func_0x21a778>);
-        registry.registerFunction(0x21aa88, staticRender<0x21aa88, func_0x21aa88>);
+        registry.registerFunction(0x21a778, postProbe<0x21a778, func_0x21a778>);
+        registry.registerFunction(0x21aa88, postProbe<0x21aa88, func_0x21aa88>);
+        registry.registerFunction(0x21ae10, postProbe<0x21ae10, func_0x21ae10>);
+        registry.registerFunction(0x21b0f8, postProbe<0x21b0f8, func_0x21b0f8>);
+        registry.registerFunction(0x211b10, postProbe<0x211b10, func_0x211b10>);
         registry.registerFunction(0x2132c8, staticRender<0x2132c8, func_0x2132c8>);
         registry.registerFunction(0x21d9f8, staticRender<0x21d9f8, func_0x21d9f8>);
         registry.registerFunction(0x1bdbe8, render);

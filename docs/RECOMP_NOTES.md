@@ -190,6 +190,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   the first battle: the light, reach and strength are not checked against the console. TTA_SHADOW_SHOW=1 draws the
   volumes in colour, TTA_SHADOW_UP_ONLY=1 / TTA_SHADOW_NO_STENCIL=1 test the stencil, TTA_SHADOW_REACH /
   TTA_SHADOW_ALPHA tune it, TTA_SHADOW_ORDER=1 prints the pass order, light and bounds.
+- **Shadows checked in a PCSX2 GS dump** (Shift+F8 in PCSX2: one frame's GS packets, .gs.zst; parsed offline by a
+  throw-away script): layer 4 is the shadow pipeline. 0x21a778 inverts Z in place (FBP 0x100 = the Z buffer, white -
+  Cd, FBMSK alpha), 0x21aa88 clears the count buffer 0x180 (colour and Z share it), then per character the volume's
+  strips go into 0x180 with Z GREATER against the inverted Z and additive wrapping colour (B +1 / 0xff), and
+  0x21ae10 darkens the frame where the count is not 0: Cd x (1 - TA0/128), TA0 = *(0x3779a0) (G+0x2b4 when G+0x298
+  is set): 0x13-0x20, i.e. 15-25% darker. 0x21b0f8 restores Z. The native shadows now use that strength and are on
+  by default (TTA_NO_SHADOWS=1 off). The console's haze is not a post pass: it is scene geometry (large mipmapped
+  textured fans, huge additive strips, a faint veil), the Glows objects (types 9/20) not drawn natively yet.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are
