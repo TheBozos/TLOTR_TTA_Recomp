@@ -1,3 +1,5 @@
+<img src="docs/branding/tta_banner.png" alt="The Lord of the Rings: The Third Age, native PC port by The Bozos" width="100%">
+
 <div align="center">
 
 # TLOTR_TTA_Recomp
