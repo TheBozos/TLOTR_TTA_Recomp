@@ -1538,6 +1538,13 @@ namespace tta
         registry.registerFunction(0x21fd30, staticRender<0x21fd30, func_0x21fd30>);
         registry.registerFunction(0x2201a8, staticRender<0x2201a8, func_0x2201a8>);
         registry.registerFunction(0x221630, staticRender<0x221630, func_0x221630>);
+        registry.registerFunction(0x221760, staticRender<0x221760, func_0x221760>);
+        registry.registerFunction(0x21f010, staticRender<0x21f010, func_0x21f010>);
+        registry.registerFunction(0x21f088, staticRender<0x21f088, func_0x21f088>);
+        registry.registerFunction(0x21f980, staticRender<0x21f980, func_0x21f980>);
+        registry.registerFunction(0x21fce8, staticRender<0x21fce8, func_0x21fce8>);
+        registry.registerFunction(0x21c098, staticRender<0x21c098, func_0x21c098>);
+        registry.registerFunction(0x21c420, staticRender<0x21c420, func_0x21c420>);
         registry.registerFunction(0x2207a8, staticRender<0x2207a8, func_0x2207a8>);
         registry.registerFunction(0x21ffe8, staticRender<0x21ffe8, func_0x21ffe8>);
         registry.registerFunction(0x2205c0, staticRender<0x2205c0, func_0x2205c0>);

@@ -198,6 +198,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   is set): 0x13-0x20, i.e. 15-25% darker. 0x21b0f8 restores Z. The native shadows now use that strength and are on
   by default (TTA_NO_SHADOWS=1 off). The console's haze is not a post pass: it is scene geometry (large mipmapped
   textured fans, huge additive strips, a faint veil), the Glows objects (types 9/20) not drawn natively yet.
+- **The mist: the Glows objects** (mapping in progress). Shader types 9 and 20 (ShaderObject_Glows_Ps2.c) have no
+  render at +0x2c; their table entries 13-16 are 0x21f010, 0x21f088, 0x21f980 (render, many a frame in the forest
+  and the battle) and 0x21fce8; 0x21ea18 / 0x21ea20 run around them, and 0x21c420 (with 0x21c098) generates their VU
+  microcode each frame into BSS (0x3f6f00 / 0x3faf00). A glow: S = *(instance + 4); +0xa0 flags (0x200, 0x2000:
+  0x21ef58 instead), +0xa4 intensity times a near/far ramp (+0x134's +0xe0 / +0xe4 against +0x8c's +0xa8), skipped
+  below 0.005; +0x88 a size given to 0x21f090, which sets the draw state, uploads matrices (0x210d10, 0x213140,
+  0x213068) and kicks the mesh at +0x134 (+0x46 count) through the packet at +0x138 (12 qwords). The level files hold
+  no type-9/20 nodes: the glows come from the effects (SFX/SFXGlow.c). On the console they are the forest's haze:
+  large mipmapped T4/T8 fans across the screen, huge additive strips (light shafts) and a faint grey-blue veil.
+  Types 1-4 never render in the first level; type 5's render is 0x221760 (0x221630 is its per-frame set-up).
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are
