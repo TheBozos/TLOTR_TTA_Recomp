@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace tta
@@ -156,10 +157,10 @@ namespace tta
                 for (int k = 0; k < 3; ++k)
                     t[k] = readFloat(rdram, entry + 0x10 + k * 4);
                 const float len = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
-                if (!std::getenv("TTA_POSE_KEEP_W") && std::fabs(len - 1.0f) > 0.05f)
+                if (std::getenv("TTA_POSE_REBUILD_W") && std::fabs(len - 1.0f) > 0.05f)
                 {
-                    // Interim: the sampled/blended pose comes with x, y, z right and w wrong (|q|^2 up to 60): w rebuilt
-                    // from xyz, its sign kept. The blend's VU0 microprogram 0xdb0 (tools/tta_vu0_gen.py) is the suspect.
+                    // Diagnostic: w rebuilt from xyz (its sign kept). The off-unit quaternions came from the VU0 LOI timing
+                    // fixed in tools/tta_vu0_gen.py; none are left.
                     const float xyz = q[0] * q[0] + q[1] * q[1] + q[2] * q[2];
                     const float w = xyz < 1.0f ? std::sqrt(1.0f - xyz) : 0.0f;
                     q[3] = q[3] < 0 ? -w : w;

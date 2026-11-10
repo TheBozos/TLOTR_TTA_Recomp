@@ -11,7 +11,8 @@ Execution model, one pair a cycle:
 - Q: DIV and SQRT land 7 cycles after issue, RSQRT 13, or at WAITQ; a read before that sees the old Q;
 - FMAND and FMEQ see the MAC flags as they were 4 pairs earlier (the FMAC pipeline's delay);
 - a branch's next pair is its delay slot; the E bit ends the program after the next pair;
-- LOI (the upper's I bit) loads I from the lower word, which the upper of that pair already uses.
+- LOI (the upper's I bit) loads I from the lower word at the end of the pair: the upper of that pair still
+  reads the old I; the next pair sees the new one (tools/tta_vu0_check.py replays recorded calls to check this).
 FMAC interlock stalls are not modelled (they do not change results, only the cycle count Q and the flags are timed on).
 Any instruction outside what TTA's two images use is refused, so a different image cannot be translated silently.
 """
@@ -159,8 +160,12 @@ def upper_insn(p):
 
 def lower_insn(p):
     w = p.lo
-    if p.up >> 31 & 1:  # I bit: the lower word is an immediate for I, which this pair's upper uses
-        p.lbody.append(f"ctx->vu0_i_bits = 0x{w:08x}u;")
+    if p.up >> 31 & 1:
+        # I bit: the lower word is loaded into I at the end of the pair, like any other write: this pair's upper
+        # still reads the previous I (TTA's 0xd38 / 0xdb0 sine series load each coefficient one pair before the
+        # MULi / ADDAi that uses it). Committed after the upper's block (the emitter puts commits that are not
+        # "= u;" / acc ones after it).
+        p.commit.append(f"ctx->vu0_i_bits = 0x{w:08x}u;")
         return "loi"
     op = (w >> 25) & 0x7F
     it, is_, imm11 = (w >> 16) & 31, (w >> 11) & 31, w & 0x7FF

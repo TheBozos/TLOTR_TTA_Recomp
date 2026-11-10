@@ -687,6 +687,7 @@ namespace tta
             }
             auto &renderer = bozo::render::Renderer::instance();
             std::vector<bozo::render::Vertex> skinned, triangles;
+            float extentMin[3] = {1e30f, 1e30f, 1e30f}, extentMax[3] = {-1e30f, -1e30f, -1e30f};
             for (const Batch &batch : it->second.batches)
             {
                 if (batch.section < 128 && !(visible[batch.section / 32] & (1u << (batch.section % 32))))
@@ -713,6 +714,11 @@ namespace tta
                             p[c] += weight * bp[c];
                             n[c] += weight * bn[c];
                         }
+                    }
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        extentMin[c] = std::fmin(extentMin[c], p[c]);
+                        extentMax[c] = std::fmax(extentMax[c], p[c]);
                     }
                     skinned[v].x = p[0];
                     skinned[v].y = p[1];
@@ -773,6 +779,10 @@ namespace tta
                 renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
             ++g_skinsDrawn;
+            if (std::getenv("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(std::getenv("TTA_SKIN_EXTENT"))))
+                std::printf("[tta:extent] %s %u: model x %.3g..%.3g y %.3g..%.3g z %.3g..%.3g; W pos %.4g %.4g %.4g scale %.3g\n",
+                            type.c_str(), index, extentMin[0], extentMax[0], extentMin[1], extentMax[1], extentMin[2], extentMax[2],
+                            w[12], w[13], w[14], std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]));
         }
 
         // The VisualEntity draw 0x1b1b18(E, W, ...): the only one that sets G (0x225920) for its skinned nodes.
@@ -881,6 +891,26 @@ namespace tta
             }
         }
 
+        // TTA_CHAR_PROBE=<frame>: each character a G setter installs that frame: its pose stamp (E+0xe8) against the
+        // frame id, its pose buffer, its animation and skeleton.
+        int g_lastSetter = 0; // 1: 0x225920 (VisualEntity), 2: 0x2251b0 (ChrCntl)
+
+        void noteCharacter(const uint8_t *rdram, uint32_t e, uint32_t from, const char *setter)
+        {
+            g_lastSetter = setter[7] == '9' ? 1 : 2;
+            const char *probe = std::getenv("TTA_CHAR_PROBE");
+            if (!probe || frame(rdram) != static_cast<uint32_t>(std::atoi(probe)))
+                return;
+            int16_t stamp, id, which;
+            std::memcpy(&stamp, rdram + ((e + 0xe8) & kMask), 2);
+            std::memcpy(&id, rdram + 0x35fc94, 2);
+            std::memcpy(&which, rdram + ((e + 8) & kMask), 2);
+            std::printf("[tta:char] %s from %x: E %x *E %x stamp %d (frame id %d) E+0xe0 %x E+0xe4 %x E+4 %x E+8 %d E+0xc %x "
+                        "E+0x474 %.3g E+0x460 %x\n",
+                        setter, from, e, read32(rdram, e), stamp, id, read32(rdram, e + 0xe0), read32(rdram, e + 0xe4),
+                        read32(rdram, e + 4), which, read32(rdram, e + 0xc), readFloat(rdram, e + 0x474), read32(rdram, e + 0x460));
+        }
+
         void setSkinContext(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
@@ -895,7 +925,17 @@ namespace tta
                     g_setters.clear();
                 }
             }
+            noteCharacter(rdram, ctx->r[4].uw[0], ra, "0x225920");
             func_0x225920(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
+        // 0x2251b0(G): the ChrCntl character draw's G setter (0x11ab40); G = E + 0x1d0.
+        void setSkinContextChr(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            noteCharacter(rdram, ctx->r[4].uw[0] - 0x1d0, ra, "0x2251b0");
+            func_0x2251b0(rdram, ctx, rt);
             ctx->pc = ra;
         }
 
@@ -905,7 +945,8 @@ namespace tta
             if (traceLevel() >= 1 && frame(rdram) % 120 == 0 && (g_skinInside + g_skinOutside) % 50 == 1)
                 std::printf("[tta:3d] skins drawn inside VisualEntity %u, outside %u\n", g_skinInside, g_skinOutside);
             const uint32_t ra = ctx->r[31].uw[0];
-            if (std::getenv("TTA_SKIN")) // the characters: off until their bones and scale are right (notes)
+            const char *only = std::getenv("TTA_SKIN_ONLY");
+            if (!std::getenv("TTA_NO_SKIN") && (!only || std::atoi(only) == g_lastSetter))
                 drawSkin(rdram, ctx->r[4].uw[0] - 0x28);
             func_0x225fb0(rdram, ctx, rt);
             ctx->pc = ra;
@@ -917,6 +958,7 @@ namespace tta
         registry.registerFunction(0x225fb0, skin);
         registry.registerFunction(0x1b1b18, visualEntity);
         registry.registerFunction(0x225920, setSkinContext);
+        registry.registerFunction(0x2251b0, setSkinContextChr);
         registry.registerFunction(0x137800, animate);
         registry.registerFunction(0x13ea30, sample);
         registry.registerFunction(0x13a260, skeletonRecord);

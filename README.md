@@ -10,7 +10,7 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
-![Status](https://img.shields.io/badge/status-first%20battle%20reached%2C%203D%20next-e8a317)
+![Status](https://img.shields.io/badge/status-cinematics%20and%20first%20battle%20in%203D-e8a317)
 
 </div>
 
@@ -41,7 +41,8 @@ the 3D. Windows comes first, then Linux and macOS.
 | Native frame: the chain built but never sent, the swap publishing to the engine's renderer; the movies drawn | ✅ |
 | Textures converted offline from the disc (tools/tta_textures.py); the 2D of LLPrims drawn natively: the loading screen | ✅ |
 | The UI (EA Apt: title, menus, battle HUD) and its text drawn natively; the boot reaches the first battle | ✅ |
-| 3D: terrain and characters from meshes converted offline, matrices from the game | 🔧 |
+| 3D: terrain, trees, objects and animated characters from meshes converted offline, the game's matrices and skeletons | ✅ |
+| Effects, water, render targets (blur, glows), the battle menu's details | 🔧 |
 | Window, sound output, pad from the PC | ✅ |
 | The game playable again to the first battle, then through | ⏳ |
 | Linux and macOS builds | ⏳ |
@@ -58,6 +59,14 @@ submodule points at `tta/integration`, the three merged, until they land.
 what remains open.
 
 ## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-berethor-riding.png" width="400" alt="Berethor riding his horse through the dead forest, drawn natively on BozoEngine">
+  <img src="docs/screenshots/2026-11-10-bozo-black-riders.png" width="400" alt="Two Black Riders confronting Berethor in the forest, drawn natively on BozoEngine">
+</p>
+
+**2026-11-10.** The intro cinematic in 3D again, with no PS2 hardware model: the forest, the sky and the characters
+from meshes converted offline from the disc, skinned on the CPU from the game's own animation, with its camera.
 
 <p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-title-screen.png" width="400" alt="The title screen in the BozoEngine window: Minas Tirith, the logo and New Game / Load Game / More, drawn natively">

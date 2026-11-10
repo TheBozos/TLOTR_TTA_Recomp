@@ -12,6 +12,7 @@ namespace tta
     void installTwoD(bozo::port::Registry &registry);   // tta_2d.cpp
     void installThreeD(bozo::port::Registry &registry); // tta_3d.cpp
     void installPose(bozo::port::Registry &registry);   // tta_pose.cpp
+    void installVu0Check(bozo::port::Registry &registry); // tta_vu0_check.cpp
 
     namespace
     {
@@ -52,6 +53,7 @@ namespace tta
     {
         installAudioOverrides(registry);
         installVu0(registry);
+        installVu0Check(registry);
         installRender(registry);
         installTwoD(registry);
         installThreeD(registry);

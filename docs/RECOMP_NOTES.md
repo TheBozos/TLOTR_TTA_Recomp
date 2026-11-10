@@ -127,6 +127,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   (2) some drawn characters are never posed by this path (their E+0xe8 stamp lags the frame id): another pose path,
   or G pointing at another object (G = E + 0x1d0 from 0x1b1b18 and 0x11ab40/0x2251b0). Probes: TTA_SKIN_PROBE[2-5],
   TTA_ANIM_PROBE, TTA_POSE_TRACE.
+- **Characters fixed** (2026-11-10): tools/tta_vu0_gen.py wrote an LOI's I value before the same pair's upper
+  instruction ran; on VU0 the new I is seen from the next pair. TTA's sine series (VU0 programs 0xd38, 0xdb0) load each
+  coefficient one pair ahead, so every sine was wrong: the animation's quaternions came out with |q|^2 up to 60 and
+  0xdb0 never slerped. tools/tta_vu0_check.py (an independent VU0 micro-mode interpreter) replays recorded calls
+  (TTA_VU0_DUMP=<entry> writes them) and matched the old translation bit for bit with the old I timing, so that was the
+  only difference. With the fix, every pose is unit-length, and the characters (behind no switch now; TTA_NO_SKIN=1
+  hides them) ride, walk and fight as in the game. TTA's world has y pointing down.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
