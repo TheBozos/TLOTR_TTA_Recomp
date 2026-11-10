@@ -196,8 +196,47 @@ namespace tta
             uint64_t id;
             std::string file;
             uint32_t logWidth, logHeight; // the record's size (+0x3f, +0x40)
+            std::shared_ptr<const bozo::render::Texture> live; // an image the game builds in EE memory (the text canvas)
         };
         std::map<std::pair<uint32_t, uint32_t>, Placed> g_placed;
+
+        // 0x2c80e8: sends the UI's text canvas (EA Apt's text manager TM = *(0x37c490), canvas S = TM+0x18: +0 width,
+        // +4 height, +8 TBP, +0x20 pitch, +0x2c the pixels) and its palette, CBP = TBP - 0x10 (ui_spec 1). The canvas is
+        // plain 8-bit linear memory the game's font rasteriser (0x2fb040) fills, its palette (i << 24) | 0xbfbfbf: each
+        // byte is the text's coverage over grey. Natively it becomes an RGBA texture placed where the game put it.
+        void uploadCanvas(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            func_0x2c80e8(rdram, ctx, rt);
+            ctx->pc = ra;
+            const uint32_t s = read32(rdram, 0x37c490) + 0x18;
+            const uint32_t width = read32(rdram, s), height = read32(rdram, s + 4), tbp = read32(rdram, s + 8) & 0x3fffu;
+            const uint32_t pitch = read32(rdram, s + 0x20);
+            uint32_t pixels = read32(rdram, s + 0x2c);
+            if (width == 0 || height == 0 || width > 1024 || height > 1024 || pitch < width)
+                return;
+            if (pixels < 0x100000u || pixels >= 0x2000000u) // inline rather than a pointer
+                pixels = s + 0x2c;
+            static uint64_t version = 0;
+            auto t = std::make_shared<bozo::render::Texture>();
+            t->width = width;
+            t->height = height;
+            t->rgba.resize(static_cast<size_t>(width) * height);
+            for (uint32_t y = 0; y < height; ++y)
+            {
+                const uint8_t *row = rdram + ((pixels + y * pitch) & kMask);
+                for (uint32_t x = 0; x < width; ++x)
+                    t->rgba[static_cast<size_t>(y) * width + x] = (static_cast<uint32_t>(row[x]) << 24) | 0xbfbfbfu;
+            }
+            t->key = 0x7474615465787443ull; // "ttaTextC"
+            t->version = ++version;
+            uint32_t lw = 0, lh = 0;
+            while ((1u << lw) < width)
+                ++lw;
+            while ((1u << lh) < height)
+                ++lh;
+            g_placed[{tbp, 0x13u}] = Placed{0, {}, lw, lh, std::move(t)};
+        }
 
         // 0x219ca8(group): sends a texture group to GS memory for the draws that follow (the game re-sends a group
         // before the objects that use it). Natively nothing is sent: the group's records say where each texture now is.
@@ -222,7 +261,7 @@ namespace tta
             for (uint32_t i = 0; i < count && i < 4096; ++i)
             {
                 const uint32_t r = records + i * 0x50;
-                Placed placed{read64(rdram, r), {}, rdram[(r + 0x3f) & kMask], rdram[(r + 0x40) & kMask]};
+                Placed placed{read64(rdram, r), {}, rdram[(r + 0x3f) & kMask], rdram[(r + 0x40) & kMask], nullptr};
                 if (resource)
                     if (auto at = idx.byPlace.find({resource->type, resource->index, offset, i}); at != idx.byPlace.end())
                         placed.file = at->second;
@@ -270,10 +309,13 @@ namespace tta
         // 0x218910 LLPrims_Draw(prim, xyz, rgba, st, n): n points (float4 each) with optional colours (float4, 1.0 =
         // 255; none: P+0xc0) and texture coordinates (float4: s, t), as primitive `prim` (the GS's types: 3 triangles,
         // 4 strip, 5 fan, 6 sprites). The game's own code still runs (its buffers stay as it keeps them).
+        void drawImmediate(uint8_t *rdram, uint32_t ra, uint32_t type, uint32_t xyz, uint32_t rgba, uint32_t st,
+                           uint32_t n, uint32_t p, const float m[16]);
+
         void primitive(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
-            const uint32_t type = ctx->r[4].uw[0] & 7u, xyz = ctx->r[5].uw[0], rgba = ctx->r[6].uw[0],
+            const uint32_t type = ctx->r[4].uw[0] & 0xffu, xyz = ctx->r[5].uw[0], rgba = ctx->r[6].uw[0],
                            st = ctx->r[7].uw[0], n = ctx->r[8].uw[0];
             const uint32_t p = read32(rdram, 0x36f870);
             float m[16];
@@ -282,6 +324,40 @@ namespace tta
                 m[i] = readFloat(rdram, at + i * 4);
             func_0x218910(rdram, ctx, rt);
             ctx->pc = ra;
+            drawImmediate(rdram, ra, type, xyz, rgba, st, n, p, m);
+        }
+
+        // 0x218fb8(prim, xyz, adc mask, rgba, st, n): the same immediate primitive for EA Apt's shapes and bitmaps (0x2c9a08:
+        // the title, menus, HUD), its arrays at 0x418610 (xyz) and 0x418810 (st), the same matrix choice.
+        void strip(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            const uint32_t type = ctx->r[4].uw[0] & 0xffu, xyz = ctx->r[5].uw[0], rgba = ctx->r[7].uw[0], // a2: the vertices that close no triangle (bits)
+                           st = ctx->r[8].uw[0], n = ctx->r[9].uw[0];
+            const uint32_t p = read32(rdram, 0x36f870);
+            float m[16];
+            const uint32_t at = matrixAddress(rdram, p);
+            for (int i = 0; i < 16; ++i)
+                m[i] = readFloat(rdram, at + i * 4);
+            func_0x218fb8(rdram, ctx, rt);
+            ctx->pc = ra;
+            drawImmediate(rdram, ra, type, xyz, rgba, st, n, p, m);
+        }
+
+        void drawImmediate(uint8_t *rdram, uint32_t ra, uint32_t type, uint32_t xyz, uint32_t rgba, uint32_t st,
+                           uint32_t n, uint32_t p, const float m[16])
+        {
+            if (traceLevel() >= 6)
+            {
+                const uint32_t ds = read32(rdram, 0x36f850);
+                std::printf("[tta:2d] prim %x from %x: DS+0x6a0 %llx +0x6b0 %llx +0x6c0 %llx\n", type, ra,
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x6a0)),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x6b0)),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x6c0)));
+            }
+            // prim: the GS PRIM bits the caller passes (type in 0-2; IIP 8, TME 0x10, FGE 0x20, ABE 0x40).
+            const uint32_t prim = type;
+            type = prim & 7u;
             if (n == 0 || n > 4096 || type < 3 || type > 6)
                 return count(rdram, false);
 
@@ -306,6 +382,14 @@ namespace tta
             // The movie's sprites (0x22b050) draw the picture the backdrop already shows.
             if (ra == 0x22b5ec)
                 return count(rdram, false);
+            // FRAME's FBMSK (its upper word): a draw that writes no colour channel only writes the alpha the game masks
+            // with (EA Apt's masks): nothing to show.
+            if (((frameReg >> 32) & 0xffffffu) == 0xffffffu)
+            {
+                if (traceLevel() >= 2)
+                    std::printf("[tta:2d] frame %u: alpha-only type %u from %x\n", frame(rdram), type, ra);
+                return count(rdram, false);
+            }
 
             std::vector<bozo::render::Vertex> points(n);
             for (uint32_t i = 0; i < n; ++i)
@@ -367,12 +451,12 @@ namespace tta
             {
                 const uint32_t tbp0 = tex0 & 0x3fffu, psm = (tex0 >> 20) & 0x3fu;
                 const auto placed = g_placed.find({tbp0, psm});
-                // The draw's window must be the record's texture: the UI renderer (0x305330) also reads a group's memory
-                // as one larger 8-bit image (TW/TH 9 over 32 x 32 records), which no record describes (not drawn yet).
+                // The draw's window must be what was placed there (a record, or the UI's text canvas).
                 const uint32_t tw = (tex0 >> 26) & 0xfu, th = (tex0 >> 30) & 0xfu;
-                if (placed != g_placed.end() && !placed->second.file.empty() && placed->second.logWidth == tw &&
-                    placed->second.logHeight == th)
-                    picture = texture(placed->second.file);
+                if (placed != g_placed.end() && placed->second.logWidth == tw && placed->second.logHeight == th)
+                    picture = placed->second.live ? placed->second.live
+                              : placed->second.file.empty() ? nullptr
+                                                            : texture(placed->second.file);
                 if (!picture)
                 {
                     if (traceLevel() >= 2)
@@ -420,14 +504,14 @@ namespace tta
                                                            static_cast<uint32_t>(triangles.size()), picture);
             if (traceLevel() >= 2)
                 std::printf("[tta:2d] frame %u: type %u n %u from %x tex %s (TEX0 %016llx: TBW %u TW %u TH %u CBP %x) blend %d "
-                            "(%.1f,%.1f)-(%.1f,%.1f) st (%.3f,%.3f)-(%.3f,%.3f)\n",
+                            "(%.1f,%.1f)-(%.1f,%.1f) st (%.3f,%.3f)-(%.3f,%.3f) rgba %08x rgba-arg %x\n",
                             frame(rdram), type, n, ra,
                             picture ? g_placed[{static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu)}].file.c_str() : "-",
                             static_cast<unsigned long long>(tex0), static_cast<uint32_t>((tex0 >> 14) & 0x3fu),
                             static_cast<uint32_t>((tex0 >> 26) & 0xfu), static_cast<uint32_t>((tex0 >> 30) & 0xfu),
                             static_cast<uint32_t>((tex0 >> 37) & 0x3fffu), static_cast<int>(material.blend), points[0].x,
                             points[0].y, points[n - 1].x, points[n - 1].y, points[0].u, points[0].v, points[n - 1].u,
-                            points[n - 1].v);
+                            points[n - 1].v, points[0].rgba, rgba);
             count(rdram, true);
         }
     }
@@ -476,8 +560,10 @@ namespace tta
     void installTwoD(bozo::port::Registry &registry)
     {
         registry.registerFunction(0x1bbea0, layoutString);
+        registry.registerFunction(0x2c80e8, uploadCanvas);
         registry.registerFunction(0x1babe8, loadResource);
         registry.registerFunction(0x219ca8, uploadGroup);
         registry.registerFunction(0x218910, primitive);
+        registry.registerFunction(0x218fb8, strip);
     }
 }
