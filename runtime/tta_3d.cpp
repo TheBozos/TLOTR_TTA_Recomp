@@ -725,6 +725,30 @@ namespace tta
             const uint32_t g = read32(rdram, 0x403a60);
             const uint32_t bones = read32(rdram, g + 0x290), placement = read32(rdram, g + 0x294);
             const uint32_t fade = read32(rdram, g + 0x2bc);
+            // TTA_SKIN_LAYERS=<mask>: draw only these layer passes (1 normal "01", 2 0x20000 "02", 4 0x200 "03",
+            // 8 0x1000 "04"; debugging).
+            if (const char *layers = env("TTA_SKIN_LAYERS"))
+            {
+                const uint32_t m = read32(rdram, g + 0x2b0);
+                const uint32_t bit = (m & 0x80000u) ? 16u : (m & 0x200u) ? 4u : (m & 0x1000u) ? 8u : (m & 0x20000u) ? 2u : 1u;
+                if (!(std::strtoul(layers, nullptr, 0) & bit))
+                    return;
+            }
+            if (traceLevel() >= 2)
+            {
+                // The draw modes (G+0x2b0: 0x200 additive, 0x1000 subtractive, 0x2000 fade, 0x20000 two passes,
+                // 0x40000 / 0x80000 silhouette or shadow) and the sections asked for (G+0x280).
+                static std::map<std::pair<uint32_t, uint32_t>, uint32_t> modes;
+                static uint32_t last = 0;
+                ++modes[{read32(rdram, g + 0x2b0), index}];
+                if (frame(rdram) / 300 != last)
+                {
+                    last = frame(rdram) / 300;
+                    for (const auto &[mode, n] : modes)
+                        std::printf("[tta:skinmode] frame %u: G+0x2b0 %x scbm %u x%u\n", frame(rdram), mode.first, mode.second, n);
+                    modes.clear();
+                }
+            }
             if (!bones || !placement || fade == 0)
                 return;
             uint32_t visible[4];
@@ -996,15 +1020,39 @@ namespace tta
                 std::shared_ptr<const bozo::render::Texture> texture = batch.texture ? textureById(batch.texture) : nullptr;
                 material.textured = texture != nullptr;
                 if (texture)
-                {
                     material.tex0 = texture->key;
-                    // The skin's texels' alpha is not a cut-out (eyes and lips keep low alpha): no alpha test, and the
-                    // texture's alpha is not the draw's coverage (TEX0.TCC off) unless the character fades.
-                    material.textureAlpha = false;
-                }
                 clipToDepthRange(triangles, matrix);
-                if (!triangles.empty())
+                if (triangles.empty())
+                    continue;
+                // The default material template (0x377aa0): ALPHA_1 0x44 = (Cs - Cd) As + Cd and TEST_1 0x5180b = alpha
+                // >= 0x80, a failing texel still written in colour but not in Z (AFAIL FB_ONLY), Z GEQUAL. Hair and
+                // cloak edges blend over what is behind them, the opaque texels own the depth. The renderer has no
+                // AFAIL: two passes, the passing texels with Z writes, then the others blended without.
+                // The layer passes (0x1b1b18 draws a character's layers "01".."04" one after the other, G+0x2b0 set per
+                // layer): 0x200 (layer 03) ALPHA 0x68 = Cs FIX + Cd, 0x1000 (layer 04) 0x62 = Cd - Cs FIX, FIX = the
+                // fade; both without Z writes or alpha test (templates 0x377bf0 / 0x377c60).
+                const uint32_t mode = read32(rdram, g + 0x2b0);
+                if (mode & 0x1200u)
+                {
+                    material.gsBlend = true;
+                    material.blendA = (mode & 0x200u) ? 0 : 2;
+                    material.blendB = (mode & 0x200u) ? 2 : 0;
+                    material.blendC = 2;
+                    material.blendD = 1;
+                    material.blendFix = static_cast<uint8_t>(std::min<uint32_t>(fade, 0x80u));
+                    material.depthWrite = false;
+                }
+                else if (texture && fade >= 0x80 && !env("TTA_SKIN_NO_AFAIL"))
+                {
+                    material.blend = bozo::render::Material::Blend::Alpha;
+                    material.alphaTest = true;
+                    material.alphaFunc = bozo::render::Material::AlphaFunc::GreaterEqual;
+                    material.alphaRef = 0x80;
                     renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                    material.alphaFunc = bozo::render::Material::AlphaFunc::Less;
+                    material.depthWrite = false;
+                }
+                renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
             ++g_skinsDrawn;
             if (env("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_EXTENT"))))

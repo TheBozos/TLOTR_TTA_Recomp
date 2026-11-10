@@ -158,6 +158,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   DS+0x720); the first battle's scene has fog off (K = 2550000). Water (type 19, 0x2221b8) is drawn at rest. Debug:
   TTA_3D_TRACE=2 (fog, water, nodes not converted), TTA_3D_DUMP_FRAME=<game frame> (every node drawn with its screen
   bounds), TTA_3D_ONLY=<record offsets> (draw only those).
+- **Characters' alpha and layers** (2026-11-10): the skin's default material template 0x377aa0 sets ALPHA_1 0x44
+  ((Cs - Cd) As + Cd) and TEST_1 0x5180b: alpha >= 0x80, a failing texel still written in colour but not in Z (AFAIL
+  FB_ONLY). Drawn as two passes (opaque texels with Z, the rest blended without): hair and cloak edges blend instead
+  of showing as flat strips (TTA_SKIN_NO_AFAIL=1 for the old look). 0x1b1b18 draws every character four times a frame,
+  one per layer ("01".."04" through 0x1bf6b8) with G+0x2b0 = 0, 0x20000, 0x200, 0x1000; layers 02-04 are empty for
+  the characters seen so far. 0x200 / 0x1000 now blend as their templates say (Cs FIX + Cd / Cd - Cs FIX, FIX = the
+  fade, no Z writes). Open: 0x80000 (a coincident copy of the screaming Nazgul, drawn untextured in FOGCOL on the PS2
+  per the template) is still drawn textured; 0x20000's render-target switches. TTA_SKIN_LAYERS=<mask> (1, 2, 4, 8,
+  16 for 0x80000) draws only some layers; TTA_3D_TRACE=2 lists the modes by model.
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
