@@ -147,6 +147,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   TEST ZTST GEQUAL/GREATER. Natively the mask's triangles are kept and the content is cut to their union (convex
   clipping, runtime/tta_2d.cpp): the round minimap. Apt strips also carry a per-vertex ADC mask (0x218fb8's a2), and
   SCISSOR_1 (DS+0x110) clips the 2D on the CPU. TTA_2D_TRACE=8 prints every 2D draw with FBMSK/TEST/ALPHA/PRMODE.
+- **The battle's ground** (2026-11-10): the Black Riders stood over the sky. Two causes. (1) Every terrain and static
+  batch (sky dome included) is drawn with PRIM 0x7c, ABE on and opaque texels (alpha 0x80); Z writes were tied to ABE,
+  so nothing wrote depth and the sky dome, drawn after the bridge, painted over it. Z writes now follow ZBUF_1's ZMSK
+  (DS+0x120 bit 32; the scene set-up 0x1a8600 turns them on). (2) The renderer divides z by w per vertex and wraps GS Z
+  past its range like the GS, so a triangle reaching behind the camera or past the near Z gets a garbage depth: the
+  VU programs never send those (ADC / the clipping programs). runtime/tta_3d.cpp cuts the triangles in clip space to
+  w > 0 and 0 <= z/w <= 2^24-1 first (TTA_NO_NEAR_CLIP=1 turns it off). The batch key's TEX0 is the game's texture
+  key, not the GS's: its TCC/TFX bits are not the draw's. Fog is per vertex (F = min(K/w, 255), K = DS+0x54c, FOGCOL
+  DS+0x720); the first battle's scene has fog off (K = 2550000). Water (type 19, 0x2221b8) is drawn at rest. Debug:
+  TTA_3D_TRACE=2 (fog, water, nodes not converted), TTA_3D_DUMP_FRAME=<game frame> (every node drawn with its screen
+  bounds), TTA_3D_ONLY=<record offsets> (draw only those).
 - **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
   pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
   saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp

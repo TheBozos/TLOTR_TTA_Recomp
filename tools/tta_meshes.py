@@ -46,7 +46,8 @@ Geometry by shader type:
     are shadow-volume / silhouette meshes (edges {v0, face, face, v1}, faces {3 refs}) read by the set-5 code
     (0x355780: four header ranges in q0/q1 .x/.y/.z/.w, OPMULA face normals), with no morph data.
     The structure of every type-17 geometry is also listed in <out>/scbm.txt (scbm_summary).
-  * type 19 (water): not converted (kind 2).
+  * type 19 (water): the water module's EE edge list (shoreline wave/foam quads), converted at rest
+    (kind 0; see water_batches for the layout and what is not decoded).
 
 Keys: (type, index, record offset) is unique within one .SCP but NOT across the disc: every level
 SCP reuses the same 'ter '/'scbm' indices for different payloads. Identical payloads share one file;
@@ -438,6 +439,36 @@ def terrain_batches(b, gs, warn):
 # a resource
 
 
+def water_batches(p, g, e, warn):
+    """Type 19 (ShaderObject_Water, create 0x221a20; per-frame work in the water driver 0x2246e8 -> 0x2236a0,
+    sine table 0x403788 built by the module init 0x221928): not a VIF packet but an EE list of EDGES that the
+    driver extrudes into animated wave/foam quads. Geometry: u16 edge count, u16 pad, per edge 2 vertices of
+    60 bytes {f32 x, y, z, f32 s, t, u8 r, g, b, a (GS units), f32 dx, dy, dz (extrusion vector), f32 ds, dt
+    (the matching s/t change), f32 k0, k1, k2 (small integers: per-vertex phase/colour offsets, not
+    decoded), f32 f (0 or +-57: not decoded)}, then u64 texture id, u8 subdivisions along / across (+8,
+    +9), u8 x2, u16, u16, u32 (wave parameters, not decoded).
+    Converted at rest: per edge one quad (p0, p1, p0 + d0, p1 + d1, with s, t + ds, dt), drawn as a
+    4-vertex strip (first two ADC); PRIM 0x5c (strip, Gouraud, textured, blend) is inferred."""
+    rows = struct.unpack_from('<H', p, g)[0]
+    end = g + 4 + rows * 2 * 60
+    if not rows or end + 8 > e:
+        warn('water geometry size')
+        return []
+    verts = []
+    for k in range(rows):
+        quad = []
+        for side in range(2):
+            o = g + 4 + (2 * k + side) * 60
+            x, y, z, s_, t = struct.unpack_from('<5f', p, o)
+            rgba = struct.unpack_from('<I', p, o + 20)[0]
+            dx, dy, dz, ds, dt = struct.unpack_from('<5f', p, o + 24)
+            quad.append(((x, y, z, s_, t), (x + dx, y + dy, z + dz, s_ + ds, t + dt), rgba))
+        (a0, a1, ca), (b0, b1, cb) = quad
+        verts += [a0 + (ca, 1), b0 + (cb, 1), a1 + (ca, 0), b1 + (cb, 0)]
+    tex_id = struct.unpack_from('<Q', p, end)[0]
+    return [dict(tex=tex_id, prim=0x5c, cmode=0, regs=[], verts=verts, layout='water')]
+
+
 def convert_resource(p, warn):
     nodes = walk_nodes(p)
     groups = {}
@@ -468,7 +499,8 @@ def convert_resource(p, warn):
             n['batches'] = [bt for _, bts in n['sections'] for bt in bts]
             n['kind'] = 3
         elif st == 19:
-            pass  # water: not a plain VIF stream here
+            n['batches'] = water_batches(p, g, e, warn)
+            n['kind'] = 0
         else:
             gs = GsState()
             for b, direct in vif_batches(p, g, e, warn):

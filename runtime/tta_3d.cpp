@@ -22,6 +22,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <set>
 #include <vector>
 
 namespace tta
@@ -34,6 +35,13 @@ namespace tta
         {
             uint32_t v;
             std::memcpy(&v, rdram + (address & kMask), 4);
+            return v;
+        }
+
+        uint64_t read64(const uint8_t *rdram, uint32_t address)
+        {
+            uint64_t v;
+            std::memcpy(&v, rdram + (address & kMask), 8);
             return v;
         }
 
@@ -277,12 +285,86 @@ namespace tta
             if (traceLevel() >= 1 && frame(rdram) != g_frameSeen)
             {
                 if (g_frameSeen % 60 == 0 && (g_drawn || g_missing || g_unconverted))
-                    std::printf("[tta:3d] frame %u: %u nodes drawn, %u without a mesh, %u not converted\n", g_frameSeen,
-                                g_drawn, g_missing, g_unconverted);
+                    std::printf("[tta:3d] frame %u: %u nodes drawn, %u without a mesh, %u not converted or skinned, %u off-screen\n",
+                                g_frameSeen, g_drawn, g_missing, g_unconverted, g_offscreen);
                 g_frameSeen = frame(rdram);
                 g_drawn = g_missing = g_unconverted = g_offscreen = 0;
             }
             ++which;
+        }
+
+        // The VU programs only send triangles that land inside the GS's guard band and Z range (ADC otherwise; the
+        // nodes that reach the camera go through the clipping programs). The renderer divides z by w per vertex and
+        // wraps GS Z past its range as the GS does, so a triangle reaching behind the camera or past the near Z gets a
+        // wrong depth and disappears. Cut here instead, in clip space where the planes are linear: w > 0, the GS Z
+        // (z / w) >= 0 and <= the 24-bit range. TTA_NO_NEAR_CLIP turns it off.
+        void clipToDepthRange(std::vector<bozo::render::Vertex> &triangles, const float m[16])
+        {
+            if (env("TTA_NO_NEAR_CLIP"))
+                return;
+            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
+            const auto distance = [m](const bozo::render::Vertex &v, int plane)
+            {
+                const float w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
+                if (plane == 0)
+                    return w - kWMin;
+                const float z = m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14];
+                return plane == 1 ? z : kDepthMax * w - z;
+            };
+            bool change = false;
+            for (size_t i = 0; i < triangles.size() && !change; ++i)
+                for (int p = 0; p < 3 && !change; ++p)
+                    change = !(distance(triangles[i], p) >= 0.0f);
+            if (!change)
+                return;
+            const auto lerp = [](const bozo::render::Vertex &a, const bozo::render::Vertex &b, float t)
+            {
+                bozo::render::Vertex o = a;
+                o.x = a.x + t * (b.x - a.x), o.y = a.y + t * (b.y - a.y), o.z = a.z + t * (b.z - a.z);
+                o.u = a.u + t * (b.u - a.u), o.v = a.v + t * (b.v - a.v), o.fog = a.fog + t * (b.fog - a.fog);
+                o.q = a.q + t * (b.q - a.q);
+                uint32_t rgba = 0;
+                for (int ch = 0; ch < 32; ch += 8)
+                {
+                    const float ca = static_cast<float>((a.rgba >> ch) & 0xffu), cb = static_cast<float>((b.rgba >> ch) & 0xffu);
+                    rgba |= static_cast<uint32_t>(std::lround(ca + t * (cb - ca))) << ch;
+                }
+                o.rgba = rgba;
+                return o;
+            };
+            std::vector<bozo::render::Vertex> out;
+            out.reserve(triangles.size());
+            for (size_t t = 0; t + 2 < triangles.size(); t += 3)
+            {
+                bozo::render::Vertex poly[12], next[12];
+                int n = 3;
+                for (int k = 0; k < 3; ++k)
+                    poly[k] = triangles[t + static_cast<size_t>(k)];
+                for (int p = 0; p < 3 && n >= 3; ++p)
+                {
+                    float d[12];
+                    bool allIn = true;
+                    for (int k = 0; k < n; ++k)
+                        allIn = (d[k] = distance(poly[k], p)) >= 0.0f && allIn;
+                    if (allIn)
+                        continue;
+                    int n2 = 0;
+                    for (int k = 0; k < n && n2 < 11; ++k)
+                    {
+                        const int k1 = (k + 1) % n;
+                        if (d[k] >= 0.0f)
+                            next[n2++] = poly[k];
+                        if ((d[k] >= 0.0f) != (d[k1] >= 0.0f))
+                            next[n2++] = lerp(poly[k], poly[k1], d[k] / (d[k] - d[k1]));
+                    }
+                    for (int k = 0; k < n2; ++k)
+                        poly[k] = next[k];
+                    n = n2;
+                }
+                for (int f = 1; f + 1 < n; ++f)
+                    out.insert(out.end(), {poly[0], poly[f], poly[f + 1]});
+            }
+            triangles.swap(out);
         }
 
         void drawNode(const uint8_t *rdram, const Mesh &mesh, const Node &node, const float screen[16])
@@ -301,6 +383,26 @@ namespace tta
             else
                 std::memcpy(matrix, screen, sizeof(matrix));
             auto &renderer = bozo::render::Renderer::instance();
+            // The scene's fog (fog_spec 1): K at DS+0x54c, FOGCOL at DS+0x720 (R, G, B bytes).
+            const uint32_t ds = read32(rdram, 0x36f850);
+            const float fogK = readFloat(rdram, ds + 0x54c);
+            const uint32_t fogColour = read32(rdram, ds + 0x720) & 0xffffffu;
+            if (traceLevel() >= 2)
+            {
+                static uint32_t lastFrame = 0, fogBatches = 0, batches = 0;
+                if (frame(rdram) / 120 != lastFrame / 120)
+                {
+                    std::printf("[tta:fog] frame %u: K %g colour %06x, %u of %u batches fogged\n", frame(rdram), fogK, fogColour,
+                                fogBatches, batches);
+                    fogBatches = batches = 0;
+                }
+                lastFrame = frame(rdram);
+                for (const Batch &batch : source->batches)
+                {
+                    ++batches;
+                    fogBatches += (batch.prim & 0x20u) ? 1u : 0u;
+                }
+            }
             std::vector<bozo::render::Vertex> triangles;
             for (const Batch &batch : source->batches)
             {
@@ -308,10 +410,17 @@ namespace tta
                 if (type < 3 || type > 5 || batch.vertices.size() < 3)
                     continue;
                 std::vector<bozo::render::Vertex> v = batch.vertices;
+                const bool fogged = (batch.prim & 0x20u) != 0;
                 for (size_t i = 0; i < v.size(); ++i)
                 {
                     const uint32_t c = batch.colours[i];
                     v[i].rgba = batch.colourMode == 1 ? (node.colours.empty() ? 0x80808080u : node.colours[c & 0xffu]) : c;
+                    // The VU programs' fog (fog_spec 1): F = min(K / clip.w, 255), K = DS+0x54c; GS F 255 = no fog.
+                    if (fogged)
+                    {
+                        const float w = matrix[3] * v[i].x + matrix[7] * v[i].y + matrix[11] * v[i].z + matrix[15];
+                        v[i].fog = w > 0.0f ? std::fmin(fogK / w, 255.0f) / 255.0f : 1.0f;
+                    }
                 }
                 triangles.clear();
                 for (size_t i = 2; i < v.size(); ++i)
@@ -332,7 +441,10 @@ namespace tta
                     continue;
                 bozo::render::Material material;
                 material.depthTest = true;
-                material.depthWrite = (batch.prim & 0x40u) == 0;
+                // Z writes follow ZBUF_1's ZMSK (bit 32; DS+0x120, on for the scene, 0x1a8600), not PRIM.ABE: the
+                // whole scene (sky, ground, trees) is drawn with ABE and opaque texels (alpha 0x80), and a cut-out texel
+                // fails the alpha test, which writes nothing on the GS either.
+                material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0;
                 material.blend = (batch.prim & 0x40u) ? bozo::render::Material::Blend::Alpha
                                                      : bozo::render::Material::Blend::Opaque;
                 for (const auto &[reg, value] : batch.registers)
@@ -357,20 +469,24 @@ namespace tta
                 std::shared_ptr<const bozo::render::Texture> texture;
                 if ((batch.prim & 0x10u) && batch.texture)
                     texture = textureById(batch.texture);
+                material.fog = fogged;
+                material.fogColour = fogColour;
                 material.textured = texture != nullptr;
                 if (texture)
                 {
                     material.tex0 = texture->key;
                     // Without a TEST of its own the batch keeps the shader's cut-out test (leaves, grass, branches: their
                     // texels are 0 or 0x80 in alpha).
-                    if (!material.alphaTest)
+                    if (!material.alphaTest && !env("TTA_NO_CUTOUT"))
                     {
                         material.alphaTest = true;
                         material.alphaFunc = bozo::render::Material::AlphaFunc::Greater;
-                        material.alphaRef = 0x20;
+                        material.alphaRef = 0; // the scene's TEST (0x1a8600): alpha > 0
                     }
                 }
-                renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                clipToDepthRange(triangles, matrix);
+                if (!triangles.empty())
+                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
         }
 
@@ -399,7 +515,17 @@ namespace tta
                 if (!m || it == m->byOffset.end())
                     count(rdram, g_missing);
                 else if (it->second.kind == 2 || it->second.kind == 3) // not converted, or skinned (drawSkin)
+                {
                     count(rdram, g_unconverted);
+                    if (traceLevel() >= 2 && it->second.kind == 2)
+                    {
+                        static std::set<std::string> seen;
+                        char key[96];
+                        std::snprintf(key, sizeof(key), "%s %u +%x shader %d", type.c_str(), index, offset, it->second.shader);
+                        if (seen.insert(key).second)
+                            std::printf("[tta:3d] not converted: %s (frame %u)\n", key, frame(rdram));
+                    }
+                }
                 else
                 {
                     // RC+0x2e0: object (RC+0x20) -> GS screen, the 2048 centre and Z range in it (= RC+0x1a0, world ->
@@ -408,8 +534,52 @@ namespace tta
                     float screen[16];
                     for (int i = 0; i < 16; ++i)
                         screen[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
+                    // TTA_3D_ONLY=<hex offset>[,...]: draw only these record offsets (debugging).
+                    if (const char *only = env("TTA_3D_ONLY"))
+                    {
+                        char want[16];
+                        std::snprintf(want, sizeof(want), "%x", offset);
+                        bool listed = false;
+                        for (const char *p = only; *p && !listed;)
+                        {
+                            const char *e = std::strchr(p, ',');
+                            const size_t len = e ? static_cast<size_t>(e - p) : std::strlen(p);
+                            listed = len == std::strlen(want) && std::strncmp(p, want, len) == 0;
+                            p = e ? e + 1 : p + len;
+                        }
+                        if (!listed)
+                            return;
+                    }
                     drawNode(rdram, *m, it->second, screen);
                     count(rdram, g_drawn);
+                    // TTA_3D_DUMP_FRAME=<n>: every node drawn in frame n, with its screen bounds (GS pixels, 2048 centre).
+                    if (const char *d = env("TTA_3D_DUMP_FRAME"); d && frame(rdram) == static_cast<uint32_t>(std::atoi(d)))
+                    {
+                        const Node &n = it->second.kind == 1 ? m->byOffset.at(m->offsetByNumber.at(it->second.master)) : it->second;
+                        float mat[16];
+                        if (it->second.hasMatrix)
+                            multiply(screen, it->second.matrix, mat);
+                        else
+                            std::memcpy(mat, screen, sizeof(mat));
+                        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, w0 = 1e9f, w1 = -1e9f;
+                        size_t verts = 0;
+                        for (const Batch &b : n.batches)
+                            for (const auto &v : b.vertices)
+                            {
+                                const float w = mat[3] * v.x + mat[7] * v.y + mat[11] * v.z + mat[15];
+                                ++verts;
+                                w0 = std::fmin(w0, w);
+                                w1 = std::fmax(w1, w);
+                                if (w <= 0.0f)
+                                    continue;
+                                const float x = (mat[0] * v.x + mat[4] * v.y + mat[8] * v.z + mat[12]) / w;
+                                const float y = (mat[1] * v.x + mat[5] * v.y + mat[9] * v.z + mat[13]) / w;
+                                x0 = std::fmin(x0, x); x1 = std::fmax(x1, x); y0 = std::fmin(y0, y); y1 = std::fmax(y1, y);
+                            }
+                        std::printf("[tta:dump] %s %u +%x kind %d shader %d: %zu batches %zu verts, x %.0f..%.0f y %.0f..%.0f w %.1f..%.1f\n",
+                                    type.c_str(), index, offset, it->second.kind, it->second.shader, n.batches.size(), verts,
+                                    x0, x1, y0, y1, w0, w1);
+                    }
                 }
             }
         }
@@ -434,9 +604,45 @@ namespace tta
         {
             const uint32_t ra = ctx->r[31].uw[0], node = ctx->r[4].uw[0];
             dumpShaderTable(rdram);
+            if (traceLevel() >= 4)
+            {
+                static std::map<std::pair<int, int>, uint32_t> seen; // (shader type, has shader) -> nodes
+                static uint32_t last = 0;
+                ++seen[{rdram[(read32(rdram, node) + 0x88) & kMask], rdram[(node + 0x58) & kMask] != 0}];
+                if (frame(rdram) / 300 != last)
+                {
+                    last = frame(rdram) / 300;
+                    for (const auto &[k, n] : seen)
+                        std::printf("[tta:3d] LLObj nodes frame %u: type %d shader %d x%u\n", frame(rdram), k.first, k.second, n);
+                    seen.clear();
+                }
+            }
             if (rdram[(node + 0x58) & kMask] != 0 && rdram[(read32(rdram, node) + 0x88) & kMask] != 21)
                 drawFor(rdram, node);
             func_0x1bdbe8(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
+        // 0x2221b8: the water's (type 19) per-node render, instance = node + 0x28: it only marks the node visible this
+        // frame (inst+0x1e) for the water driver 0x2246e8. Natively the node's converted surface is drawn here (at rest:
+        // the driver's waves, 0x2236a0, are not reproduced yet).
+        void water(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            if (traceLevel() >= 2)
+            {
+                static uint32_t calls = 0;
+                if (++calls % 60 == 1)
+                {
+                    std::string type;
+                    uint32_t index = 0, offset = 0, size = 0;
+                    resourceAt(read32(rdram, ctx->r[4].uw[0] - 0x28), type, index, offset, size);
+                    std::printf("[tta:3d] water render %u: %s %u +%x (size %u) frame %u\n", calls, type.c_str(), index, offset, size,
+                                frame(rdram));
+                }
+            }
+            drawFor(rdram, ctx->r[4].uw[0] - 0x28);
+            func_0x2221b8(rdram, ctx, rt);
             ctx->pc = ra;
         }
 
@@ -796,7 +1002,9 @@ namespace tta
                     // texture's alpha is not the draw's coverage (TEX0.TCC off) unless the character fades.
                     material.textureAlpha = false;
                 }
-                renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                clipToDepthRange(triangles, matrix);
+                if (!triangles.empty())
+                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
             ++g_skinsDrawn;
             if (env("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_EXTENT"))))
@@ -991,7 +1199,17 @@ namespace tta
         registry.registerFunction(0x2205c0, staticRender<0x2205c0, func_0x2205c0>);
         registry.registerFunction(0x21fe00, staticRender<0x21fe00, func_0x21fe00>);
         registry.registerFunction(0x220330, staticRender<0x220330, func_0x220330>);
+        registry.registerFunction(0x21ea08, staticRender<0x21ea08, func_0x21ea08>);
+        registry.registerFunction(0x21ea10, staticRender<0x21ea10, func_0x21ea10>);
+        registry.registerFunction(0x21ea18, staticRender<0x21ea18, func_0x21ea18>);
+        registry.registerFunction(0x21ea20, staticRender<0x21ea20, func_0x21ea20>);
+        registry.registerFunction(0x21e5e8, staticRender<0x21e5e8, func_0x21e5e8>);
+        registry.registerFunction(0x21e638, staticRender<0x21e638, func_0x21e638>);
+        registry.registerFunction(0x221928, staticRender<0x221928, func_0x221928>);
+        registry.registerFunction(0x221a10, staticRender<0x221a10, func_0x221a10>);
+        registry.registerFunction(0x221a18, staticRender<0x221a18, func_0x221a18>);
         registry.registerFunction(0x1bdbe8, render);
         registry.registerFunction(0x221178, terrain);
+        registry.registerFunction(0x2221b8, water);
     }
 }

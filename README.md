@@ -60,6 +60,13 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-10, later.** The battle's ground: the bridge and the forest floor under the Black Riders (scene depth writes
+and near-plane clipping fixed).
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-10-bozo-battle-ground.png" width="400" alt="The first battle on BozoEngine: the two Black Riders standing on the stone bridge, Berethor down after a critical hit">
+</p>
+
 <p align="center">
   <img src="docs/screenshots/2026-11-10-bozo-exploration.png" width="400" alt="Exploring after the first battle on BozoEngine: Berethor in the forest, the round minimap and the Epic Scene dialog">
 </p>
