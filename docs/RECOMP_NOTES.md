@@ -317,7 +317,7 @@ the game's behaviour); its code is in the history before `8ade037`.
   active character has a black square, a white shape at the screen's left (all three below). The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
-- **The battle menu: ring, hint, water** (2026-11-11). (1) The selection ring under the active character (Cobj 17,
+- **The battle menu: ring, hint, water, waterfall** (2026-11-11). (1) The selection ring under the active character (Cobj 17,
   a 4-vertex static batch, PRIM ABE, an opaque texture: black around white runes) carries no ALPHA_1 of its own; it
   blends with the one in force, DS+0x100 = 0x68 (Cs x FIX + Cd, FIX pulsing 0x1d..0x22): its black adds nothing.
   Static batches with ABE and no ALPHA of their own now take DS+0x100 (TTA_NO_DS_ALPHA=1 for the old alpha blend).
@@ -336,7 +336,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   output (0x2236a0 writes a VIF stream: V4-32 positions, V2-16 ST, V4-8 colours), matched to the native vertices
   by position: the second layer's alpha is 0 there (invisible without ripples) and the first layer's colours are
   about half the native estimate (TTA_MIST_OWN_COLOURS=1 for the estimate, TTA_MIST_PACKET=<frame> dumps the
-  stream). Open: the waterfall at the left is dim next to the console's bright fall.
+  stream). (4) The waterfall is glow particles (types 9/20; the splash texture 0x33bb7793, spray 0x1c33bb7793,
+  mist 0xabb46ddb, ALPHA 0x44): dim natively because each particle wrote Z and hid the ones behind it. The glow's own
+  packet sets ZBUF_1/2 = 0x131000100 (ZMSK 1: tested, not written) and TEST 0x5000a, and its last block restores the
+  scene's 0x31000100, which is what DS+0x120 holds when the render returns; a PCSX2 GS dump of the forest shows the
+  glow draws (PRIM 0x254, TEX0 0x3623) with ZMSK 1. Natively the glows now take the ZBUF their packet sets (the first
+  ZBUF_1 A+D among the glow's DMA blocks): the fall is bright and streaked as on the console, the selection ring gets
+  its blue-white sparkle, and the forest's veils add up: the intro close-up (host 3751) is 69 / 68 / 60 against the
+  console's 61 / 58 / 50 (63 / 62 / 54 before), the haze closer, a little bright.
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
   darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
   canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame

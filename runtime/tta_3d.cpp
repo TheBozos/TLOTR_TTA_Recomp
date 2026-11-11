@@ -1551,6 +1551,10 @@ namespace tta
         bool g_inGlow = false, g_glowDump = false;
         int g_glowIndex = -1, g_glowTag = 0;
         std::vector<uint32_t> g_glowBlocks;
+        // The ZBUF_1 the glow's own packet sets for its particles (A+D, before the last block restores the scene's):
+        // 0x131000100 on the console, Z tested but not written (a PCSX2 GS dump of the forest). DS+0x120 still holds
+        // the scene's (writes on) when the render returns. 0 = none seen.
+        uint64_t g_glowZbuf = 0;
         uint32_t g_glowsDrawn = 0, g_glowParticles = 0, g_glowCalls = 0, g_glowNoBlocks = 0, g_glowOtherFbp = 0;
 
         // An effect's texture: by its group record (the 64-bit id first) when it has one, else what was sent to TEX0's
@@ -1707,7 +1711,7 @@ namespace tta
             material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
             material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
             material.depthTest = ((test >> 17) & 3u) >= 2u;
-            material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0;
+            material.depthWrite = (((g_glowZbuf ? g_glowZbuf : read64(rdram, ds + 0x120)) >> 32) & 1u) == 0;
             if (test & 1u)
             {
                 material.alphaTest = true;
@@ -1778,6 +1782,7 @@ namespace tta
                             readFloat(rdram, s + 0xa4), read32(rdram, s + 0xc8), read32(rdram, s + 0x134), read32(rdram, s + 0x138));
             }
             g_glowBlocks.clear();
+            g_glowZbuf = 0;
             g_inGlow = true;
             func_0x21f980(rdram, ctx, rt);
             g_inGlow = false;
@@ -1807,6 +1812,13 @@ namespace tta
                 const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0];
                 if (qwords == 48 && read32(rdram, address) == 0x6e018000u)
                     g_glowBlocks.push_back(address);
+                else if (!g_glowZbuf && qwords < 64)
+                    for (uint32_t q = 0; q < qwords; ++q)
+                        if (read64(rdram, address + q * 16u + 8u) == 0x4eu) // A+D ZBUF_1
+                        {
+                            g_glowZbuf = read64(rdram, address + q * 16u);
+                            break;
+                        }
                 if (g_glowDump)
                 {
                     std::printf("[tta:glow]   tag %x: %u qwords at %x (a2 %x)\n", ctx->r[7].uw[0], qwords, address, ctx->r[6].uw[0]);

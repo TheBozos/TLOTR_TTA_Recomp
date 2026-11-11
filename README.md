@@ -62,8 +62,9 @@ what remains open.
 
 **2026-11-11, late night.** The battle menu as on the console: the selection ring glows (it blends with the
 game's additive mode in force, not over a black square), the white sheet at the left is gone (a water layer had
-picked up a UI texture from the shared VRAM slot), and the hint reads "Attack a single target." once the cursor
-moves, which is when the game sends it.
+picked up a UI texture from the shared VRAM slot), the waterfall falls bright again (its particles had been hiding
+each other: the game draws them without writing depth), and the hint reads "Attack a single target." once the
+cursor moves, which is when the game sends it.
 
 <p align="center">
   <img src="docs/screenshots/2026-11-11-bozo-battle-menu.png" width="400" alt="Berethor's battle menu on BozoEngine with the glowing selection ring and the attack hint">
