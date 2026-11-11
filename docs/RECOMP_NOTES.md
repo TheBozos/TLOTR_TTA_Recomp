@@ -354,6 +354,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   prints each glow's on-screen coverage. The battle's first frame overlaid on the console capture lines up exactly
   (camera RC+0x1a0 / +0x260 identical in both RAMs); the attack turn (target hint, hit sparks, 'Immune', the Nazgul
   Scream's green veil) plays natively but has no console reference yet.
+- **Past the first battle** (2026-11-12). build/pad_long.txt (the intro's three CROSS, then CROSS every 60 frames
+  from 5960) plays the scripted loss (Wraith Thrust, Berethor at 0 HP), Idrial's light (the blue flower, white
+  flashes), the healing cutscene, then free control in the forest (minimap, the "Scenes" tutorial box) and the first
+  Epic Scene film (Minas Tirith) by host frame ~11800, all native and deterministic. Skin mode bit 0x80000000 (the
+  Nazgul, scbm 70063 / 70388) changes nothing in the skin render (0x225fb0 tests 0x200 / 0x1000 / 0x2000 / 0x40000 /
+  0x80000 / 0x20000 and 0xc0000 to skip); the second skinned layout is the shadow volumes, drawn (type 18).
 - **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
   battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
   (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game

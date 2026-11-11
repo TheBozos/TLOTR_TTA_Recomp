@@ -60,6 +60,15 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-12, early.** Past the first battle, all native: Berethor falls to the Black Riders as scripted, Idrial's
+light drives them off, she heals him, and the game hands over the controls in the forest (minimap, tutorial box)
+before Gandalf's first Epic Scene film. Boot to here with nothing but CROSS presses.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-idrial-light.png" width="400" alt="Idrial's light flower over the battle on BozoEngine">
+  <img src="docs/screenshots/2026-11-11-bozo-after-battle-explore.png" width="400" alt="Berethor exploring the forest after the first battle, with the minimap and a tutorial box">
+</p>
+
 **2026-11-11, late night.** The battle menu as on the console: the selection ring glows (it blends with the
 game's additive mode in force, not over a black square), the white sheet at the left is gone (a water layer had
 picked up a UI texture from the shared VRAM slot), the waterfall falls bright again (its particles had been hiding
