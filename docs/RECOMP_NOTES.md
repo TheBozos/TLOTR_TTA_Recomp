@@ -255,9 +255,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   is placed there too; the effects send their own textures to that scratch place outside 0x219ca8. Each glow's
   texture record is *(S+0xc8) (a group record: the 64-bit pack id first, its home TBP0 at +0x10, e.g. 0x3623) and the
   type-19 mist banks' is the geometry's +0x1c: runtime/tta_3d.cpp's effectTexture looks them up by the id first. The
-  real mist textures are soft (alpha mean 5 and 30 of 0x80). Also from the microcode: each corner is CLIPped against
-  c12 = (2048, 2048, 2000.1, 2000) and a particle with any corner past the 2000 guard band is skipped (ADC); a
-  second CLIP set drops particles wholly off screen. The host's per-second line now prints the game's frame
+  real mist textures are soft (alpha mean 5 and 30 of 0x80). The microcode CLIPs each corner against c12 = (2048,
+  2048, 2000.1, 2000), but it is not a 2000-pixel cull: the console's GS dump of the Black Riders shot draws veils
+  with corners at +-2046 (38 blocks of 16, colour 0x50, alpha 6, the last scene draws #7843..7880). The port skips
+  only corners past the GS's +-2048 (TTA_GLOW_GUARD to try another). Natively that shot has ~255 live particles
+  (11 glow renders) against the console's 608: the forest's remaining haze gap, not explained yet. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was

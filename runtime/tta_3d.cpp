@@ -1663,9 +1663,11 @@ namespace tta
                             v.v = v0 + dv * static_cast<float>(j);
                             v.q = q;
                             v.rgba = rgba;
-                            // The microcode's guard band: CLIP of each corner against c12 = (2048, 2048, .., 2000); a
-                            // particle with any corner past it is skipped (ADC). It drops the huge veils at the camera.
-                            inside = inside && std::fabs(v.x - 2048.0f) <= 2000.0f && std::fabs(v.y - 2048.0f) <= 2000.0f;
+                            // Corners past the GS's coordinate range are skipped. The microcode CLIPs against c12 = (2048,
+                            // 2048, .., 2000), but the console's GS dump has veils drawn with corners at +-2046, so the
+                            // 2000 is not a cull on screen coordinates (TTA_GLOW_GUARD=<pixels> to try another).
+                            static const float guard = env("TTA_GLOW_GUARD") ? static_cast<float>(std::atof(env("TTA_GLOW_GUARD"))) : 2048.0f;
+                            inside = inside && std::fabs(v.x - 2048.0f) <= guard && std::fabs(v.y - 2048.0f) <= guard;
                         }
                     if (!inside)
                         continue;
