@@ -269,9 +269,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   (1) the GPU stops alpha at 1, so the bloom came back at half strength: an additive post draw past 0x80 is drawn
   again with the rest (TTA_NO_DOUBLE_ALPHA); (2) the GS blends in integers and truncates, floor(floor(Ct Cv / 128) As /
   128), so in the faint passes a dark texel adds nothing: before the target is read back its passes' loss (half a level
-  each) can be taken off it with a (Cd - Cs) draw, opt-in (TTA_BLOOM_FLOOR=n levels, 0 = half a level per pass;
-  shadows 23 -> 17 against the console's 8-14) since with it about one capture in twelve came out all black (0 in 8
-  without; a GPU-state interaction in the renderer, not found yet); (3) the GS samples a
+  each) is taken off at the target's first read-back (its downsample into its own corner) by the shader's levels
+  (rgb - low, clamped at 0; TTA_BLOOM_FLOOR=n levels, TTA_NO_BLOOM_FLOOR off): shadows 23 -> 17 against the
+  console's 8-14. A separate (Cd - Cs) draw before it did the same but about one capture in twelve came out all
+  black (0 in 6 with a per-frame glReadPixels probe syncing the GPU, so a timing interaction in the renderer, not a
+  wrong draw list; one GL context, the depth PBOs unbound, TTA's batches unkeyed); the levels version adds no draw
+  and gave 0 black in 8. (3) the GS samples a
   pixel at its integer position, the GPU at its centre: the filter draws move by half a GS pixel (TTA_NO_HALF_PIXEL),
   else the chain drifts up-left and the bloom lands ~7 pixels off (a halo up-left of faces). TTA_2D_TRACE=2 prints
   each post draw's rectangle and ST.

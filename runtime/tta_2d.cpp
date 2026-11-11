@@ -759,55 +759,30 @@ namespace tta
                 static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
                 // The GS's integer blend: each of the filters' faint additive passes (the frame into a target at alpha ~7)
                 // adds floor(floor(Ct Cv / 128) As / 128), so a dark texel adds nothing and every pass loses half a level on
-                // average; the GPU rounds instead and the bloom lifted the shadows. Before the target is first read back
-                // (its downsample), take that loss off it: (Cd - Cs) x 1 with Cs = the passes' count / 2 levels. Opt-in
-                // (TTA_BLOOM_FLOOR=n levels, 0 = the passes' count / 2): with it about one capture in twelve came out all
-                // black (0 in 8 without, a GPU-state interaction not found yet).
+                // average; the GPU rounds instead and the bloom lifted the shadows. The target's first read-back (its
+                // downsample into its own corner) takes that loss off what it copies, by the shader's levels (rgb - low,
+                // clamped at 0): the passes' count / 2 levels (TTA_BLOOM_FLOOR=n levels instead, TTA_NO_BLOOM_FLOOR off).
+                // A separate (Cd - Cs) draw did the same but about one capture in twelve came out all black with it.
                 {
                     static uint32_t passes[16] = {};
                     if (target && target < 16)
                     {
                         if (source == 0 && material.blend == bozo::render::Material::Blend::Additive && (points[0].rgba >> 24) < 0x40u)
                             ++passes[target];
-                        else if (source == target && passes[target] && env("TTA_BLOOM_FLOOR"))
+                        else if (source == target && passes[target])
                         {
                             const char *floorEnv = env("TTA_BLOOM_FLOOR");
-                            const int asked = std::atoi(floorEnv);
+                            const int asked = floorEnv ? std::atoi(floorEnv) : 0;
                             const uint32_t loss = asked > 0 ? static_cast<uint32_t>(asked) : (passes[target] + 1u) / 2u;
-                            bozo::render::Material subtract;
-                            subtract.depthTest = subtract.depthWrite = false;
-                            subtract.directColour = true;
-                            subtract.gsBlend = true;
-                            subtract.blendA = 1; // Cd
-                            subtract.blendB = 0; // Cs
-                            subtract.blendC = 2; // FIX
-                            subtract.blendD = 2; // 0
-                            subtract.blendFix = 0x80;
-                            subtract.target = target;
-                            subtract.frameWidth = 512u;
-                            subtract.frameHeight = 448u;
-                            bozo::render::Vertex c[4];
-                            for (int k = 0; k < 4; ++k)
+                            if (loss && !env("TTA_NO_BLOOM_FLOOR"))
                             {
-                                c[k].x = (k & 1) ? 2304.0f : 1792.0f;
-                                c[k].y = (k & 2) ? 2272.0f : 1824.0f;
-                                c[k].rgba = 0x80000000u | loss * 0x010101u;
-                            }
-                            const bozo::render::Vertex quad[6] = {c[0], c[1], c[2], c[1], c[3], c[2]};
-                            // RGB only: the GPU's subtract would take the target's alpha to 0 too. Then a no-op Cs 0 + Cd
-                            // draw puts the blend equation back to add for whatever follows (a leftover subtract blacked
-                            // out the battle).
-                            subtract.colourMask = 0x7u;
-                            if (loss)
-                            {
-                                bozo::render::Renderer::instance().draw(subtract, identity, quad, 6);
-                                bozo::render::Material reset = subtract;
-                                reset.blendA = 0; // Cs
-                                reset.blendB = 2; // 0
-                                reset.blendC = 2; // FIX = 0
-                                reset.blendD = 1; // Cd
-                                reset.blendFix = 0;
-                                bozo::render::Renderer::instance().draw(reset, identity, quad, 6);
+                                material.levels.enabled = true;
+                                for (int c = 0; c < 3; ++c)
+                                {
+                                    material.levels.gain[c] = 1.0f;
+                                    material.levels.high[c] = 1.0f;
+                                    material.levels.low[c] = std::min(static_cast<float>(loss) / 255.0f, 1.0f);
+                                }
                             }
                             passes[target] = 0;
                         }
