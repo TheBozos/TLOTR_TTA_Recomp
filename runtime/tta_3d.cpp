@@ -748,7 +748,7 @@ namespace tta
                 return;
             const uint32_t g = read32(rdram, 0x403a60);
             const uint32_t bones = read32(rdram, g + 0x290), placement = read32(rdram, g + 0x294);
-            const uint32_t fade = read32(rdram, g + 0x2bc);
+            const uint32_t fade = rdram[(g + 0x2bc) & kMask]; // a byte (0x226458: lbu)
             // TTA_SKIN_LAYERS=<mask>: draw only these layer passes (1 normal "01", 2 0x20000 "02", 4 0x200 "03",
             // 8 0x1000 "04"; debugging).
             if (const char *layers = env("TTA_SKIN_LAYERS"))
@@ -1105,6 +1105,30 @@ namespace tta
                 // 0x80000 (the screaming Nazgul's coincident copy): 0x225fb0 writes PRMODE 0x68 (Gouraud, fog, blended,
                 // no texture) and its template 0x377d40 sets nothing else; skins send F = 0, so every vertex takes
                 // FOGCOL (DS+0x720): a flat silhouette in the fog colour, blended by the vertex alpha.
+                // TTA_SKIN_MODES_LOG=1: each special pass (mode != 0) once per model and mode, then a count per minute: the
+                // fade, the visible sections, the batch's mean lit colour and alpha, its texture, the scene's ALPHA / ZBUF.
+                if (mode != 0 && mode != 0x80000000u && env("TTA_SKIN_MODES_LOG"))
+                {
+                    static std::map<std::tuple<uint32_t, uint32_t, uint64_t>, uint32_t> seen;
+                    const uint32_t n = ++seen[{index, mode, batch.texture}];
+                    if (n == 1 || n % 3600 == 0)
+                    {
+                        double sum[4] = {};
+                        for (const auto &v : triangles)
+                            for (int c = 0; c < 4; ++c)
+                                sum[c] += (v.rgba >> (c * 8)) & 0xffu;
+                        const double k = triangles.empty() ? 1.0 : static_cast<double>(triangles.size());
+                        const uint32_t ds = read32(rdram, 0x36f850);
+                        std::printf("[tta:skinmode] frame %u scbm %u mode %x (x%u) fade %u sections %08x %08x tex %llx %ux%u "
+                                    "lit %.0f %.0f %.0f a %.0f, %zu tris, ALPHA %llx ZBUF %llx FOGCOL %06x\n",
+                                    frame(rdram), index, mode, n, fade, read32(rdram, g + 0x280), read32(rdram, g + 0x284),
+                                    static_cast<unsigned long long>(batch.texture), texture ? texture->width : 0u,
+                                    texture ? texture->height : 0u, sum[0] / k, sum[1] / k, sum[2] / k, sum[3] / k, triangles.size() / 3,
+                                    static_cast<unsigned long long>(read64(rdram, ds + 0x100)),
+                                    static_cast<unsigned long long>(read64(rdram, ds + 0x120)), read32(rdram, ds + 0x720) & 0xffffffu);
+                        std::fflush(stdout);
+                    }
+                }
                 if ((mode & 0x80000u) && !env("TTA_SKIN_SILHOUETTE_TEXTURED"))
                 {
                     const uint32_t fogColour = read32(rdram, read32(rdram, 0x36f850) + 0x720) & 0xffffffu;
@@ -1568,6 +1592,9 @@ namespace tta
         // 0x131000100 on the console, Z tested but not written (a PCSX2 GS dump of the forest). DS+0x120 still holds
         // the scene's (writes on) when the render returns. 0 = none seen.
         uint64_t g_glowZbuf = 0;
+        // Likewise its ALPHA_1, TEST_1 and TEX0_1 (TCC / TFX): the packet's own A+D, before the scene's come back.
+        uint64_t g_glowAlpha = 0, g_glowTest = 0, g_glowTex0 = 0;
+        bool g_glowHasAlpha = false, g_glowHasTest = false, g_glowHasTex0 = false;
         uint32_t g_glowsDrawn = 0, g_glowParticles = 0, g_glowCalls = 0, g_glowNoBlocks = 0, g_glowOtherFbp = 0;
 
         // An effect's texture: by its group record (the 64-bit id first) when it has one, else what was sent to TEX0's
@@ -1602,7 +1629,10 @@ namespace tta
             for (int i = 0; i < 16; ++i)
                 m[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
             const float focal = readFloat(rdram, rc + 0x524), aspect = readFloat(rdram, rc + 0x5e4);
-            const uint64_t tex0 = read64(rdram, ds + 0x1a0), alpha = read64(rdram, ds + 0x100), test = read64(rdram, ds + 0x140);
+            const bool own = !env("TTA_GLOW_DS_STATE");
+            const uint64_t tex0 = own && g_glowHasTex0 ? g_glowTex0 : read64(rdram, ds + 0x1a0);
+            const uint64_t alpha = own && g_glowHasAlpha ? g_glowAlpha : read64(rdram, ds + 0x100);
+            const uint64_t test = own && g_glowHasTest ? g_glowTest : read64(rdram, ds + 0x140);
             // The glow's own texture record (S+0xc8, a group record: the 64-bit id first, TBP0 at +0x10).
             const uint32_t record = read32(rdram, s + 0xc8);
             const auto texture = effectTexture(rdram, record, tex0);
@@ -1842,6 +1872,7 @@ namespace tta
             }
             g_glowBlocks.clear();
             g_glowZbuf = 0;
+            g_glowHasAlpha = g_glowHasTest = g_glowHasTex0 = false;
             g_inGlow = true;
             func_0x21f980(rdram, ctx, rt);
             g_inGlow = false;
@@ -1871,13 +1902,19 @@ namespace tta
                 const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0];
                 if (qwords == 48 && read32(rdram, address) == 0x6e018000u)
                     g_glowBlocks.push_back(address);
-                else if (!g_glowZbuf && qwords < 64)
+                else if (qwords < 64)
                     for (uint32_t q = 0; q < qwords; ++q)
-                        if (read64(rdram, address + q * 16u + 8u) == 0x4eu) // A+D ZBUF_1
-                        {
-                            g_glowZbuf = read64(rdram, address + q * 16u);
-                            break;
-                        }
+                    {
+                        const uint64_t reg = read64(rdram, address + q * 16u + 8u), value = read64(rdram, address + q * 16u);
+                        if (reg == 0x4eu && !g_glowZbuf) // A+D ZBUF_1
+                            g_glowZbuf = value;
+                        else if (reg == 0x42u && !g_glowHasAlpha) // ALPHA_1
+                            g_glowAlpha = value, g_glowHasAlpha = true;
+                        else if (reg == 0x47u && !g_glowHasTest) // TEST_1
+                            g_glowTest = value, g_glowHasTest = true;
+                        else if (reg == 0x06u && !g_glowHasTex0) // TEX0_1
+                            g_glowTex0 = value, g_glowHasTex0 = true;
+                    }
                 if (g_glowDump)
                 {
                     std::printf("[tta:glow]   tag %x: %u qwords at %x (a2 %x)\n", ctx->r[7].uw[0], qwords, address, ctx->r[6].uw[0]);
