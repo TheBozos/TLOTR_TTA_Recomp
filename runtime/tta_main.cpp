@@ -88,6 +88,13 @@ int main(int argc, char **argv)
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
     tta::installAudio(host.libraries(), d.runtime().memory.ram());
+    // The game seeds its RNG once at boot (0x1c2e30: seconds + minutes + hours + 10 of sceCdReadClock, BCD) for
+    // everything random in it (a battle's opening turn among them): the PC's clock when played, as a PS2's real-time
+    // clock is; the fixed 12:00:00 for reproducible runs (TTA_DETERMINISTIC). TTA_CLOCK=host / fixed overrides.
+    {
+        const char *clock = std::getenv("TTA_CLOCK");
+        host.libraries().cd.hostClock = clock ? std::string(clock) == "host" : options.realTime;
+    }
     // TTA plays its movies the SDK's way: raw video through sceMpegAddBs from its Nodata callback, its own pacing.
     host.libraries().mpegOptions = {.referenceLayout = false, .paced = false, .sdkNodata = true};
     d.setFunctions(tta_function_table, tta_function_count, tta_resume_table, tta_resume_count);

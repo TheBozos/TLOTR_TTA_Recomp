@@ -279,7 +279,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   the battle with Berethor's turn first and the menu waiting. So shots after ~5890 are not comparable, and the
   turn order differs: random initiative (our deterministic runs seed differently) or a native bug, not settled.
   Driving PCSX2 from a fresh boot to check failed (key presses did not reach the pad reliably; it fell into the
-  attract trailer). The host's per-second line now prints the game's frame
+  attract trailer).
+  The game's RNG (2026-11-11): its own additive lagged-Fibonacci generator (0x1ba9c8, 20 words at 0x3f96b8, index
+  0x3f9708; 93 callers, animation included), seeded once at boot (0x1c2e30 -> 0x1bab38 -> 0x1bab70, Park-Miller
+  16807 to fill both tables) from sceCdReadClock: BCD seconds + minutes + hours + 10. Lua's randomseed (0x261668)
+  reseeds the first table; newlib's rand (0x320428) is only math.random's and stays at 1 through the intro.
+  BozoEngine's sceCdReadClock answers a fixed 12:00:00 unless Libraries::cd.hostClock, which nothing set: every
+  native boot had the same RNG. tta_main now sets it when the game runs in real time (TTA_DETERMINISTIC keeps the
+  fixed clock; TTA_CLOCK=host / fixed). With clock seeds the Nazgul's opening move varies (Nazgul Scream, Wraith
+  Slash with a double critical), but it still acts first and Berethor still falls: the opening turn is not the
+  RNG's. Why the console's slot-1 state reaches Berethor's menu first is still open. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
