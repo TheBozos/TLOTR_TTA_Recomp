@@ -293,7 +293,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   native run goes prologue film -> Berethor in the forest -> the Black Riders -> the battle opening on the Nazgul
   Scream -> Berethor falls -> Idrial's arrival (light burst) -> her cutscene, by host ~24000. The console's slot-1
   state is later: its battle with Berethor's menu and the 'Attack a single target' hint is the next one, after
-  Idrial joins. No turn-order bug. The host's per-second line now prints the game's frame
+  Idrial joins. Corrected again: the user remembers Berethor acting first in the first battle, and a PCSX2 session
+  at that battle (read from the running process: the EE's 32 MB are one block, found by the ELF's code bytes)
+  shows Berethor's menu, the 'Attack a single target' hint and the queue Berethor / Nazgul 1 / Nazgul 2, in the
+  same level (e01c01.scp), encounter (Enc01_Nazgul) and with the same stats record (0xcd1f78: HP 177, AP 65).
+  There newlib's rand state has moved (0x2781e494): its only caller in the game is the Lua C function
+  GetRandomActionInType (0x2679b8 -> 0x17e4d8), the AI's pick. Natively it stays 1 through the Nazgul Scream: the
+  AI never picks and the Scream comes first. Not the cause: the RNG seed, 30 fps logic (a temporary switch), the
+  pad's idle state, the intro's skip presses, the time manager 0x3bac10 (only its step differs, 1/60 vs 1/30).
+  The Lua C functions called around the battle start natively (a temporary probe over the 96 registered through
+  0x264498): only GetScaledElapsedTime each frame and SwitchToCombatCam (game 5819); the turn order is decided in
+  the C++ battle code (BattleModeDTB.c / Combat.c), not traced yet. Open bug. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
