@@ -272,7 +272,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   less. Tested (a temporary switch charging two vblanks a frame, so the main loop steps 1/30 s): the mist is the
   same at 30 fps logic, systems peaking at 29-33 on the cutscene's clock and 38 particles a glow against 42 at 60.
   So the frame rate is not the haze gap: our count swings 11-33 within seconds, and the one console moment
-  compared (the Black Riders shot) likely caught ours in a low phase. The host's per-second line now prints the game's frame
+  compared (the Black Riders shot) likely caught ours in a low phase.
+  Correction (same day): with build/pad_intro.txt the native run reaches the first battle at ~host frame 5890 and
+  the Nazgul acts first (Nazgul Scream at 5900, Berethor at 0 HP by 6391), then plays a further misty cutscene: the
+  native "sword" shot at host 6800 is on that branch. The console's save state (slot 1) runs the intro's end into
+  the battle with Berethor's turn first and the menu waiting. So shots after ~5890 are not comparable, and the
+  turn order differs: random initiative (our deterministic runs seed differently) or a native bug, not settled.
+  Driving PCSX2 from a fresh boot to check failed (key presses did not reach the pad reliably; it fell into the
+  attract trailer). The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
