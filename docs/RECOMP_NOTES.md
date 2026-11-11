@@ -269,7 +269,10 @@ the game's behaviour); its code is in the history before `8ade037`.
   float seconds at 0x3a4be0 / 0x3a2364 / 0x3a4bdc (+1.0) and frame counts at 0x3a4be8 / 0x3a230c / 0x3bab24 (+60).
   Natively the game runs 60 game frames per game second; the console's save state has ~59 overall, and PCSX2 showed
   the game at 24-30 frames a second in the forest. So the native game logic runs at 60 where the PS2 ran at 30 or
-  less: what counts frames rather than seconds behaves differently (open question for the haze's particle count). The host's per-second line now prints the game's frame
+  less. Tested (a temporary switch charging two vblanks a frame, so the main loop steps 1/30 s): the mist is the
+  same at 30 fps logic, systems peaking at 29-33 on the cutscene's clock and 38 particles a glow against 42 at 60.
+  So the frame rate is not the haze gap: our count swings 11-33 within seconds, and the one console moment
+  compared (the Black Riders shot) likely caught ours in a low phase. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
