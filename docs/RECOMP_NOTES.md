@@ -259,7 +259,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   2048, 2000.1, 2000), but it is not a 2000-pixel cull: the console's GS dump of the Black Riders shot draws veils
   with corners at +-2046 (38 blocks of 16, colour 0x50, alpha 6, the last scene draws #7843..7880). The port skips
   only corners past the GS's +-2048 (TTA_GLOW_GUARD to try another). Natively that shot has ~255 live particles
-  (11 glow renders) against the console's 608: the forest's remaining haze gap, not explained yet. The host's per-second line now prints the game's frame
+  (11 glow renders) against the console's 608: the forest's remaining haze gap. Scanning RAM for glow systems
+  (S+0xa0 0xb0, +0xa4 1.0, +0xc8 a record with a mist id; TTA_GLOW_SCAN=1 counts them every 60 game frames): the
+  console's save state at the close-up has 30 (12 / 12 / 6 by mesh 0x88c690 / 0x89a710 / 0x899b10), ours 12 there,
+  but ours rise to 22-33 later in the intro and fall back to 11-14 at some cuts (game 4320, 4740, 5100): the
+  same systems, spawned and removed on the cutscene's clock. The console's game frame counter (0x3b5720) is not a
+  cutscene clock (4294 there against our 3706 at the same shot), so the two moments are not matched yet. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was

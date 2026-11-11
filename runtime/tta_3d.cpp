@@ -1729,6 +1729,29 @@ namespace tta
             const uint32_t s = read32(rdram, ctx->r[4].uw[0] + 4);
             const char *dump = env("TTA_GLOW_DUMP");
             g_glowDump = dump && frame(rdram) == static_cast<uint32_t>(std::atoi(dump));
+            if (static uint32_t scanned = 0; (g_glowDump || (env("TTA_GLOW_SCAN") && frame(rdram) % 60u == 0u)) && scanned != frame(rdram))
+            {
+                // Every glow system in RAM (S+0xa0 0xb0, +0xa4 1.0, +0xc8 a texture record with a mist id), as the console's
+                // save state is scanned (docs: the forest's haze). TTA_GLOW_SCAN=1: the count every 60 game frames.
+                scanned = frame(rdram);
+                uint32_t systems = 0;
+                for (uint32_t s2 = 0x100000; s2 + 0x240 < 0x2000000; s2 += 4)
+                {
+                    if (read32(rdram, s2 + 0xa0) != 0xb0u || read32(rdram, s2 + 0xa4) != 0x3f800000u)
+                        continue;
+                    const uint32_t rec = read32(rdram, s2 + 0xc8);
+                    if (rec < 0x100000u || rec >= 0x2000000u)
+                        continue;
+                    const uint64_t id = read64(rdram, rec);
+                    if (id != 0xabb46ddbull && id != 0x1c33bb7793ull)
+                        continue;
+                    ++systems;
+                    if (g_glowDump)
+                        std::printf("[tta:glowscan] S %x +88 %g +8c %x +134 %x\n", s2, readFloat(rdram, s2 + 0x88), read32(rdram, s2 + 0x8c),
+                                read32(rdram, s2 + 0x134));
+                }
+                std::printf("[tta:glowscan] frame %u: %u glow systems in RAM\n", frame(rdram), systems);
+            }
             if (g_glowDump)
             {
                 static int n = 0;
