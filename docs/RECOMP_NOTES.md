@@ -360,6 +360,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   Epic Scene film (Minas Tirith) by host frame ~11800, all native and deterministic. Skin mode bit 0x80000000 (the
   Nazgul, scbm 70063 / 70388) changes nothing in the skin render (0x225fb0 tests 0x200 / 0x1000 / 0x2000 / 0x40000 /
   0x80000 / 0x20000 and 0xc0000 to skip); the second skinned layout is the shadow volumes, drawn (type 18).
+  Driving the forest (build/pad_walk.txt): after the battle a "Scenes" tutorial box waits for CROSS, then "Quest
+  Journal updated", then the prompt "You received an Epic Scene ... View it now?" appears a while after the last
+  input (each press pushes it back), so it is answered with DOWN + CROSS pairs every 60 frames; START opens the
+  pause menu (Scenes orbs, Menu, Stats screens: all native). The D-pad drives the left stick (BozoEngine's
+  ScriptInput): Berethor walks, the minimap follows, a chest lies on the path with its "Chests" tutorial box.
 - **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
   battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
   (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game
