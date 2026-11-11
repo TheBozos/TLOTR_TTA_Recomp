@@ -60,6 +60,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-11.** TTA's Glows, native: the effects' particle billboards (VU1 microcode 0x620 rewritten in C++). They
+are the console's mist veils in the forest and the haze and light shafts over the battle.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-glow-mist.png" width="400" alt="Berethor in the forest on BozoEngine, veiled in the grey mist of TTA's glow particles">
+  <img src="docs/screenshots/2026-11-11-bozo-battle-haze.png" width="400" alt="The first battle on BozoEngine with the glow particles' haze and a light shaft between the Black Riders">
+</p>
+
 **2026-11-10, evening.** The console's look: the screen filters (the frame blurred through an off-screen target and
 graded back) and the forest's mist, native; shadows at the game's strength.
 

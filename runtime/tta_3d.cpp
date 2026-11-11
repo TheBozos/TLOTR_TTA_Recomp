@@ -1499,47 +1499,211 @@ namespace tta
             ctx->pc = ra;
         }
 
-        // TTA_GLOW_DUMP=<game frame>: a discovery probe (not a render path): while a glow renders (0x21f980), each DMA tag it
-        // chains (0x2163c8(address, qwords, .., tag)) and the qwords it points at, to build/glow_<n>_<k>.bin.
-        bool g_inGlow = false;
+        // ---- The Glows (shader types 9 / 20, ShaderObject_Glows_Ps2.c): particle billboards -------------------------------
+        // The render 0x21f980 chains, per glow, the blocks of 16 particles it keeps at S+0x230 (S = *(instance + 4)), 48 qwords
+        // each, laid out by 0x21ea28 for VU1 microcode 0x620 (the 422-qword image at 0x350690):
+        //   +4 the range: first and end particle (bytes); +0xc three 16-float columns: A the age, B the size at birth, C the
+        //   alpha's rate; +0xd0 16 x {position xyz + angle w, velocity xyz + spin w}; +0x2d4 16 tints, RGBA5551 (0x10 is 1.0;
+        //   the top bit mirrors the texture across U).
+        // The constants are the 12-qword packet at *(S+0x138): +0x10 gravity g (w: the atlas jitter), +0x20 the colour's
+        // rate, +0x30 / +0x40 the colour's floor / ceiling, +0x50 the colour at birth, +0x60 (anchor x y, the spin's age cap,
+        // its damping), +0x70 (drag, size cap, growth, the velocity's reach), +0x80 (atlas rate x y, the alpha cap's rate,
+        // the alpha cap), +0x90 (atlas count x y, a frame's width and height). The matrix is RC+0x2e0 as 0x21f090 leaves
+        // it (0x210d10), the focal length RC+0x524 and the aspect RC+0x5e4.
+        // Per particle (A the age): position + d (1 - 1 / (1 + drag A)^4) + g A, d = (velocity - g) x reach; angle + spin
+        // (1 - damping t) t, t = min(A, cap); half size (B + growth A, 0..cap) x focal / w, y by the aspect; colour
+        // (birth + rate A) x tint, alpha min(birth + C A, cap + capRate A), both clamped to floor..ceiling; a screen-space
+        // quad, two triangles. The draw state is the game's (TEX0_1, ALPHA_1, TEST_1, ZBUF_1 in the draw state at
+        // *0x36f850): additive or blended, Z tested, no Z writes. TTA_NO_GLOWS=1 turns them off.
+        // TTA_GLOW_DUMP=<game frame>: each glow's DMA blocks and records to build/glow_<n>_<k>.bin (a discovery probe).
+        bool g_inGlow = false, g_glowDump = false;
         int g_glowIndex = -1, g_glowTag = 0;
+        std::vector<uint32_t> g_glowBlocks;
+        uint32_t g_glowsDrawn = 0, g_glowParticles = 0, g_glowCalls = 0, g_glowNoBlocks = 0, g_glowOtherFbp = 0;
+
+        void drawGlow(const uint8_t *rdram, uint32_t s)
+        {
+            const uint32_t packet = read32(rdram, s + 0x138);
+            ++g_glowCalls;
+            if (!packet || g_glowBlocks.empty())
+            {
+                ++g_glowNoBlocks;
+                return;
+            }
+            const auto c = [&](int q, int i) { return readFloat(rdram, packet + 0x10u + static_cast<uint32_t>(q - 24) * 16u + i * 4u); };
+            const uint32_t ds = read32(rdram, 0x36f850);
+            const uint32_t fbp = read32(rdram, ds + 0x150) & 0x1ffu;
+            if (fbp != 0 && fbp != 0x70)
+            {
+                ++g_glowOtherFbp;
+                return;
+            }
+            const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
+            float m[16];
+            for (int i = 0; i < 16; ++i)
+                m[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
+            const float focal = readFloat(rdram, rc + 0x524), aspect = readFloat(rdram, rc + 0x5e4);
+            const uint64_t tex0 = read64(rdram, ds + 0x1a0), alpha = read64(rdram, ds + 0x100), test = read64(rdram, ds + 0x140);
+            const auto texture = textureAtPlace(static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu));
+            static std::vector<bozo::render::Vertex> triangles;
+            triangles.clear();
+            for (const uint32_t block : g_glowBlocks)
+            {
+                const int first = static_cast<int8_t>(rdram[(block + 4) & kMask]), end = static_cast<int8_t>(rdram[(block + 5) & kMask]);
+                for (int i = std::max(first, 0); i < std::min(end, 16); ++i)
+                {
+                    const float age = readFloat(rdram, block + 0xc + i * 4), birthSize = readFloat(rdram, block + 0x4c + i * 4);
+                    const float alphaRate = readFloat(rdram, block + 0x8c + i * 4);
+                    const uint32_t p = block + 0xd0 + i * 32;
+                    const auto f = [&](uint32_t o) { return readFloat(rdram, p + o); };
+                    const uint16_t tint = read16(rdram, block + 0x2d4 + i * 2);
+                    // Spin, damped, over the capped age.
+                    const float t = std::min(c(29, 2), age);
+                    float angle = f(0xc) + f(0x1c) * (1.0f - c(29, 3) * t) * t;
+                    angle -= 6.2831853f * std::nearbyint(angle / 6.2831853f);
+                    // Motion: the velocity fades by the drag, gravity adds up.
+                    const float drag = 1.0f + c(30, 0) * age, fade = 1.0f / (drag * drag * drag * drag);
+                    float world[3];
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const float d = (f(0x10 + k * 4) - c(24, k)) * c(30, 3);
+                        world[k] = f(k * 4) + d * (1.0f - fade) + c(24, k) * age;
+                    }
+                    const float cx = m[0] * world[0] + m[4] * world[1] + m[8] * world[2] + m[12];
+                    const float cy = m[1] * world[0] + m[5] * world[1] + m[9] * world[2] + m[13];
+                    const float cz = m[2] * world[0] + m[6] * world[1] + m[10] * world[2] + m[14];
+                    const float cw = m[3] * world[0] + m[7] * world[1] + m[11] * world[2] + m[15];
+                    if (!(cw > 1.0e-4f))
+                        continue;
+                    const float q = 1.0f / cw, sx = cx * q, sy = cy * q, sz = cz * q;
+                    if (sz < 0.0f || sz > 16777215.0f)
+                        continue;
+                    const float size = std::min(std::max(birthSize + c(30, 2) * age, 0.0f), c(30, 1)) * focal * q;
+                    const float cs = std::cos(angle) * size, sn = std::sin(angle) * size;
+                    const float ax = cs, ay = sn * aspect, bx = -sn, by = cs * aspect;
+                    // The texture atlas: a frame from the age, jittered per particle by VU1's random seeded from the position.
+                    uint32_t bits = 0;
+                    const float px = f(0);
+                    std::memcpy(&bits, &px, 4);
+                    const float random = 1.0f + static_cast<float>(bits & 0x7fffffu) / 8388608.0f;
+                    const float jitter = std::nearbyint(random * 2048.0f) - random * 2048.0f;
+                    const float atlasAge = age - jitter * c(24, 3);
+                    float u0 = 0.0f, v0 = 0.0f;
+                    for (int k = 0; k < 2; ++k)
+                    {
+                        const float x = c(31, k) * atlasAge, frac = std::nearbyint(x) - x;
+                        (k ? v0 : u0) = std::nearbyint(-c(32, k) * frac) * c(32, 2 + k);
+                    }
+                    float du = c(32, 2);
+                    const float dv = c(32, 3);
+                    if (tint & 0x8000u)
+                    {
+                        u0 = -u0;
+                        du = -du;
+                    }
+                    // Colour: (birth + rate x age) x the tint, alpha by its own rate and cap; clamped.
+                    uint32_t rgba = 0;
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        float v;
+                        if (k < 3)
+                            v = (c(28, k) + c(25, k) * age) * static_cast<float>(((tint >> (k * 5)) & 31u) << 3) / 128.0f;
+                        else
+                            v = std::min(c(28, 3) + alphaRate * age, c(31, 3) + c(31, 2) * age);
+                        v = std::min(std::max(v, c(26, k)), c(27, k));
+                        rgba |= static_cast<uint32_t>(std::clamp(v, 0.0f, 255.0f)) << (k * 8);
+                    }
+                    // The quad: the anchor (c29.xy) at the particle, corners P + a (2i - anchor x) + b (2j - anchor y).
+                    bozo::render::Vertex corner[4];
+                    bool inside = true;
+                    for (int j = 0; j < 2; ++j)
+                        for (int i = 0; i < 2; ++i)
+                        {
+                            const float ka = 2.0f * static_cast<float>(i) - c(29, 0), kb = 2.0f * static_cast<float>(j) - c(29, 1);
+                            bozo::render::Vertex &v = corner[j * 2 + i];
+                            v.x = sx + ax * ka + bx * kb;
+                            v.y = sy + ay * ka + by * kb;
+                            v.z = sz;
+                            v.u = u0 + du * static_cast<float>(i);
+                            v.v = v0 + dv * static_cast<float>(j);
+                            v.q = q;
+                            v.rgba = rgba;
+                            inside = inside && std::fabs(v.x - 2048.0f) < 2048.0f && std::fabs(v.y - 2048.0f) < 2048.0f;
+                        }
+                    if (!inside)
+                        continue;
+                    triangles.insert(triangles.end(), {corner[0], corner[1], corner[2], corner[1], corner[3], corner[2]});
+                    ++g_glowParticles;
+                }
+            }
+            if (triangles.empty())
+                return;
+            bozo::render::Material material;
+            material.useQ = true;
+            material.textured = texture != nullptr;
+            if (texture)
+                material.tex0 = texture->key;
+            material.textureAlpha = ((tex0 >> 34) & 1u) != 0;
+            material.textureFunction = static_cast<bozo::render::Material::TextureFunction>((tex0 >> 35) & 3u);
+            material.gsBlend = true;
+            material.blendA = static_cast<uint8_t>(alpha & 3u);
+            material.blendB = static_cast<uint8_t>((alpha >> 2) & 3u);
+            material.blendC = static_cast<uint8_t>((alpha >> 4) & 3u);
+            material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
+            material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
+            material.depthTest = ((test >> 17) & 3u) >= 2u;
+            material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0;
+            if (test & 1u)
+            {
+                material.alphaTest = true;
+                material.alphaFunc = static_cast<bozo::render::Material::AlphaFunc>((test >> 1) & 7u);
+                material.alphaRef = static_cast<uint8_t>((test >> 4) & 0xffu);
+            }
+            static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
+                                                    texture);
+            ++g_glowsDrawn;
+            if (g_glowDump)
+                std::printf("[tta:glow]   drawn: %zu particles, texture %s, ALPHA %llx TEST %llx ZBUF %llx, focal %g aspect %g\n",
+                            triangles.size() / 6, texture ? "found" : "missing", static_cast<unsigned long long>(alpha),
+                            static_cast<unsigned long long>(test), static_cast<unsigned long long>(read64(rdram, ds + 0x120)), focal,
+                            aspect);
+        }
 
         void glowRender(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
+            const uint32_t s = read32(rdram, ctx->r[4].uw[0] + 4);
             const char *dump = env("TTA_GLOW_DUMP");
-            const bool on = dump && frame(rdram) == static_cast<uint32_t>(std::atoi(dump));
-            if (on)
+            g_glowDump = dump && frame(rdram) == static_cast<uint32_t>(std::atoi(dump));
+            if (g_glowDump)
             {
                 static int n = 0;
                 g_glowIndex = n++;
                 g_glowTag = 0;
-                const uint32_t s = read32(rdram, ctx->r[4].uw[0] + 4);
                 std::printf("[tta:glow] #%d instance %x S %x: +88 %g +8c %x +a0 %x +a4 %g +c8 %x +134 %x +138 %x\n", g_glowIndex,
                             ctx->r[4].uw[0], s, readFloat(rdram, s + 0x88), read32(rdram, s + 0x8c), read32(rdram, s + 0xa0),
                             readFloat(rdram, s + 0xa4), read32(rdram, s + 0xc8), read32(rdram, s + 0x134), read32(rdram, s + 0x138));
-                char path[128];
-                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glowS_%d.bin", g_glowIndex);
-                if (FILE *f = std::fopen(path, "wb"))
-                {
-                    std::fwrite(rdram + (s & kMask), 1, 0x300, f);
-                    std::fclose(f);
-                }
-                const uint32_t parts[3] = {read32(rdram, s + 0xc8), read32(rdram, s + 0xcc), read32(rdram, s + 0x134)};
-                for (int k = 0; k < 3; ++k)
-                {
-                    std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glowR_%d_%d.bin", g_glowIndex, k);
-                    if (parts[k])
-                        if (FILE *f = std::fopen(path, "wb"))
-                        {
-                            std::fwrite(rdram + (parts[k] & kMask), 1, 0x200, f);
-                            std::fclose(f);
-                        }
-                }
             }
-            g_inGlow = on;
+            g_glowBlocks.clear();
+            g_inGlow = true;
             func_0x21f980(rdram, ctx, rt);
             g_inGlow = false;
+            if (!env("TTA_NO_GLOWS"))
+                drawGlow(rdram, s);
+            g_glowDump = false;
+            if (traceLevel() >= 1)
+            {
+                static uint32_t second = 0;
+                if (frame(rdram) / 60 != second)
+                {
+                    std::printf("[tta:glow] frame %u: %u glows drawn, %u particles in the last second (%u renders, %u without blocks, "
+                                "%u off-frame)\n", frame(rdram), g_glowsDrawn, g_glowParticles, g_glowCalls, g_glowNoBlocks,
+                                g_glowOtherFbp);
+                    second = frame(rdram) / 60;
+                    g_glowsDrawn = g_glowParticles = g_glowCalls = g_glowNoBlocks = g_glowOtherFbp = 0;
+                }
+            }
             ctx->pc = ra;
         }
 
@@ -1548,16 +1712,21 @@ namespace tta
             const uint32_t ra = ctx->r[31].uw[0];
             if (g_inGlow)
             {
-                const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0], tag = ctx->r[7].uw[0];
-                std::printf("[tta:glow]   tag %x: %u qwords at %x (a2 %x)\n", tag, qwords, address, ctx->r[6].uw[0]);
-                char path[128];
-                std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glow_%d_%d.bin", g_glowIndex, g_glowTag++);
-                if (qwords && qwords < 0x10000)
-                    if (FILE *f = std::fopen(path, "wb"))
-                    {
-                        std::fwrite(rdram + (address & kMask), 16, qwords, f);
-                        std::fclose(f);
-                    }
+                const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0];
+                if (qwords == 48 && read32(rdram, address) == 0x6e018000u)
+                    g_glowBlocks.push_back(address);
+                if (g_glowDump)
+                {
+                    std::printf("[tta:glow]   tag %x: %u qwords at %x (a2 %x)\n", ctx->r[7].uw[0], qwords, address, ctx->r[6].uw[0]);
+                    char path[128];
+                    std::snprintf(path, sizeof(path), "D:/TLOTR_TTA_Recomp/build/glow_%d_%d.bin", g_glowIndex, g_glowTag++);
+                    if (qwords && qwords < 0x10000)
+                        if (FILE *f = std::fopen(path, "wb"))
+                        {
+                            std::fwrite(rdram + (address & kMask), 16, qwords, f);
+                            std::fclose(f);
+                        }
+                }
             }
             func_0x2163c8(rdram, ctx, rt);
             ctx->pc = ra;

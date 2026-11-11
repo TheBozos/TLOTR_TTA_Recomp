@@ -198,7 +198,7 @@ the game's behaviour); its code is in the history before `8ade037`.
   is set): 0x13-0x20, i.e. 15-25% darker. 0x21b0f8 restores Z. The native shadows now use that strength and are on
   by default (TTA_NO_SHADOWS=1 off). The console's haze is not a post pass: it is scene geometry (large mipmapped
   textured fans, huge additive strips, a faint veil), the Glows objects (types 9/20) not drawn natively yet.
-- **The mist: the Glows objects** (mapping in progress). Shader types 9 and 20 (ShaderObject_Glows_Ps2.c) have no
+- **The mist: the Glows objects** (mapped; native since 2026-11-11, below). Shader types 9 and 20 (ShaderObject_Glows_Ps2.c) have no
   render at +0x2c; their table entries 13-16 are 0x21f010, 0x21f088, 0x21f980 (render, many a frame in the forest
   and the battle) and 0x21fce8; 0x21ea18 / 0x21ea20 run around them, and 0x21c420 (with 0x21c098) generates their VU
   microcode each frame into BSS (0x3f6f00 / 0x3faf00). A glow: S = *(instance + 4); +0xa0 flags (0x200, 0x2000:
@@ -230,6 +230,25 @@ the game's behaviour); its code is in the history before `8ade037`.
   (kPreviousFrame), and draws these in the 3D frame's list. The intro close-up's mean is now 58 / 59 / 49 against the
   console's 61 / 58 / 50. TTA_NO_TARGETS=1 for the old look. Also native: the type-19 mist banks from the animator
   0x2236a0 (rows along each edge, base / extruded, waves; TTA_NO_MIST, TTA_MIST_SHOW): dark ground mist.
+- **The Glows, native** (2026-11-11). They are EA's ears_rt_sfx "Particle System" components (type descriptor
+  0x3782c0: create 0x22ec88 / 0x22edc0, update 0x22efe8 -> 0x22d5b8 writes the particles), rendered as shader types
+  9/20. On the console they are most of the forest's mist (about 38 blocks of 16 huge grey veils, alpha 5-15, per frame
+  in the Berethor close-up), plus sparks, smoke, light shafts and the battle's foliage vignette. PCSX2's GS dump showed
+  them as untextured strips until the reader honoured PRMODECONT 0: TTA sets PRMODE with CTXT, TME and ABE, so the
+  glows draw in context 2 (TEX0_2 / ALPHA_2 / TEST_2), as many other scene draws do. A block (48 qwords, laid out by
+  0x21ea28): +4 the first and end particle, +0xc ages A[16], birth sizes B[16], alpha rates C[16], +0xd0 16 x
+  {position xyz + angle, velocity xyz + spin}, +0x2d4 RGBA5551 tints (0x10 is 1.0, the top bit mirrors U). Constants:
+  the 12-qword packet at *(S+0x138), +0x10.. = VU c24..c32 (gravity, colour rate / floor / ceiling / birth, anchor and
+  spin cap / damping, drag / size cap / growth / reach, atlas rate and alpha cap, atlas count and frame size); matrix
+  RC+0x2e0 as 0x21f090 / 0x210d10 leave it, focal RC+0x524, aspect RC+0x5e4. Microcode 0x620 per particle: position +
+  (v - g) reach (1 - 1/(1 + drag A)^4) + g A; angle + spin (1 - damping t) t, wrapped; half size clamp(B + growth A,
+  0, cap) x focal / w (y x aspect); colour (birth + rate A) x tint, alpha min(birth + C A, cap + capRate A), clamped;
+  a 4-vertex strip (the first two ADC), the atlas frame from the age jittered by VU1's random seeded from the
+  position. runtime/tta_3d.cpp's glowRender lets 0x21f980 build its blocks, collects the blocks it chains (0x2163c8,
+  48 qwords starting 0x6e018000) and draws each particle as a screen-space quad (Material::useQ) with the game's
+  TEX0_1 / ALPHA_1 / TEST_1 / ZBUF_1. Up to ~1300 particles a frame; the forest and battle frame rate is unchanged on
+  average. TTA_NO_GLOWS=1 turns them off. Trap: with no pad input the game sits on the title screen, where the only
+  effect is the UI's "UI_bloom" (one particle); level effects only exist in game (build/pad_battle.txt).
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are
