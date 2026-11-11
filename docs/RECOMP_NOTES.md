@@ -278,6 +278,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   pixel at its integer position, the GPU at its centre: the filter draws move by half a GS pixel (TTA_NO_HALF_PIXEL),
   else the chain drifts up-left and the bloom lands ~7 pixels off (a halo up-left of faces). TTA_2D_TRACE=2 prints
   each post draw's rectangle and ST.
+- **The skins' vertex colours** (2026-11-11). The skin program 0x378 (set 8df1e059) lights each vertex's colour, not
+  a constant: at 0x5c0..0x668 it loads the vertex's third qword (lq -4(vi2), one vertex behind the transform), ITOF0,
+  multiplies by the order-2 light, clamps to 255, FTOI0. tools/tta_meshes.py had taken that qword for VU scratch and
+  written 0x80808080; it holds baked shading (450 distinct values in E01C01: greys 0x45 / 0x33, greens 0x4a5a38,
+  ...). The converter now writes it. The intro's Black Riders shot: shadows 17 -> 13 (console 8). The remaining gap
+  there is large-scale (console std 28 against our 14 at 16-px scale; fine detail matches): a bright background, darker
+  characters. Fog is not it (FOGCOL 524842 and K match; the console's F is per object, 0 or ~23, not distance).
+  TTA_SKIN_STATS=<game frame> prints each skin batch's mean lit / vertex colour.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are

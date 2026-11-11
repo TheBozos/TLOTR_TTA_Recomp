@@ -1010,6 +1010,22 @@ namespace tta
                     const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
                     skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
                 }
+                // TTA_SKIN_STATS=<game frame>: each drawn skin batch's mean lit and vertex colour (the console's context-2
+                // draws average ~34-53 per channel in the intro).
+                if (const char *stats = env("TTA_SKIN_STATS"); stats && frame(rdram) == static_cast<uint32_t>(std::atoi(stats)) && batch.prim != 0x8003u)
+                {
+                    double sum[3] = {}, raw[3] = {};
+                    for (size_t v = 0; v < batch.vertices.size(); ++v)
+                        for (int c = 0; c < 3; ++c)
+                        {
+                            sum[c] += (skinned[v].rgba >> (c * 8)) & 0xffu;
+                            raw[c] += (batch.colours[v] >> (c * 8)) & 0xffu;
+                        }
+                    const double n = batch.vertices.empty() ? 1.0 : static_cast<double>(batch.vertices.size());
+                    std::printf("[tta:skinstats] G %x prim %x batch %zu verts: lit %.1f %.1f %.1f  vertex %.1f %.1f %.1f  C0 %.3f %.3f %.3f\n", g,
+                                batch.prim, batch.vertices.size(), sum[0] / n, sum[1] / n, sum[2] / n, raw[0] / n, raw[1] / n, raw[2] / n,
+                                lighting[0][0], lighting[0][1], lighting[0][2]);
+                }
                 // A shadow-volume mesh (prim 0x8003, the part layout of set 5's program 0x178): never a surface; in the
                 // type-18 pass its triangles go to the volume, in world space (W).
                 if (batch.prim & 0x8000u)

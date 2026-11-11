@@ -67,8 +67,8 @@ Output: one file per resource <type>_<index>[_v<n>].mesh and index.txt. File lay
     skinned batch: as below but each vertex is 64 bytes {f32 x, y, z (bind/model space: the VU's
              (int/1024) * the geometry+0x18 scale; the skin set's VIF packet 0x354968 sets STROW
              8224.0 and VU35.x = 8224.0, so each 16-bit int v unpacks (STMOD 1) to 8224 + v/1024 and
-             the bias leaves v/1024; normals and s, t use the same /1024), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (0x80808080:
-             the mesh carries no vertex colour, the VU lights it), u8 bone[4] (skeleton indices into
+             the bias leaves v/1024; normals and s, t use the same /1024), f32 nx, ny, nz (unit), f32 s, t, u32 rgba (the vertex's
+             colour, its third qword: baked shading, 0x80 = 1.0; the VU multiplies it by the light), u8 bone[4] (skeleton indices into
              *(G+0x290); the 3-byte palette entries could carry u16 indices but the disc's maximum
              is 148: a larger one is a warning), f32 weight[4] (the record's /127 values renormalised
              to sum 1; unused = 0), u8 adc, 7 pad}; PRIM 0x7c (strip, Gouraud, textured, fog, blend: the tag
@@ -584,7 +584,7 @@ SKIN_STATS = Counter()
 def skin_batch(b, palette, cache, prev, scale, tex, warn):
     """One MSCNT: q0 = (output count, vertex end | 0x8000, ..), q1.y = vertex start | 0x8000; vertices
     are 3 qwords {normal x y z (x1024), w}, {position x y z (/1024 x geometry scale), w = blended-matrix
-    cache slot (| flag)}, {VU scratch}; normal.w: 0x8000 | record address = blend the record's bones
+    cache slot (| flag)}, {colour (V4-8, 0x80 = 1.0)}; normal.w: 0x8000 | record address = blend the record's bones
     (and keep the result in the cache slot), 0x8000 alone = as the previous vertex, < 0x8000 = the
     matrix cached at that slot (possibly by an earlier batch: the cache persists in VU memory). The VU sees
     w ^ 0x8000 (MTIR / ILW of the unpacked float 8224 + w/1024), so in the raw data: normal.w 0x8000 = no
@@ -652,8 +652,13 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
             SKIN_STATS['influences %d' % sum(1 for x in ws if x)] += 1
         nx, ny, nz = (_s(x) / 1024.0 for x in nq[:3])
         ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+        # The third qword is the vertex's colour (V4-8, 0x80 = 1.0): the lighting code (0x5c0..0x668) loads it
+        # (lq -4(vi2) one vertex behind), ITOF0, multiplies it by the light and clamps it to 255. Baked shading
+        # (greys, greens): not a VU scratch slot.
+        cq = m.get(a + 2)
+        colour = 0x80808080 if cq is None else sum(min(max(int(cq[k]), 0), 255) << (8 * k) for k in range(4))
         verts[a] = ((_s(pq[0]) * pscale, _s(pq[1]) * pscale, _s(pq[2]) * pscale),
-                    (nx / ln, ny / ln, nz / ln), infl)
+                    (nx / ln, ny / ln, nz / ln), infl, colour)
     out = [None] * nout
     for e in range(3, vstart):  # entries fill [3, vertex start); the last ones may repeat (padding)
         q = m.get(e)
@@ -667,8 +672,8 @@ def skin_batch(b, palette, cache, prev, scale, tex, warn):
         if vv is None:
             warn('skin output entry out of range')
             return None, None
-        pos, nrm, (bones, ws) = vv
-        out[slot] = pos + nrm + (_s(q[0]) / 1024.0, _s(q[1]) / 1024.0, 0x80808080) + bones + ws + (
+        pos, nrm, (bones, ws), colour = vv
+        out[slot] = pos + nrm + (_s(q[0]) / 1024.0, _s(q[1]) / 1024.0, colour) + bones + ws + (
             0 if q[3] & 0x8000 else 1,)
     if any(v is None for v in out):
         warn('skin output slot not filled')
