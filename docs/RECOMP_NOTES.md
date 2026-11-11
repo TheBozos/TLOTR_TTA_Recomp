@@ -354,6 +354,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   prints each glow's on-screen coverage. The battle's first frame overlaid on the console capture lines up exactly
   (camera RC+0x1a0 / +0x260 identical in both RAMs); the attack turn (target hint, hit sparks, 'Immune', the Nazgul
   Scream's green veil) plays natively but has no console reference yet.
+- **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
+  battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
+  (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game
+  thread's time under uploadCanvas (a fresh 512 x 512 RGBA texture each time the game re-sends the UI canvas, mostly
+  unchanged) and in tta::env (a std::string built per call on the draw paths). The canvas now keeps its texture when
+  its pixels are the same, and env keys its cache by the literal's address: the worst second is 18 ms (was 26),
+  the scream 16.8 ms, pictures identical (deterministic captures compared pixel for pixel).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
   darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
   canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame

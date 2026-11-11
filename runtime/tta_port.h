@@ -13,10 +13,11 @@
 
 namespace tta
 {
-    // An environment switch, read once (the draw paths ask per vertex; getenv takes a lock on Windows).
+    // An environment switch, read once (the draw paths ask per vertex; getenv takes a lock on Windows). Keyed by the
+    // name's address: the callers pass string literals, so no string is built per call (that showed in a profile).
     inline const char *env(const char *name)
     {
-        static std::unordered_map<std::string, const char *> cache;
+        static std::unordered_map<const char *, const char *> cache;
         auto [at, added] = cache.try_emplace(name, nullptr);
         if (added)
             at->second = std::getenv(name);

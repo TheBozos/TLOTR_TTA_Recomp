@@ -243,6 +243,29 @@ namespace tta
                 return;
             if (pixels < 0x100000u || pixels >= 0x2000000u) // inline rather than a pointer
                 pixels = s + 0x2c;
+            // The game re-sends the canvas when it switches the UI slot back to it, mostly unchanged: the same pixels keep
+            // the same texture (a 1 MB rebuild and upload each time showed in the battle's profile).
+            static std::vector<uint8_t> lastPixels;
+            static std::shared_ptr<const bozo::render::Texture> lastTexture;
+            static uint32_t lastWidth = 0, lastHeight = 0;
+            {
+                std::vector<uint8_t> now(static_cast<size_t>(width) * height);
+                for (uint32_t y = 0; y < height; ++y)
+                    std::memcpy(now.data() + static_cast<size_t>(y) * width, rdram + ((pixels + y * pitch) & kMask), width);
+                if (lastTexture && width == lastWidth && height == lastHeight && now == lastPixels)
+                {
+                    uint32_t lw = 0, lh = 0;
+                    while ((1u << lw) < width)
+                        ++lw;
+                    while ((1u << lh) < height)
+                        ++lh;
+                    g_placed[{tbp, 0x13u}] = Placed{0, {}, lw, lh, lastTexture};
+                    return;
+                }
+                lastPixels.swap(now);
+                lastWidth = width;
+                lastHeight = height;
+            }
             static uint64_t version = 0;
             auto t = std::make_shared<bozo::render::Texture>();
             t->width = width;
@@ -261,6 +284,7 @@ namespace tta
                 ++lw;
             while ((1u << lh) < height)
                 ++lh;
+            lastTexture = t;
             g_placed[{tbp, 0x13u}] = Placed{0, {}, lw, lh, std::move(t)};
         }
 
