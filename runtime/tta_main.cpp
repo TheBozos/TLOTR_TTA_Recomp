@@ -104,6 +104,26 @@ int main(int argc, char **argv)
     host.onFrame = [&](uint64_t f, const R5900Context *ctx)
     {
         pacer.frameEnd();
+        // TTA_RAM_DUMP=<game frame>[,<game frame>...]: the EE's 32 MB at the end of those game frames, to
+        // build/ram_<frame>.bin (compared with a PCSX2 save state's eeMemory.bin).
+        if (static const char *dumps = std::getenv("TTA_RAM_DUMP"); dumps && *dumps)
+        {
+            static uint32_t last = 0;
+            uint32_t game = 0;
+            std::memcpy(&game, d.runtime().memory.ram() + 0x3b5720, 4);
+            if (game != last)
+            {
+                last = game;
+                const std::string list = std::string(",") + dumps + ",";
+                if (list.find("," + std::to_string(game) + ",") != std::string::npos)
+                    if (FILE *out = std::fopen(("build/ram_" + std::to_string(game) + ".bin").c_str(), "wb"))
+                    {
+                        std::fwrite(d.runtime().memory.ram(), 1, 32u << 20, out);
+                        std::fclose(out);
+                        std::printf("[tta] RAM of game frame %u written\n", game);
+                    }
+            }
+        }
         if (f % 60 == 0)
         {
             // The game's own frame counter (0x3b5720) beside the host's: the TTA_*_DUMP probes key on the game's.

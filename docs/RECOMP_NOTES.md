@@ -264,7 +264,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   console's save state at the close-up has 30 (12 / 12 / 6 by mesh 0x88c690 / 0x89a710 / 0x899b10), ours 12 there,
   but ours rise to 22-33 later in the intro and fall back to 11-14 at some cuts (game 4320, 4740, 5100): the
   same systems, spawned and removed on the cutscene's clock. The console's game frame counter (0x3b5720) is not a
-  cutscene clock (4294 there against our 3706 at the same shot), so the two moments are not matched yet. The host's per-second line now prints the game's frame
+  cutscene clock (4294 there against our 3706 at the same shot), so the two moments are not matched yet.
+  Clocks found by diffing native RAM dumps 60 game frames apart (TTA_RAM_DUMP=<game frame>,..., build/ram_<n>.bin):
+  float seconds at 0x3a4be0 / 0x3a2364 / 0x3a4bdc (+1.0) and frame counts at 0x3a4be8 / 0x3a230c / 0x3bab24 (+60).
+  Natively the game runs 60 game frames per game second; the console's save state has ~59 overall, and PCSX2 showed
+  the game at 24-30 frames a second in the forest. So the native game logic runs at 60 where the PS2 ran at 30 or
+  less: what counts frames rather than seconds behaves differently (open question for the haze's particle count). The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
