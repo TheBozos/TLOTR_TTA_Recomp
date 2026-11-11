@@ -344,6 +344,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   ZBUF_1 A+D among the glow's DMA blocks): the fall is bright and streaked as on the console, the selection ring gets
   its blue-white sparkle, and the forest's veils add up: the intro close-up (host 3751) is 69 / 68 / 60 against the
   console's 61 / 58 / 50 (63 / 62 / 54 before), the haze closer, a little bright.
+  Where the 8 levels come from is open: without the screen filters the close-up is 38 / 36 / 33, without glows
+  53 / 52 / 44; native glows there cover 17 screens (5 systems, alpha 6, colour 0x50: the console's values), and the
+  only console GS dump with glows is a later shot (the sword close-up: 152 strips, 472 kicked triangles, 70.6
+  screens), so the coverage at 3751 is not known; the systems follow the cutscene clock (above). TTA_GLOW_DUMP now
+  prints each glow's on-screen coverage. The battle's first frame overlaid on the console capture lines up exactly
+  (camera RC+0x1a0 / +0x260 identical in both RAMs); the attack turn (target hint, hit sparks, 'Immune', the Nazgul
+  Scream's green veil) plays natively but has no console reference yet.
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
   darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
   canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame

@@ -1741,6 +1741,52 @@ namespace tta
                             triangles.size() / 6, texture ? "found" : "missing", static_cast<unsigned long long>(alpha),
                             static_cast<unsigned long long>(test), static_cast<unsigned long long>(read64(rdram, ds + 0x120)), focal,
                             aspect);
+            if (g_glowDump)
+            {
+                // Coverage on screen (the 512 x 448 frame at 1792, 1824): each triangle clipped to it, in screens.
+                double area = 0.0;
+                for (size_t t = 0; t + 2 < triangles.size(); t += 3)
+                {
+                    std::vector<std::pair<float, float>> poly = {{triangles[t].x, triangles[t].y},
+                                                                 {triangles[t + 1].x, triangles[t + 1].y},
+                                                                 {triangles[t + 2].x, triangles[t + 2].y}};
+                    const float lims[4] = {1792.0f, 2304.0f, 1824.0f, 2272.0f};
+                    for (int e = 0; e < 4 && !poly.empty(); ++e)
+                    {
+                        const int k = e / 2;
+                        const float lim = lims[e], keep = (e % 2) ? -1.0f : 1.0f;
+                        std::vector<std::pair<float, float>> out;
+                        for (size_t i = 0; i < poly.size(); ++i)
+                        {
+                            const auto p = poly[(i + poly.size() - 1) % poly.size()], q = poly[i];
+                            const float pv = k ? p.second : p.first, qv = k ? q.second : q.first;
+                            const bool pin = (pv - lim) * keep >= 0.0f, qin = (qv - lim) * keep >= 0.0f;
+                            const auto cut = [&]
+                            {
+                                const float u = (lim - pv) / (qv - pv);
+                                return std::make_pair(p.first + u * (q.first - p.first), p.second + u * (q.second - p.second));
+                            };
+                            if (qin)
+                            {
+                                if (!pin)
+                                    out.push_back(cut());
+                                out.push_back(q);
+                            }
+                            else if (pin)
+                                out.push_back(cut());
+                        }
+                        poly = out;
+                    }
+                    double a = 0.0;
+                    for (size_t i = 0; i < poly.size(); ++i)
+                    {
+                        const auto p = poly[(i + poly.size() - 1) % poly.size()], q = poly[i];
+                        a += static_cast<double>(p.first) * q.second - static_cast<double>(q.first) * p.second;
+                    }
+                    area += std::fabs(a) / 2.0;
+                }
+                std::printf("[tta:glow]   coverage %.2f screens\n", area / (512.0 * 448.0));
+            }
         }
 
         void glowRender(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
