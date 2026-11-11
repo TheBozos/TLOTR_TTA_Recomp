@@ -314,9 +314,29 @@ the game's behaviour); its code is in the history before `8ade037`.
   (0x2781e494) is three newlib calls from seed 1 (rolls 0, 3, 4: 99, 100, 100). runtime/tta_port.cpp now runs
   the game's own rand on its _rand_next (*(0x37cd14)+0x58): state, queue and opening turn match the console.
   New, visible from Berethor's menu: the hint box shows 'Hint:' without its text, the selection ring under the
-  active character has a black square, a white shape at the screen's left. The host's per-second line now prints the game's frame
+  active character has a black square, a white shape at the screen's left (all three below). The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
+- **The battle menu: ring, hint, water** (2026-11-11). (1) The selection ring under the active character (Cobj 17,
+  a 4-vertex static batch, PRIM ABE, an opaque texture: black around white runes) carries no ALPHA_1 of its own; it
+  blends with the one in force, DS+0x100 = 0x68 (Cs x FIX + Cd, FIX pulsing 0x1d..0x22): its black adds nothing.
+  Static batches with ABE and no ALPHA of their own now take DS+0x100 (TTA_NO_DS_ALPHA=1 for the old alpha blend).
+  (2) The hint body is the native variable 'ht' (menu +0x37c, crd_<id>_hlp from subT) the combat HUD reads through
+  the binding table 0x395460 (getter 0x2d2190: 'ht' type 3, a char *). Its ActionScript reads it in Open (the menu's
+  step queue at +0x5c8: ... Open, DELAY 10, ..., ActivateMenu0's step), which runs before the turn sets the hint,
+  and in UpdateHelpText, sent only on input: a cursor move (0x1eb8a8 -> 0x1eb400 / 0x1eb610) or the stick bit 0x800
+  (action 0x13, synthesised from an analog axis in 0x1bd0b0). Natively the hint appears on the first cursor move,
+  as the game's logic says; the console capture with the hint at once was most likely taken after an input. Debug:
+  TTA_STR_TRACE, TTA_APT_TRACE, TTA_BIND_TRACE (string lookups, C-to-ActionScript calls, bound-variable reads).
+  (3) The white shape at the left was the type-19 water module's second layer (0x222fd0): an EE image (128 x 128 T8
+  at 0x3fef00, a ripple simulation 0x21c420 fills from the scratchpad only while drops are pending, so all 0 here)
+  with a cycling grey CLUT (0x3ba300), sent by 0x2221c8 into the UI's VRAM slot (TBP 0x3013, CBP 0x3003). Natively
+  the place resolved to the UI texture last put there. 0x2221c8 now makes it a live texture at that place, like the
+  text canvas (TTA_NO_WATER_LAYER=1 off). And the mist banks take their vertex colours from the animator's own
+  output (0x2236a0 writes a VIF stream: V4-32 positions, V2-16 ST, V4-8 colours), matched to the native vertices
+  by position: the second layer's alpha is 0 there (invisible without ripples) and the first layer's colours are
+  about half the native estimate (TTA_MIST_OWN_COLOURS=1 for the estimate, TTA_MIST_PACKET=<frame> dumps the
+  stream). Open: the waterfall at the left is dim next to the console's bright fall.
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
   darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
   canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame

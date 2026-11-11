@@ -448,6 +448,22 @@ namespace tta
                 material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0;
                 material.blend = (batch.prim & 0x40u) ? bozo::render::Material::Blend::Alpha
                                                      : bozo::render::Material::Blend::Opaque;
+                // A blended batch without an ALPHA_1 of its own blends with the one in force (DS+0x100): the battle
+                // menu's selection ring (Cobj 17, an opaque black-backed texture) is drawn with 0x68, Cs * FIX + Cd
+                // (FIX pulsing 0x1d..0x22), so its black adds nothing.
+                bool ownAlpha = false;
+                for (const auto &[reg, value] : batch.registers)
+                    ownAlpha = ownAlpha || reg == 0x42 || reg == 0x43;
+                if ((batch.prim & 0x40u) && !ownAlpha && !env("TTA_NO_DS_ALPHA"))
+                {
+                    const uint64_t alpha = read64(rdram, ds + 0x100);
+                    material.gsBlend = true;
+                    material.blendA = static_cast<uint8_t>(alpha & 3u);
+                    material.blendB = static_cast<uint8_t>((alpha >> 2) & 3u);
+                    material.blendC = static_cast<uint8_t>((alpha >> 4) & 3u);
+                    material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
+                    material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
+                }
                 for (const auto &[reg, value] : batch.registers)
                 {
                     if (reg == 0x42 || reg == 0x43) // ALPHA_1/2
@@ -1834,8 +1850,62 @@ namespace tta
             return sign * readFloat(rdram, 0x403788u + i * 4u);
         }
 
+        // The animator's own output (a VIF stream for the mist's VU1 program: per edge a GIF tag, the strip's positions as
+        // V4-32, its ST as V2-16, its colours as V4-8, then MSCNT) holds the colours the console draws: the native
+        // re-derivation below gives the positions and texture coordinates; the colours come from the stream (one V4-8
+        // word per vertex, in the same order), its second layer's alpha 0 included.
+        struct MistStreamVertex
+        {
+            float x, y, z;
+            uint32_t rgba;
+        };
+
+        std::vector<uint32_t> mistPacketColours(const uint8_t *rdram, uint32_t begin, uint32_t end,
+                                                std::vector<MistStreamVertex> *vertices = nullptr)
+        {
+            std::vector<uint32_t> colours;
+            std::vector<MistStreamVertex> positions;
+            if (end <= begin || end - begin > 0x100000u)
+                return colours;
+            uint32_t at = begin;
+            while (at + 4 <= end)
+            {
+                const uint32_t code = read32(rdram, at);
+                at += 4;
+                const uint32_t cmd = (code >> 24) & 0x7fu, num = (code >> 16) & 0xffu;
+                if (cmd == 0x20) // STMASK
+                    at += 4;
+                else if (cmd == 0x30 || cmd == 0x31) // STROW / STCOL
+                    at += 16;
+                else if (cmd == 0x50 || cmd == 0x51) // DIRECT / DIRECTHL
+                    at += (code & 0xffffu) * 16u;
+                else if ((cmd & 0x60u) == 0x60u) // UNPACK
+                {
+                    const uint32_t vn = (cmd >> 2) & 3u, vl = cmd & 3u, count = num ? num : 256u;
+                    const uint32_t bytes = ((count * (vn + 1u) * (32u >> vl) / 8u) + 3u) & ~3u;
+                    if (vn == 3 && vl == 2) // V4-8: the colours
+                        for (uint32_t i = 0; i < count; ++i)
+                        {
+                            colours.push_back(read32(rdram, at + i * 4u));
+                            if (vertices && colours.size() <= positions.size())
+                            {
+                                MistStreamVertex v = positions[colours.size() - 1];
+                                v.rgba = colours.back();
+                                vertices->push_back(v);
+                            }
+                        }
+                    else if (vn == 3 && vl == 0 && count > 1) // V4-32: the positions (one-word GIF tags aside)
+                        for (uint32_t i = 0; i < count; ++i)
+                            positions.push_back({readFloat(rdram, at + i * 16u), readFloat(rdram, at + i * 16u + 4u),
+                                                 readFloat(rdram, at + i * 16u + 8u), 0u});
+                    at += bytes;
+                }
+            }
+            return colours;
+        }
+
         void drawMist(const uint8_t *rdram, uint32_t geometry, uint32_t time, bool interpolatedSt, float scrollS, float scrollT,
-                      float fade)
+                      float fade, const std::vector<MistStreamVertex> *stream = nullptr)
         {
             const uint32_t subdivisions = rdram[(geometry + 9) & kMask];
             const uint32_t edges = read32(rdram, geometry + 0x18), count = read16(rdram, geometry + 0x14);
@@ -1854,6 +1924,8 @@ namespace tta
             const float offsetS = record ? static_cast<float>(static_cast<int16_t>(read16(rdram, record + 0x30))) : 0.0f;
             const float offsetT = record ? static_cast<float>(static_cast<int16_t>(read16(rdram, record + 0x32))) : 0.0f;
             std::vector<bozo::render::Vertex> strip, triangles;
+            const bool gameColours = stream && !stream->empty() && !env("TTA_MIST_OWN_COLOURS");
+            uint32_t matched = 0, total = 0;
             for (uint32_t e = 0; e < count; ++e)
             {
                 const uint32_t edge = edges + e * 0x78u;
@@ -1899,6 +1971,22 @@ namespace tta
                             rgba |= static_cast<uint32_t>(std::clamp(value, 0.0f, 255.0f)) << (c * 8);
                         }
                         out.rgba = rgba;
+                        if (gameColours)
+                        {
+                            // The stream's vertex at this place (the same rows, the same wave): its colour.
+                            float best = 1.0f;
+                            for (const MistStreamVertex &g : *stream)
+                            {
+                                const float dx = g.x - out.x, dy = g.y - out.y, dz = g.z - out.z, d = dx * dx + dy * dy + dz * dz;
+                                if (d < best)
+                                {
+                                    best = d;
+                                    out.rgba = g.rgba;
+                                }
+                            }
+                            matched += best < 1.0f ? 1u : 0u;
+                        }
+                        ++total;
                         strip.push_back(out);
                     }
                 }
@@ -1927,6 +2015,22 @@ namespace tta
                     lo = std::min(lo, v.rgba >> 24);
                     hi = std::max(hi, v.rgba >> 24);
                 }
+                float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+                for (const auto &v : triangles)
+                {
+                    const float w = matrix[3] * v.x + matrix[7] * v.y + matrix[11] * v.z + matrix[15];
+                    if (w <= 0.0f)
+                        continue;
+                    const float sx = (matrix[0] * v.x + matrix[4] * v.y + matrix[8] * v.z + matrix[12]) / w;
+                    const float sy = (matrix[1] * v.x + matrix[5] * v.y + matrix[9] * v.z + matrix[13]) / w;
+                    x0 = std::min(x0, sx), x1 = std::max(x1, sx), y0 = std::min(y0, sy), y1 = std::max(y1, sy);
+                }
+                std::printf("[tta:mist] colours: %s, %u of %u vertices found in the stream (%zu)\n", gameColours ? "game" : "own",
+                            matched, total, stream ? stream->size() : static_cast<size_t>(0));
+                std::printf("[tta:mist] geometry %x record %x id %llx tex0 %llx alpha %llx screen (%.0f,%.0f)-(%.0f,%.0f) st %d\n",
+                            geometry, record, record ? static_cast<unsigned long long>(read64(rdram, record)) : 0ull,
+                            static_cast<unsigned long long>(tex0), static_cast<unsigned long long>(read64(rdram, ds + 0x100)), x0, y0,
+                            x1, y1, interpolatedSt ? 1 : 0);
                 std::printf("[tta:mist] frame %u: alpha %u..%u, first rgba %08x uv %g %g, texture %s %ux%u\n", frame(rdram), lo, hi,
                             triangles.empty() ? 0u : triangles[0].rgba, triangles.empty() ? 0.0f : triangles[0].u,
                             triangles.empty() ? 0.0f : triangles[0].v, texture ? "found" : "missing", texture ? texture->width : 0u,
@@ -1969,13 +2073,26 @@ namespace tta
                                 frame(rdram), geometry, ctx->r[5].uw[0], time, mask, interpolatedSt ? 1 : 0, ctx->r[10].uw[0], scrollS,
                                 scrollT, scale, geometry ? rdram[(geometry + 9) & kMask] : 0u, geometry ? read16(rdram, geometry + 0x14) : 0u);
             }
+            const uint32_t outBuffer = ctx->r[4].uw[0], layer2 = ctx->r[10].uw[0];
+            func_0x2236a0(rdram, ctx, rt);
             if (!env("TTA_NO_MIST") && mask == 0 && geometry)
             {
                 const uint32_t ds = read32(rdram, 0x36f850), fbp = read32(rdram, ds + 0x150) & 0x1ffu;
                 if (fbp == 0 || fbp == 0x70)
-                    drawMist(rdram, geometry, time, interpolatedSt, scrollS, scrollT, scale > 0.0f ? std::fmin(scale, 1.0f) : 1.0f);
+                {
+                    std::vector<MistStreamVertex> stream;
+                    mistPacketColours(rdram, outBuffer, ctx->r[2].uw[0], &stream);
+                    drawMist(rdram, geometry, time, interpolatedSt, scrollS, scrollT, scale > 0.0f ? std::fmin(scale, 1.0f) : 1.0f,
+                             &stream);
+                }
             }
-            func_0x2236a0(rdram, ctx, rt);
+            if (env("TTA_MIST_PACKET") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_MIST_PACKET"))))
+            {
+                std::printf("[tta:mistpkt] geometry %x layer2 %u mask %u buffer %x -> v0 %x:", geometry, layer2, mask, outBuffer, ctx->r[2].uw[0]);
+                for (uint32_t i = 0; i < 0x180; i += 4)
+                    std::printf("%s%08x", (i % 16) ? " " : "\n  ", read32(rdram, outBuffer + i));
+                std::printf("\n");
+            }
             ctx->pc = ra;
         }
 

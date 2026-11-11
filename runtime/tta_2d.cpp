@@ -14,6 +14,7 @@
 #include "bozo/render/renderer.h"
 
 #include <algorithm>
+#include <set>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -254,6 +255,54 @@ namespace tta
                     t->rgba[static_cast<size_t>(y) * width + x] = (static_cast<uint32_t>(row[x]) << 24) | 0xbfbfbfu;
             }
             t->key = 0x7474615465787443ull; // "ttaTextC"
+            t->version = ++version;
+            uint32_t lw = 0, lh = 0;
+            while ((1u << lw) < width)
+                ++lw;
+            while ((1u << lh) < height)
+                ++lh;
+            g_placed[{tbp, 0x13u}] = Placed{0, {}, lw, lh, std::move(t)};
+        }
+
+        // 0x2221c8(CLUT, pixels, width, height): the type-19 water module's second layer (0x222fd0, the mist banks'
+        // world-mapped sheet) sends an EE-memory T8 image (0x3fef00, filled from the scratchpad by 0x21c4xx) with its
+        // 256-colour CLUT (0x3ba300, grey with an alpha ramp the game cycles every frame) into the UI's VRAM slot: CLUT at
+        // CBP = *(*(0x35d58c)), pixels at TBP = CBP + 0x10 (0x403808 holds the same TEX0 fields), the place the text
+        // canvas uses later in the frame. Natively the image becomes an RGBA texture at that place each time the game
+        // sends it, as the canvas does; without it the layer drew whatever UI texture was last placed there (a white sheet
+        // at the battle's waterfall). The CLUT is in CSM1 order (entries 8-15 and 16-23 of each 32 swapped).
+        void uploadWaterLayer(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], clut = ctx->r[4].uw[0], pixels = ctx->r[5].uw[0];
+            const uint32_t width = ctx->r[6].uw[0], height = ctx->r[7].uw[0];
+            func_0x2221c8(rdram, ctx, rt);
+            ctx->pc = ra;
+            if (width == 0 || height == 0 || width > 1024 || height > 1024 || env("TTA_NO_WATER_LAYER"))
+                return;
+            const uint32_t tbp = (read32(rdram, read32(rdram, 0x35d58c)) + 0x10u) & 0x3fffu;
+            uint32_t palette[256];
+            for (uint32_t i = 0; i < 256; ++i)
+            {
+                const uint32_t stored = (i & ~0x18u) | ((i & 0x08u) << 1) | ((i & 0x10u) >> 1);
+                palette[i] = read32(rdram, clut + stored * 4u);
+            }
+            static uint64_t version = 0;
+            auto t = std::make_shared<bozo::render::Texture>();
+            t->width = width;
+            t->height = height;
+            t->rgba.resize(static_cast<size_t>(width) * height);
+            const uint8_t *src = rdram + (pixels & kMask);
+            for (size_t i = 0; i < t->rgba.size(); ++i)
+                t->rgba[i] = palette[src[i]];
+            if (env("TTA_MIST_TRACE") && frame(rdram) % 30 == 0)
+            {
+                size_t nonzero = 0;
+                for (size_t i = 0; i < t->rgba.size(); ++i)
+                    nonzero += src[i] != 0;
+                std::printf("[tta:water] frame %u: %ux%u at TBP %x, %zu non-zero texels, palette[0] %08x [128] %08x\n", frame(rdram),
+                            width, height, tbp, nonzero, palette[0], palette[128]);
+            }
+            t->key = 0x7474615761746572ull; // "ttaWater"
             t->version = ++version;
             uint32_t lw = 0, lh = 0;
             while ((1u << lw) < width)
@@ -871,11 +920,65 @@ namespace tta
             return s;
         }
 
+        // UI debugging traces (each line once per distinct value): TTA_STR_TRACE=1 the localised-string lookups 0x190a68(key)
+        // (subT; e.g. crd_Aspr_hlp -> "Attack a single target."), TTA_APT_TRACE=1 the C-to-ActionScript calls by name
+        // 0x2d5970(function, ?, target path, argc, args...), TTA_BIND_TRACE=1 the ActionScript reads of the game's bound
+        // variables 0x2d2190(object, "tag_name", &type, &value) (the combat HUD's table 0x395460: ht = the hint text at
+        // menu+0x37c, con, hp, ap, md0 ...).
+        void stringTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], key = ctx->r[4].uw[0];
+            const std::string k = guestString(rdram, key);
+            func_0x190a68(rdram, ctx, rt);
+            static std::set<std::string> seen;
+            if (seen.insert(k).second)
+                std::printf("[tta:str] frame %u from %x \"%s\" -> %x \"%s\"\n", frame(rdram), ra, k.c_str(), ctx->r[2].uw[0],
+                            guestString(rdram, ctx->r[2].uw[0]).c_str());
+            ctx->pc = ra;
+        }
+
+        void aptCallTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            std::string line = "[tta:apt] from ";
+            char buffer[64];
+            std::snprintf(buffer, sizeof(buffer), "%x", ra);
+            line += buffer;
+            for (int r = 4; r < 12; ++r)
+            {
+                const uint32_t v = ctx->r[r].uw[0];
+                std::snprintf(buffer, sizeof(buffer), " a%d=%x", r - 4, v);
+                line += buffer;
+                if (v > 0x100000u && v < 0x2000000u && rdram[v & kMask] >= 0x20 && rdram[v & kMask] < 0x7f)
+                    line += "\"" + guestString(rdram, v, 40) + "\"";
+            }
+            static std::set<std::string> seen;
+            if (seen.insert(line).second)
+                std::printf("%s (frame %u)\n", line.c_str(), frame(rdram));
+            func_0x2d5970(rdram, ctx, rt);
+            ctx->pc = ra;
+        }
+
+        void bindingTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], name = ctx->r[5].uw[0], typeAt = ctx->r[6].uw[0], valueAt = ctx->r[7].uw[0];
+            const std::string n = guestString(rdram, name, 24);
+            func_0x2d2190(rdram, ctx, rt);
+            static std::set<std::string> seen;
+            const uint32_t value = read32(rdram, valueAt);
+            if (seen.insert(n + "=" + std::to_string(value)).second)
+                std::printf("[tta:bind] frame %u get \"%s\" from %x -> %u type %u value %x \"%s\"\n", frame(rdram), n.c_str(), ra,
+                            ctx->r[2].uw[0], read32(rdram, typeAt), value,
+                            value > 0x100000u && value < 0x2000000u ? guestString(rdram, value, 40).c_str() : "");
+            ctx->pc = ra;
+        }
+
         // 0x1bbea0(font, text state, string): lays out one queued string (render map 3.2.4).
         void layoutString(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0], a0 = ctx->r[4].uw[0], a1 = ctx->r[5].uw[0], a2 = ctx->r[6].uw[0];
-            if (traceLevel() >= 5 || (env("TTA_TEXT_TRACE") && frame(rdram) % 30 == 0))
+            static std::set<std::string> seen;
+            if (traceLevel() >= 5 || (env("TTA_TEXT_TRACE") && seen.insert(guestString(rdram, a2)).second))
                 std::printf("[tta:text] frame %u: %x %x %x \"%s\" at (%.1f, %.1f)\n", frame(rdram), a0, a1, a2,
                             guestString(rdram, a2).c_str(), readFloat(rdram, a1 + 0x70), readFloat(rdram, a1 + 0x74));
             func_0x1bbea0(rdram, ctx, rt);
@@ -924,7 +1027,14 @@ namespace tta
     void installTwoD(bozo::port::Registry &registry)
     {
         registry.registerFunction(0x1bbea0, layoutString);
+        if (env("TTA_STR_TRACE"))
+            registry.registerFunction(0x190a68, stringTrace);
+        if (env("TTA_APT_TRACE"))
+            registry.registerFunction(0x2d5970, aptCallTrace);
+        if (env("TTA_BIND_TRACE"))
+            registry.registerFunction(0x2d2190, bindingTrace);
         registry.registerFunction(0x2c80e8, uploadCanvas);
+        registry.registerFunction(0x2221c8, uploadWaterLayer);
         registry.registerFunction(0x1babe8, loadResource);
         registry.registerFunction(0x219ca8, uploadGroup);
         registry.registerFunction(0x218910, primitive);

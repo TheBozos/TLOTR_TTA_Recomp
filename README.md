@@ -60,6 +60,15 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-11, late night.** The battle menu as on the console: the selection ring glows (it blends with the
+game's additive mode in force, not over a black square), the white sheet at the left is gone (a water layer had
+picked up a UI texture from the shared VRAM slot), and the hint reads "Attack a single target." once the cursor
+moves, which is when the game sends it.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-battle-menu.png" width="400" alt="Berethor's battle menu on BozoEngine with the glowing selection ring and the attack hint">
+</p>
+
 **2026-11-11, night.** The first battle opens on Berethor's turn again, as on the PS2: the game's initiative jitter
 draws on its own C library rand, which the engine had been answering with another generator.
 
