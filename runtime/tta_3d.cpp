@@ -1102,6 +1102,19 @@ namespace tta
                 // layer): 0x200 (layer 03) ALPHA 0x68 = Cs FIX + Cd, 0x1000 (layer 04) 0x62 = Cd - Cs FIX, FIX = the
                 // fade; both without Z writes or alpha test (templates 0x377bf0 / 0x377c60).
                 const uint32_t mode = read32(rdram, g + 0x2b0);
+                // 0x80000 (the screaming Nazgul's coincident copy): 0x225fb0 writes PRMODE 0x68 (Gouraud, fog, blended,
+                // no texture) and its template 0x377d40 sets nothing else; skins send F = 0, so every vertex takes
+                // FOGCOL (DS+0x720): a flat silhouette in the fog colour, blended by the vertex alpha.
+                if ((mode & 0x80000u) && !env("TTA_SKIN_SILHOUETTE_TEXTURED"))
+                {
+                    const uint32_t fogColour = read32(rdram, read32(rdram, 0x36f850) + 0x720) & 0xffffffu;
+                    for (auto &v : triangles)
+                        v.rgba = (v.rgba & 0xff000000u) | fogColour;
+                    material.textured = false;
+                    material.blend = bozo::render::Material::Blend::Alpha;
+                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), nullptr);
+                    continue;
+                }
                 if (mode & 0x1200u)
                 {
                     material.gsBlend = true;

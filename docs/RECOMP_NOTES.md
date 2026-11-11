@@ -164,8 +164,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   of showing as flat strips (TTA_SKIN_NO_AFAIL=1 for the old look). 0x1b1b18 draws every character four times a frame,
   one per layer ("01".."04" through 0x1bf6b8) with G+0x2b0 = 0, 0x20000, 0x200, 0x1000; layers 02-04 are empty for
   the characters seen so far. 0x200 / 0x1000 now blend as their templates say (Cs FIX + Cd / Cd - Cs FIX, FIX = the
-  fade, no Z writes). Open: 0x80000 (a coincident copy of the screaming Nazgul, drawn untextured in FOGCOL on the PS2
-  per the template) is still drawn textured; 0x20000's render-target switches. TTA_SKIN_LAYERS=<mask> (1, 2, 4, 8,
+  fade, no Z writes). 0x80000 (the screaming Nazgul's coincident copy, template 0x377d40 = *(0x377db0), which sets
+  nothing but PRIM 0): 0x225fb0 writes PRMODE 0x68 (Gouraud, fog, blended, no texture) and skins send F = 0, so it
+  is a flat FOGCOL silhouette (0x524842 in the scream) over the textured one, blended by the vertex alpha: the
+  Nazgul turns into a pale wraith under the scream's green filter (TTA_SKIN_SILHOUETTE_TEXTURED=1 for the old
+  textured copy; no console capture of the scream yet). Open: 0x20000's render-target switches. TTA_SKIN_LAYERS=<mask> (1, 2, 4, 8,
   16 for 0x80000) draws only some layers; TTA_3D_TRACE=2 lists the modes by model.
 - **Character shadows are shadow volumes** (2026-11-10, mapped, not drawn yet). The type-18 render 0x2255d0 runs on a
   skinned node (only Berethor's scbm 70063 so far, ~1-2 a frame) with G+0x280 = only the model's shadow section (the
