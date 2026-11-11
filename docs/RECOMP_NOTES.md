@@ -277,7 +277,7 @@ the game's behaviour); its code is in the history before `8ade037`.
   the Nazgul acts first (Nazgul Scream at 5900, Berethor at 0 HP by 6391), then plays a further misty cutscene: the
   native "sword" shot at host 6800 is on that branch. The console's save state (slot 1) runs the intro's end into
   the battle with Berethor's turn first and the menu waiting. So shots after ~5890 are not comparable, and the
-  turn order differs: random initiative (our deterministic runs seed differently) or a native bug, not settled.
+  (resolved below: the console's state is a later battle; the first one is scripted for Berethor to lose).
   Driving PCSX2 from a fresh boot to check failed (key presses did not reach the pad reliably; it fell into the
   attract trailer).
   The game's RNG (2026-11-11): its own additive lagged-Fibonacci generator (0x1ba9c8, 20 words at 0x3f96b8, index
@@ -288,7 +288,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   native boot had the same RNG. tta_main now sets it when the game runs in real time (TTA_DETERMINISTIC keeps the
   fixed clock; TTA_CLOCK=host / fixed). With clock seeds the Nazgul's opening move varies (Nazgul Scream, Wraith
   Slash with a double critical), but it still acts first and Berethor still falls: the opening turn is not the
-  RNG's. Why the console's slot-1 state reaches Berethor's menu first is still open. The host's per-second line now prints the game's frame
+  RNG's. Settled: the first battle is scripted. Played with only the New Game press (build/pad_newgame.txt; the
+  intro script's press at host 3020 skips the whole prologue film, the one at 3380 nothing that matters) the
+  native run goes prologue film -> Berethor in the forest -> the Black Riders -> the battle opening on the Nazgul
+  Scream -> Berethor falls -> Idrial's arrival (light burst) -> her cutscene, by host ~24000. The console's slot-1
+  state is later: its battle with Berethor's menu and the 'Attack a single target' hint is the next one, after
+  Idrial joins. No turn-order bug. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
