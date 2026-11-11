@@ -260,6 +260,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   second CLIP set drops particles wholly off screen. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
+- **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
+  darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
+  canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame
+  added into it five times at alpha 5-7 with a small ST jitter (a blur, (Cs - 0) As + Cd); downsampled into its own
+  corner at 128 then 64; the 64 x 64 image added over the frame full screen at vertex alpha 0xff (As ~ 2); the
+  previous frame blended on top with the scene's tint (e.g. 72 / a5 / 7f at 0x3a). Three things were lost natively:
+  (1) the GPU stops alpha at 1, so the bloom came back at half strength: an additive post draw past 0x80 is drawn
+  again with the rest (TTA_NO_DOUBLE_ALPHA); (2) the GS blends in integers and truncates, floor(floor(Ct Cv / 128) As /
+  128), so in the faint passes a dark texel adds nothing: before the target is read back its passes' loss (half a level
+  each) can be taken off it with a (Cd - Cs) draw, opt-in (TTA_BLOOM_FLOOR=n levels, 0 = half a level per pass;
+  shadows 23 -> 17 against the console's 8-14) since with it about one capture in twelve came out all black (0 in 8
+  without; a GPU-state interaction in the renderer, not found yet); (3) the GS samples a
+  pixel at its integer position, the GPU at its centre: the filter draws move by half a GS pixel (TTA_NO_HALF_PIXEL),
+  else the chain drifts up-left and the bloom lands ~7 pixels off (a halo up-left of faces). TTA_2D_TRACE=2 prints
+  each post draw's rectangle and ST.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are

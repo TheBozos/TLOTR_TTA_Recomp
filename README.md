@@ -60,6 +60,16 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-11, evening.** The screen filters' bloom at the console's strength. The game adds its blurred frame back
+at GS alpha 0xff (twice the image), which a GPU stops at 1, so ours was half as bright; the blur chain also drifted
+half a pixel per pass and left a halo up-left of faces. The Berethor close-up now averages 63 / 62 / 54 against the
+console's 61 / 58 / 50.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-bloom-closeup.png" width="400" alt="Berethor in the forest on BozoEngine with the console's soft bloom">
+  <img src="docs/screenshots/2026-11-11-bozo-bloom-forest.png" width="400" alt="A Black Rider raising his sword in the green, misty forest on BozoEngine">
+</p>
+
 **2026-11-11, later.** The mist's real textures: the glows had been drawn with the UI's text canvas (it shares the
 mist texture's place in GS memory), which washed the intro out in green. Each effect now takes its texture from its
 own record, so the forest's mist is soft and wispy.

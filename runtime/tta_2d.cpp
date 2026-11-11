@@ -13,6 +13,7 @@
 
 #include "bozo/render/renderer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -737,6 +738,15 @@ namespace tta
             // screen space; a target's window (centred on 2048) spread over the screen rectangle the renderer maps onto it.
             if (target || source >= 0)
             {
+                // The GS samples a pixel at its integer position, the GPU at its centre (+0.5): moved by half a destination
+                // pixel the filters' chain (frame -> 256 -> 128 -> 64 -> frame) samples what the GS does. Without it each
+                // downsample drifts half a pixel up-left and the bloom came back ~7 pixels off, a halo up-left of things.
+                if (!env("TTA_NO_HALF_PIXEL"))
+                    for (auto &q : triangles)
+                    {
+                        q.x += 0.5f;
+                        q.y += 0.5f;
+                    }
                 if (target)
                     for (auto &q : triangles)
                     {
@@ -747,14 +757,94 @@ namespace tta
                 material.frameWidth = 512u;
                 material.frameHeight = 448u;
                 static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                // The GS's integer blend: each of the filters' faint additive passes (the frame into a target at alpha ~7)
+                // adds floor(floor(Ct Cv / 128) As / 128), so a dark texel adds nothing and every pass loses half a level on
+                // average; the GPU rounds instead and the bloom lifted the shadows. Before the target is first read back
+                // (its downsample), take that loss off it: (Cd - Cs) x 1 with Cs = the passes' count / 2 levels. Opt-in
+                // (TTA_BLOOM_FLOOR=n levels, 0 = the passes' count / 2): with it about one capture in twelve came out all
+                // black (0 in 8 without, a GPU-state interaction not found yet).
+                {
+                    static uint32_t passes[16] = {};
+                    if (target && target < 16)
+                    {
+                        if (source == 0 && material.blend == bozo::render::Material::Blend::Additive && (points[0].rgba >> 24) < 0x40u)
+                            ++passes[target];
+                        else if (source == target && passes[target] && env("TTA_BLOOM_FLOOR"))
+                        {
+                            const char *floorEnv = env("TTA_BLOOM_FLOOR");
+                            const int asked = std::atoi(floorEnv);
+                            const uint32_t loss = asked > 0 ? static_cast<uint32_t>(asked) : (passes[target] + 1u) / 2u;
+                            bozo::render::Material subtract;
+                            subtract.depthTest = subtract.depthWrite = false;
+                            subtract.directColour = true;
+                            subtract.gsBlend = true;
+                            subtract.blendA = 1; // Cd
+                            subtract.blendB = 0; // Cs
+                            subtract.blendC = 2; // FIX
+                            subtract.blendD = 2; // 0
+                            subtract.blendFix = 0x80;
+                            subtract.target = target;
+                            subtract.frameWidth = 512u;
+                            subtract.frameHeight = 448u;
+                            bozo::render::Vertex c[4];
+                            for (int k = 0; k < 4; ++k)
+                            {
+                                c[k].x = (k & 1) ? 2304.0f : 1792.0f;
+                                c[k].y = (k & 2) ? 2272.0f : 1824.0f;
+                                c[k].rgba = 0x80000000u | loss * 0x010101u;
+                            }
+                            const bozo::render::Vertex quad[6] = {c[0], c[1], c[2], c[1], c[3], c[2]};
+                            // RGB only: the GPU's subtract would take the target's alpha to 0 too. Then a no-op Cs 0 + Cd
+                            // draw puts the blend equation back to add for whatever follows (a leftover subtract blacked
+                            // out the battle).
+                            subtract.colourMask = 0x7u;
+                            if (loss)
+                            {
+                                bozo::render::Renderer::instance().draw(subtract, identity, quad, 6);
+                                bozo::render::Material reset = subtract;
+                                reset.blendA = 0; // Cs
+                                reset.blendB = 2; // 0
+                                reset.blendC = 2; // FIX = 0
+                                reset.blendD = 1; // Cd
+                                reset.blendFix = 0;
+                                bozo::render::Renderer::instance().draw(reset, identity, quad, 6);
+                            }
+                            passes[target] = 0;
+                        }
+                        else if (source != 0)
+                            passes[target] = 0;
+                    }
+                }
                 if (!triangles.empty())
                     bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                // GS alpha goes to 0xff (As ~ 2): the screen filters add their blurred target back over the frame at alpha
+                // 0xff, twice the target. The GPU's alpha stops at 1, so an additive draw past 0x80 is drawn again with the
+                // rest (Cs As + Cd = Cs 1 + Cs (As - 1) + Cd; the sum saturates as COLCLAMP does).
+                if (!triangles.empty() && material.blend == bozo::render::Material::Blend::Additive &&
+                    std::any_of(triangles.begin(), triangles.end(), [](const bozo::render::Vertex &q) { return (q.rgba >> 24) > 0x80u; }) &&
+                    !env("TTA_NO_DOUBLE_ALPHA"))
+                {
+                    for (auto &q : triangles)
+                    {
+                        const uint32_t a = q.rgba >> 24;
+                        q.rgba = (q.rgba & 0xffffffu) | ((a > 0x80u ? a - 0x80u : 0u) << 24);
+                    }
+                    bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                }
                 if (traceLevel() >= 2)
+                {
+                    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
+                    for (const auto &q : triangles)
+                    {
+                        x0 = std::min(x0, q.x), x1 = std::max(x1, q.x), y0 = std::min(y0, q.y), y1 = std::max(y1, q.y);
+                        u0 = std::min(u0, q.u), u1 = std::max(u1, q.u), v0 = std::min(v0, q.v), v1 = std::max(v1, q.v);
+                    }
                     std::printf("[tta:2d] frame %u: post draw from %x into target %u (FBP %x, frame FBP %x) from source %d (TBP0 %x), "
-                                "%zu triangles, blend %d, alpha %llx, rgba %08x\n",
+                                "%zu triangles, blend %d, alpha %llx, rgba %08x, xy (%.1f,%.1f)-(%.1f,%.1f) st (%.4f,%.4f)-(%.4f,%.4f)\n",
                                 frame(rdram), ra, target, fbp, g_frameFbp, source, static_cast<uint32_t>(tex0 & 0x3fffu),
                                 triangles.size() / 3, static_cast<int>(material.blend), static_cast<unsigned long long>(alpha),
-                                points[0].rgba);
+                                points[0].rgba, x0, y0, x1, y1, u0, v0, u1, v1);
+                }
                 return count(rdram, true);
             }
             // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):
