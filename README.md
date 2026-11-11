@@ -60,6 +60,13 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-11, night.** The first battle opens on Berethor's turn again, as on the PS2: the game's initiative jitter
+draws on its own C library rand, which the engine had been answering with another generator.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-berethor-first.png" width="400" alt="The first battle on BozoEngine with Berethor's command menu and the turn queue">
+</p>
+
 **2026-11-11, evening.** The screen filters' bloom at the console's strength. The game adds its blurred frame back
 at GS alpha 0xff (twice the image), which a GPU stops at 1, so ours was half as bright; the blur chain also drifted
 half a pixel per pass and left a halo up-left of faces. The Berethor close-up now averages 63 / 62 / 54 against the

@@ -303,7 +303,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   pad's idle state, the intro's skip presses, the time manager 0x3bac10 (only its step differs, 1/60 vs 1/30).
   The Lua C functions called around the battle start natively (a temporary probe over the 96 registered through
   0x264498): only GetScaledElapsedTime each frame and SwitchToCombatCam (game 5819); the turn order is decided in
-  the C++ battle code (BattleModeDTB.c / Combat.c), not traced yet. Open bug. The host's per-second line now prints the game's frame
+  the C++ battle code (BattleModeDTB.c / Combat.c), not traced yet. Open bug.
+  **Fixed (same day): the game's rand.** The turn queue (manager around 0x3a5578; entries {time, .., .., combatant,
+  ..}, base time 0x3a557c; current actor 0x3a5a24; Berethor 0xcd11e0, the Nazgul 0xccad40 / 0xcc8220) is built at
+  the battle's start by 0x161a48 -> 0x180ee8 -> 0x180018 -> 0x1802b8: each entry starts at 100 (0x17fc30), then
+  0x17fd40 adds a jitter when the tuning struct *(0x3d48a8)+0x104 (10.0) is not 0: time += int(f(rand % e[8]) /
+  10) - int(e[8] / 10), with newlib's rand (0x320428). Berethor's e[8] is 11: 99 for any roll but 10. The symbol
+  map names 0x320428 'rand', so BozoEngine answered it with its native libc generator (Libraries::Rand, a 64-bit
+  LCG, another sequence): the roll was 10, Berethor 100, a tie the Nazgul won on list order. The console's state
+  (0x2781e494) is three newlib calls from seed 1 (rolls 0, 3, 4: 99, 100, 100). runtime/tta_port.cpp now runs
+  the game's own rand on its _rand_next (*(0x37cd14)+0x58): state, queue and opening turn match the console.
+  New, visible from Berethor's menu: the hint box shows 'Hint:' without its text, the selection ring under the
+  active character has a black square, a white shape at the screen's left. The host's per-second line now prints the game's frame
   (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
   intro with build/pad_intro.txt).
 - **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
