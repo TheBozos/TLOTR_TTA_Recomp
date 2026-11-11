@@ -284,7 +284,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   written 0x80808080; it holds baked shading (450 distinct values in E01C01: greys 0x45 / 0x33, greens 0x4a5a38,
   ...). The converter now writes it. The intro's Black Riders shot: shadows 17 -> 13 (console 8). The remaining gap
   there is large-scale (console std 28 against our 14 at 16-px scale; fine detail matches): a bright background, darker
-  characters. Fog is not it (FOGCOL 524842 and K match; the console's F is per object, 0 or ~23, not distance).
+  characters. Fog is not it: FOGCOL 524842 and K (2.55e6 in the scene, 31875 from the front end 0x1c3158 once a
+  frame) match, our scenery never gets past w ~2700 (F = 255), and on the console the canopy's vertices are F 255
+  too: its F = 0 vertices all have Q < 0 (behind the camera) and ADC set, so no drawn strip triangle uses them (a
+  GS dump reader that carries F over between draws makes them look fogged). The static program 0x2418 computes
+  F = min(K / clip.w, 255) by overwriting clip.w with K after the DIV has read it (addx.w vf23, vf30, vf0x).
   TTA_SKIN_STATS=<game frame> prints each skin batch's mean lit / vertex colour.
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
