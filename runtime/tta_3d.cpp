@@ -1521,6 +1521,16 @@ namespace tta
         std::vector<uint32_t> g_glowBlocks;
         uint32_t g_glowsDrawn = 0, g_glowParticles = 0, g_glowCalls = 0, g_glowNoBlocks = 0, g_glowOtherFbp = 0;
 
+        // An effect's texture: by its group record (the 64-bit id first) when it has one, else what was sent to TEX0's
+        // place. The place alone is no key: the UI's text canvas shares TBP0 0x3013 with the forest's mist texture.
+        std::shared_ptr<const bozo::render::Texture> effectTexture(const uint8_t *rdram, uint32_t record, uint64_t tex0)
+        {
+            if (record)
+                if (auto texture = textureById(read64(rdram, record)))
+                    return texture;
+            return textureAtPlace(static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu));
+        }
+
         void drawGlow(const uint8_t *rdram, uint32_t s)
         {
             const uint32_t packet = read32(rdram, s + 0x138);
@@ -1544,7 +1554,13 @@ namespace tta
                 m[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
             const float focal = readFloat(rdram, rc + 0x524), aspect = readFloat(rdram, rc + 0x5e4);
             const uint64_t tex0 = read64(rdram, ds + 0x1a0), alpha = read64(rdram, ds + 0x100), test = read64(rdram, ds + 0x140);
-            const auto texture = textureAtPlace(static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu));
+            // The glow's own texture record (S+0xc8, a group record: the 64-bit id first, TBP0 at +0x10).
+            const uint32_t record = read32(rdram, s + 0xc8);
+            const auto texture = effectTexture(rdram, record, tex0);
+            if (g_glowDump)
+                std::printf("[tta:glow]   record %x: id %016llx TBP0 %x (TEX0 %llx) -> %s\n", record,
+                            static_cast<unsigned long long>(record ? read64(rdram, record) : 0), record ? read16(rdram, record + 0x10) : 0u,
+                            static_cast<unsigned long long>(tex0 & 0x3fffu), texture ? "texture" : "none");
             static std::vector<bozo::render::Vertex> triangles;
             triangles.clear();
             for (const uint32_t block : g_glowBlocks)
@@ -1613,6 +1629,9 @@ namespace tta
                         v = std::min(std::max(v, c(26, k)), c(27, k));
                         rgba |= static_cast<uint32_t>(std::clamp(v, 0.0f, 255.0f)) << (k * 8);
                     }
+                    if (g_glowDump)
+                        std::printf("[tta:glow]     particle %x/%d: age %g size %g rgba %08x tint %04x at %g,%g,%g q %g\n", block, i,
+                                    age, size, rgba, tint, sx, sy, sz, q);
                     // The quad: the anchor (c29.xy) at the particle, corners P + a (2i - anchor x) + b (2j - anchor y).
                     bozo::render::Vertex corner[4];
                     bool inside = true;
@@ -1628,7 +1647,9 @@ namespace tta
                             v.v = v0 + dv * static_cast<float>(j);
                             v.q = q;
                             v.rgba = rgba;
-                            inside = inside && std::fabs(v.x - 2048.0f) < 2048.0f && std::fabs(v.y - 2048.0f) < 2048.0f;
+                            // The microcode's guard band: CLIP of each corner against c12 = (2048, 2048, .., 2000); a
+                            // particle with any corner past it is skipped (ADC). It drops the huge veils at the camera.
+                            inside = inside && std::fabs(v.x - 2048.0f) <= 2000.0f && std::fabs(v.y - 2048.0f) <= 2000.0f;
                         }
                     if (!inside)
                         continue;
@@ -1663,6 +1684,20 @@ namespace tta
             bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);
             ++g_glowsDrawn;
+            if (g_glowDump && texture)
+            {
+                uint64_t sum = 0;
+                uint32_t top = 0;
+                for (const uint32_t texel : texture->rgba)
+                {
+                    sum += texel >> 24;
+                    top = std::max(top, texel >> 24);
+                }
+                std::printf("[tta:glow]   texture %llx %ux%u (TEX0 %llx): alpha mean %.1f max %u, first texel %08x\n",
+                            static_cast<unsigned long long>(texture->key), texture->width, texture->height,
+                            static_cast<unsigned long long>(tex0), texture->rgba.empty() ? 0.0 : double(sum) / texture->rgba.size(),
+                            top, texture->rgba.empty() ? 0u : texture->rgba[texture->rgba.size() / 2]);
+            }
             if (g_glowDump)
                 std::printf("[tta:glow]   drawn: %zu particles, texture %s, ALPHA %llx TEST %llx ZBUF %llx, focal %g aspect %g\n",
                             triangles.size() / 6, texture ? "found" : "missing", static_cast<unsigned long long>(alpha),
@@ -1769,7 +1804,7 @@ namespace tta
                 return;
             const uint32_t ds = read32(rdram, 0x36f850);
             const uint64_t tex0 = read64(rdram, ds + 0x1a0);
-            const auto texture = textureAtPlace(static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu));
+            const auto texture = effectTexture(rdram, record, tex0);
             const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
             float matrix[16];
             for (int i = 0; i < 16; ++i)

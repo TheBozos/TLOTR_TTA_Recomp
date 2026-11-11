@@ -249,6 +249,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   TEX0_1 / ALPHA_1 / TEST_1 / ZBUF_1. Up to ~1300 particles a frame; the forest and battle frame rate is unchanged on
   average. TTA_NO_GLOWS=1 turns them off. Trap: with no pad input the game sits on the title screen, where the only
   effect is the UI's "UI_bloom" (one particle); level effects only exist in game (build/pad_battle.txt).
+- **The glows' texture is the effect's record, not the GS place** (2026-11-11, later). In the intro's Black Riders
+  scene the native glows washed the screen out in green (frame mean 144 / 233 / 163 at host frame 5801): the glows
+  took their texture from where TEX0 points (TBP0 0x3013, T8), and the UI's text canvas (0x2c80e8, grey, alpha ~0xe7)
+  is placed there too; the effects send their own textures to that scratch place outside 0x219ca8. Each glow's
+  texture record is *(S+0xc8) (a group record: the 64-bit pack id first, its home TBP0 at +0x10, e.g. 0x3623) and the
+  type-19 mist banks' is the geometry's +0x1c: runtime/tta_3d.cpp's effectTexture looks them up by the id first. The
+  real mist textures are soft (alpha mean 5 and 30 of 0x80). Also from the microcode: each corner is CLIPped against
+  c12 = (2048, 2048, 2000.1, 2000) and a particle with any corner past the 2000 guard band is skipped (ADC); a
+  second CLIP set drops particles wholly off screen. The host's per-second line now prints the game's frame
+  (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
+  intro with build/pad_intro.txt).
 - **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
   (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
   (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are

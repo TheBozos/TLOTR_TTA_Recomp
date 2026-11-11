@@ -60,11 +60,19 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-11, later.** The mist's real textures: the glows had been drawn with the UI's text canvas (it shares the
+mist texture's place in GS memory), which washed the intro out in green. Each effect now takes its texture from its
+own record, so the forest's mist is soft and wispy.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-11-bozo-forest-mist.png" width="400" alt="A Black Rider in the forest on BozoEngine, the trees fading into green mist behind him">
+</p>
+
 **2026-11-11.** TTA's Glows, native: the effects' particle billboards (VU1 microcode 0x620 rewritten in C++). They
 are the console's mist veils in the forest and the haze and light shafts over the battle.
 
 <p align="center">
-  <img src="docs/screenshots/2026-11-11-bozo-glow-mist.png" width="400" alt="Berethor in the forest on BozoEngine, veiled in the grey mist of TTA's glow particles">
+  <img src="docs/screenshots/2026-11-11-bozo-glow-mist.png" width="400" alt="Berethor in the forest on BozoEngine, veiled in the soft mist of TTA's glow particles">
   <img src="docs/screenshots/2026-11-11-bozo-battle-haze.png" width="400" alt="The first battle on BozoEngine with the glow particles' haze and a light shaft between the Black Riders">
 </p>
 

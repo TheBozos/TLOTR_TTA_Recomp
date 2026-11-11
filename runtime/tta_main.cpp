@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,8 +105,13 @@ int main(int argc, char **argv)
     {
         pacer.frameEnd();
         if (f % 60 == 0)
-            std::printf("[tta] frame=%llu pc=%x cycles=%llu\n", (unsigned long long)f, ctx->pc,
+        {
+            // The game's own frame counter (0x3b5720) beside the host's: the TTA_*_DUMP probes key on the game's.
+            uint32_t game = 0;
+            std::memcpy(&game, d.runtime().memory.ram() + 0x3b5720, 4);
+            std::printf("[tta] frame=%llu game=%u pc=%x cycles=%llu\n", (unsigned long long)f, game, ctx->pc,
                         (unsigned long long)d.now());
+        }
     };
 #ifdef TTA_WITH_WINDOW
     bozo::app::DevicePad devices;
