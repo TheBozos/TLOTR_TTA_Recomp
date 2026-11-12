@@ -284,6 +284,9 @@ scripts/build_runtime.sh                       # recompile + sound driver + runt
 scripts/run.sh --frames 600                    # tta-headless: runs and reports what is not native yet
 ```
 
+`build/bozo/tta.exe` is the playable window build. Its saves (the two memory cards) live in
+`%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them elsewhere.
+
 ### Windows
 
 The same scripts run in an MSYS2 **UCRT64** shell, with MSYS2's GCC (MSVC is not supported for this port).

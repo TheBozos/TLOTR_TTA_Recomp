@@ -24,6 +24,7 @@
 #include "bozo/app/audio_device.h"
 #include "bozo/app/device_pad.h"
 #include "bozo/app/window.h"
+#include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_hints.h>
 #endif
 
@@ -86,6 +87,19 @@ int main(int argc, char **argv)
     // TTA_DETERMINISTIC=1: the window build on the game's clock as tta-headless (reproducible captures, not paced).
     const bool deterministic = std::getenv("TTA_DETERMINISTIC") != nullptr;
     options.realTime = window && !deterministic;
+#ifdef TTA_WITH_WINDOW
+    // A played game keeps its memory cards on disk, in the user's application data (%APPDATA%\TheBozos\The Third
+    // Age\cards: mc0, mc1), so a save outlives the session without --card-dir. Headless and scripted runs keep fresh
+    // cards in memory unless given --card-dir, so a test never touches the player's saves. TTA_MEMORY_CARDS=1: in
+    // memory for a played game too.
+    if (window && options.padScript.empty() && options.cardDir.empty() && !std::getenv("TTA_MEMORY_CARDS"))
+        if (char *pref = SDL_GetPrefPath("TheBozos", "The Third Age"))
+        {
+            options.cardDir = std::string(pref) + "cards";
+            SDL_free(pref);
+            std::printf("[tta] memory cards in %s\n", options.cardDir.c_str());
+        }
+#endif
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
     tta::installAudio(host.libraries(), d.runtime().memory.ram());

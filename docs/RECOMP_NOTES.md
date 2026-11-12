@@ -378,6 +378,9 @@ the game's behaviour); its code is in the history before `8ade037`.
   create flag: a missing entry, -4, and the save folder was never made. 0x27cb58 is now named sceMcMkdir
   (recomp/tta_symbols_reviewed.txt), answered by the native mkdir. The cards persist only with --card-dir DIR
   (without it they are fresh formatted cards in memory); BOZO_TRACE_MC=1 traces every card call.
+  A played game (the window build, no pad script) now defaults to %APPDATA%\TheBozos\The Third Age\cards
+  (SDL_GetPrefPath): a save launched without --card-dir had lived only in memory and was gone at exit. Headless and
+  scripted runs keep in-memory cards; TTA_MEMORY_CARDS=1 does the same for a played game.
 - **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
   battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
   (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game
