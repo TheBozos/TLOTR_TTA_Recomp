@@ -879,7 +879,7 @@ namespace tta
                     }
                     bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
                 }
-                if (traceLevel() >= 2)
+                if (traceLevel() >= 2 || frameReportActive(rdram))
                 {
                     float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
                     for (const auto &q : triangles)

@@ -43,4 +43,6 @@ namespace tta
     // A one-frame report (F7 in the window build): the next game frame logs every character draw's mode, fade, sections
     // and lights, with the 0x20000 shine layer's inputs, as [tta:report] lines (tta_3d.cpp).
     void requestFrameReport();
+    // True during the reported frame (the 2D passes add their [tta:report] lines then).
+    bool frameReportActive(const uint8_t *rdram);
 }

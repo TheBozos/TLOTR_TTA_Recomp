@@ -1813,6 +1813,18 @@ namespace tta
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);
+            if (reporting(rdram))
+            {
+                double rgb[4] = {};
+                for (const auto &v : triangles)
+                    for (int c = 0; c < 4; ++c)
+                        rgb[c] += (v.rgba >> (c * 8)) & 0xffu;
+                const double k = triangles.empty() ? 1.0 : static_cast<double>(triangles.size());
+                std::printf("[tta:report] glow system %x record %x texture %d ALPHA %llx TEST %llx FBMSK %08x, %zu triangles, "
+                            "mean rgba %.0f %.0f %.0f %.0f\n",
+                            s, record, texture ? 1 : 0, static_cast<unsigned long long>(alpha), static_cast<unsigned long long>(test),
+                            read32(rdram, ds + 0x154), triangles.size() / 3, rgb[0] / k, rgb[1] / k, rgb[2] / k, rgb[3] / k);
+            }
             ++g_glowsDrawn;
             if (g_glowDump && texture)
             {
@@ -2364,4 +2376,5 @@ namespace tta
     }
 
     void requestFrameReport() { g_reportAsked = true; }
+    bool frameReportActive(const uint8_t *rdram) { return reporting(rdram); }
 }
