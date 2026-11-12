@@ -24,6 +24,7 @@
 #include "bozo/app/audio_device.h"
 #include "bozo/app/device_pad.h"
 #include "bozo/app/window.h"
+#include <SDL3/SDL_hints.h>
 #endif
 
 int main(int argc, char **argv)
@@ -145,9 +146,14 @@ int main(int argc, char **argv)
     bozo::app::AudioDevice audio;
     if (window && options.padScript.empty())
         host.libraries().pad.input = &devices;
+    // A scripted run (a test, a capture) never takes the focus from what the player is doing on the same PC, and stays
+    // silent: the window shows without activating, the sound is not opened.
+    const bool scripted = window && !options.padScript.empty();
+    if (scripted)
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
     host.onAudio = [&](uint64_t, const int16_t *pcm, size_t count)
     {
-        if (window)
+        if (window && !scripted)
             audio.push(pcm, count);
     };
 #endif
@@ -155,7 +161,7 @@ int main(int argc, char **argv)
     auto run = [&]() -> int
     {
 #ifdef TTA_WITH_WINDOW
-        if (window)
+        if (window && !scripted)
             audio.open();
 #endif
         uint64_t frames = 0;
