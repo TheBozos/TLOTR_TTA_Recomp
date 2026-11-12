@@ -2,8 +2,12 @@
 #include "tta_port.h"
 
 #include "tta_audio.h"
+#include "tta_functions.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <map>
 
 namespace tta
 {
@@ -43,6 +47,8 @@ namespace tta
             uint32_t next = read32(rdram, reent + 0x58) * 1103515245u + 12345u;
             std::memcpy(rdram + ((reent + 0x58) & 0x1ffffffu), &next, 4);
             ctx->r[2].ud[0] = next & 0x7fffffffu;
+            if (static const bool trace = std::getenv("TTA_RNG_TRACE") != nullptr; trace)
+                std::printf("[tta:rand] game frame %u from %x: %u%c", read32(rdram, 0x3b5720), ctx->r[31].uw[0], next & 0x7fffffffu, 10);
             ctx->pc = ctx->r[31].uw[0];
         }
 
@@ -52,6 +58,29 @@ namespace tta
         {
             ctx->r[2].ud[0] = 0;
             ctx->pc = ctx->r[31].uw[0];
+        }
+
+        // TTA_RNG_TRACE=1: the game's generator 0x1ba9c8 counted by caller, printed every 600 game frames ([tta:rng]): which
+        // systems roll while the player walks, fights or watches.
+        void rngTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            static std::map<uint32_t, uint32_t> counts;
+            static uint32_t window = 0;
+            const uint32_t now = read32(rdram, 0x3b5720) / 600;
+            if (now != window)
+            {
+                std::printf("[tta:rng] game frames %u..%u:", window * 600, now * 600);
+                for (const auto &[caller, n] : counts)
+                    std::printf(" %x x%u", caller, n);
+                std::printf("%c", 10);
+                std::fflush(stdout);
+                counts.clear();
+                window = now;
+            }
+            ++counts[ra];
+            func_0x1ba9c8(rdram, ctx, rt);
+            ctx->pc = ra;
         }
 
         void resetVu1State(uint8_t *rdram, R5900Context *ctx, Runtime *)
@@ -75,5 +104,7 @@ namespace tta
         registry.registerFunction(0x277b58, ipuInit);
         registry.registerFunction(0x216118, busyPaths);
         registry.registerFunction(0x320428, newlibRand);
+        if (std::getenv("TTA_RNG_TRACE"))
+            registry.registerFunction(0x1ba9c8, rngTrace);
     }
 }

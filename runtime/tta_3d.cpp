@@ -1170,6 +1170,21 @@ namespace tta
                         v.rgba = (v.rgba & 0xff000000u) | fogColour;
                     material.textured = false;
                     material.blend = bozo::render::Material::Blend::Alpha;
+                    // The frame's write mask (FRAME_1 FBMSK, DS+0x154): in battle the highlight 0x80000 runs with
+                    // 0x00ffffff, colour masked, only the frame's alpha written (a mask for a later pass): drawn in
+                    // colour it turned the party white wherever the fog colour is white (Company Might's targets,
+                    // the selected character in the sunny forest).
+                    const uint32_t fbmsk = read32(rdram, read32(rdram, 0x36f850) + 0x154);
+                    uint8_t mask = 0;
+                    for (uint32_t c = 0; c < 4; ++c)
+                        if (((fbmsk >> (c * 8)) & 0xffu) != 0xffu)
+                            mask |= static_cast<uint8_t>(1u << c);
+                    if (!env("TTA_SKIN_SILHOUETTE_NO_FBMSK"))
+                    {
+                        if ((mask & 7u) == 0)
+                            continue; // nothing of the picture written
+                        material.colourMask = mask;
+                    }
                     renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), nullptr);
                     continue;
                 }

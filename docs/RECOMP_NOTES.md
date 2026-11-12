@@ -371,6 +371,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
   defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **The white party in battle** (2026-11-12, reported after Company Might and on the selected character): in battle
+  every character's 0x80000 pass (the flat FOGCOL copy, fade pulsing) runs with FRAME_1 FBMSK 0x00ffffff: colour
+  masked, only the frame's alpha written, a mask for a later pass. Natively it was drawn in colour, and in the sunny
+  forest FOGCOL is 0xffffff (ALPHA 0x48 = Cs As + Cd): white figures. The pass now takes the frame's write mask and is
+  skipped when no colour channel is written (TTA_SKIN_SILHOUETTE_NO_FBMSK=1 for the old drawing). Found with F7 in
+  the user's battle. TTA_RNG_TRACE=1 counts the game's generator (0x1ba9c8) and traces newlib rand by caller: while
+  walking the forest only the particle systems (0x22bb..0x22d4) roll, so the random encounters roll elsewhere.
 - **The shine layer and F7** (2026-11-12, open: Company Might's white party). Layer "02" (G+0x2b0 = 0x20000, 0x2265xx)
   draws only when inst+0x10 != 0: render target 0 with all channels (0x2132c8 flags 1: FBMSK 0; 2 = everything
   masked, 4 = alpha only, 8 = colour only, the scene's state), pass 1 with template 0x377b10 (ALPHA 0x2a = Cs, TEST
