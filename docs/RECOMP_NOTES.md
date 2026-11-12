@@ -365,6 +365,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   input (each press pushes it back), so it is answered with DOWN + CROSS pairs every 60 frames; START opens the
   pause menu (Scenes orbs, Menu, Stats screens: all native). The D-pad drives the left stick (BozoEngine's
   ScriptInput): Berethor walks, the minimap follows, a chest lies on the path with its "Chests" tutorial box.
+- **Saving** (2026-11-12): a save at a save point failed. TTA's libmc (0x27c838..0x27d8c8) has no mkdir RPC (its
+  commands: 0xfe init, 1 getinfo, 2 open, 3 close, 4 seek, 5 read, 6 write, 0xa flush, 0xc chdir, 0xd getdir, 0xf
+  delete, 0x10 format): its sceMcMkdir (0x27cb58, unnamed in the map) is sceMcOpen(port, slot, name, 0x40) and, on 0,
+  sets the pending command 0x37a610 to 0xb for sceMcSync. BozoEngine answers sceMcOpen natively, where 0x40 is no
+  create flag: a missing entry, -4, and the save folder was never made. 0x27cb58 is now named sceMcMkdir
+  (recomp/tta_symbols_reviewed.txt), answered by the native mkdir. The cards persist only with --card-dir DIR
+  (without it they are fresh formatted cards in memory); BOZO_TRACE_MC=1 traces every card call.
 - **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
   battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
   (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game

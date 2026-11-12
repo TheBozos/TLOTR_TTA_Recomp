@@ -105,6 +105,7 @@ scalbnf 0x27c6a8
 copysignf 0x27c808
 sceMcInit 0x27c838
 sceMcOpen 0x27ca30
+sceMcMkdir 0x27cb58
 sceMcClose 0x27cb90
 sceMcSeek 0x27cc50
 sceMcRead 0x27cdc8
