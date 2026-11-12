@@ -1366,7 +1366,7 @@ namespace tta
             if (env("TTA_SHADOW_ORDER"))
                 std::printf("[tta:shadow] light %x (%.3g %.3g %.3g) world x %.4g..%.4g y %.4g..%.4g z %.4g..%.4g, %zu triangles\n", light,
                             d[0], d[1], d[2], lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], g_shadowWorld.size() / 3);
-            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 3.0);
+            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 0.3);
             for (float &c : d)
                 c *= reach / dl;
             const float *m = g_shadowScreen;

@@ -365,6 +365,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   input (each press pushes it back), so it is answered with DOWN + CROSS pairs every 60 frames; START opens the
   pause menu (Scenes orbs, Menu, Stats screens: all native). The D-pad drives the left stick (BozoEngine's
   ScriptInput): Berethor walks, the minimap follows, a chest lies on the path with its "Chests" tutorial box.
+- **Shadow volumes' length** (2026-11-12): long straight dark bands across the ground (reported at the orcs' legs, seen
+  from Berethor in the first battle's attack shot) were the volumes swept 3x the body's size along the light. The
+  console's (the GS dump of the battle, count-buffer strips into FBP 0x180) are about the size of the bodies that
+  cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
+  first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
+  defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
 - **Saving** (2026-11-12): a save at a save point failed. TTA's libmc (0x27c838..0x27d8c8) has no mkdir RPC (its
   commands: 0xfe init, 1 getinfo, 2 open, 3 close, 4 seek, 5 read, 6 write, 0xa flush, 0xc chdir, 0xd getdir, 0xf
   delete, 0x10 format): its sceMcMkdir (0x27cb58, unnamed in the map) is sceMcOpen(port, slot, name, 0x40) and, on 0,
