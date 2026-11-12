@@ -371,6 +371,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
   defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **The shine layer and F7** (2026-11-12, open: Company Might's white party). Layer "02" (G+0x2b0 = 0x20000, 0x2265xx)
+  draws only when inst+0x10 != 0: render target 0 with all channels (0x2132c8 flags 1: FBMSK 0; 2 = everything
+  masked, 4 = alpha only, 8 = colour only, the scene's state), pass 1 with template 0x377b10 (ALPHA 0x2a = Cs, TEST
+  ZTE GEQUAL, no alpha test: the character's own alpha into the frame's alpha), then the lights G+0xa0.. x 0x377a84 +
+  0x377a88 x the colour 0x377a90 (10 terms, on the stack, not in G) and pass 2 with 0x377b80 (ALPHA 0x58 = Cs Ad + Cd:
+  additive, weighted by that alpha; CLAMP 5) on the second texture *(inst+0x14), back to flags 8. The native skin
+  draws that layer as a plain copy. In the first battle it is empty (no sections, G+0xa0 zero, scales 1 and 0).
+  F7 in the window build (TTA_REPORT_AT=<game frame> from a script) writes the RAM to build/ram_key_<frame>.bin and
+  logs one frame of [tta:report] lines: every character draw's target, FBMSK, mode, fade, sections, lights and the
+  shine inputs.
 - **Saving** (2026-11-12): a save at a save point failed. TTA's libmc (0x27c838..0x27d8c8) has no mkdir RPC (its
   commands: 0xfe init, 1 getinfo, 2 open, 3 close, 4 seek, 5 read, 6 write, 0xa flush, 0xc chdir, 0xd getdir, 0xf
   delete, 0x10 format): its sceMcMkdir (0x27cb58, unnamed in the map) is sceMcOpen(port, slot, name, 0x40) and, on 0,

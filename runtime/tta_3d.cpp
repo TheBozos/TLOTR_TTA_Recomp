@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -719,6 +720,19 @@ namespace tta
                 out[r] = m[r] * in[0] + m[4 + r] * in[1] + m[8 + r] * in[2] + m[12 + r] * w;
         }
 
+        // F7's one-frame report (requestFrameReport): asked from the window's thread, taken by the next skin draw.
+        std::atomic<bool> g_reportAsked{false};
+        uint32_t g_reportFrame = 0;
+        bool reporting(const uint8_t *rdram)
+        {
+            if (g_reportAsked.exchange(false))
+            {
+                g_reportFrame = frame(rdram);
+                std::printf("[tta:report] game frame %u\n", g_reportFrame);
+            }
+            return g_reportFrame != 0 && frame(rdram) == g_reportFrame;
+        }
+
         uint32_t g_skinsDrawn = 0;
         bool g_flatDebug = false; // the type-18 pass under TTA_TYPE18_DEBUG: drawn flat magenta
         // The type-18 pass (0x2255d0): the shadow section's skinned triangles, in world space, and the screen matrix.
@@ -728,6 +742,26 @@ namespace tta
 
         void drawSkin(const uint8_t *rdram, uint32_t node)
         {
+            if (reporting(rdram))
+            {
+                // Every character draw of the frame, before the off-screen filter: the target, the mode (G+0x2b0), the
+                // fade, the sections, the light's constant term, the shine layer's inputs (0x20000: inst+0x10 / +0x14,
+                // the scales 0x377a84 / 0x377a88 and colour 0x377a90, its lights G+0xa0) and the scene's ALPHA / FBMSK.
+                const uint32_t g = read32(rdram, 0x403a60), ds = read32(rdram, 0x36f850), inst = node + 0x28;
+                const uint32_t frameReg = read32(rdram, ds + 0x154);
+                std::printf("[tta:report] skin node %x record %x fbp %x fbmsk %08x mode %x fade %u sections %08x %08x %08x %08x "
+                            "C0 %.3f %.3f %.3f | inst+10 %x +14 %x scales %.3f %.3f colour %.3f %.3f %.3f | C0' %.3f %.3f %.3f "
+                            "ALPHA %llx\n",
+                            node, read32(rdram, node), read32(rdram, ds + 0x150) & 0x1ffu, frameReg, read32(rdram, g + 0x2b0),
+                            rdram[(g + 0x2bc) & kMask], read32(rdram, g + 0x280), read32(rdram, g + 0x284),
+                            read32(rdram, g + 0x288), read32(rdram, g + 0x28c), readFloat(rdram, g), readFloat(rdram, g + 4),
+                            readFloat(rdram, g + 8), read32(rdram, inst + 0x10), read32(rdram, inst + 0x14),
+                            readFloat(rdram, 0x377a84), readFloat(rdram, 0x377a88), readFloat(rdram, 0x377a90),
+                            readFloat(rdram, 0x377a94), readFloat(rdram, 0x377a98), readFloat(rdram, g + 0xa0),
+                            readFloat(rdram, g + 0xa4), readFloat(rdram, g + 0xa8),
+                            static_cast<unsigned long long>(read64(rdram, ds + 0x100)));
+                std::fflush(stdout);
+            }
             // Only the passes into the displayed frame (FBP 0 / 0x70): a character is also drawn into off-screen targets
             // (shadows, reflections) with other cameras.
             {
@@ -2313,4 +2347,6 @@ namespace tta
         registry.registerFunction(0x2221b8, water);
         registry.registerFunction(0x2236a0, mistAnimator);
     }
+
+    void requestFrameReport() { g_reportAsked = true; }
 }

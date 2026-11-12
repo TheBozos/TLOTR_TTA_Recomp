@@ -26,6 +26,7 @@
 #include "bozo/app/window.h"
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_keyboard.h>
 #endif
 
 int main(int argc, char **argv)
@@ -146,6 +147,42 @@ int main(int argc, char **argv)
                     }
             }
         }
+        // TTA_REPORT_AT=<game frame>: F7's frame report (below) from a script.
+        if (static const char *at = std::getenv("TTA_REPORT_AT"); at && *at)
+        {
+            static bool done = false;
+            uint32_t game = 0;
+            std::memcpy(&game, d.runtime().memory.ram() + 0x3b5720, 4);
+            if (!done && game >= static_cast<uint32_t>(std::atoi(at)))
+            {
+                done = true;
+                tta::requestFrameReport();
+            }
+        }
+#ifdef TTA_WITH_WINDOW
+        // F7: a report of this moment for a bug seen while playing: the EE's RAM to build/ram_key_<game frame>.bin
+        // and one game frame of [tta:report] lines (every character draw's mode, lights and blend state).
+        if (window)
+        {
+            static bool held = false;
+            const bool *keys = SDL_GetKeyboardState(nullptr);
+            const bool down = keys && keys[SDL_SCANCODE_F7];
+            if (down && !held)
+            {
+                uint32_t game = 0;
+                std::memcpy(&game, d.runtime().memory.ram() + 0x3b5720, 4);
+                const std::string path = "build/ram_key_" + std::to_string(game) + ".bin";
+                if (FILE *out = std::fopen(path.c_str(), "wb"))
+                {
+                    std::fwrite(d.runtime().memory.ram(), 1, 32u << 20, out);
+                    std::fclose(out);
+                }
+                std::printf("[tta:report] F7 at game frame %u: RAM in %s\n", game, path.c_str());
+                tta::requestFrameReport();
+            }
+            held = down;
+        }
+#endif
         if (f % 60 == 0)
         {
             // The game's own frame counter (0x3b5720) beside the host's: the TTA_*_DUMP probes key on the game's.
