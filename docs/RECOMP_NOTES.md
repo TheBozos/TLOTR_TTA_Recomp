@@ -371,6 +371,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
   defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **The white battle ground** (2026-11-13, F7 in the user's sunny battle): that battle runs another screen filter
+  (0x1cbafc fills target 1, 0x1cf1fc multiplies it by the frame's alpha with ALPHA 0x89 = Cd As, 0x1cf8a0 blurs it
+  through target 2 with five additive taps, 0x1cfce8 darkens it four times with ALPHA 0x46 = Cd (1 - As), alpha 0x54,
+  and 0x1d0540 adds it back over the frame). 0x89 and 0x46 have no name in blendOf, which fell back to
+  (Cs - Cd) As + Cd: the copy stayed as bright as the picture and the add-back doubled it. The 2D draws now take the
+  GS's own (A - B) C + D for the forms without a name (TTA_NO_GS_BLEND_2D=1 for the old fallback); the first
+  battle's capture is identical either way.
 - **The white party in battle** (2026-11-12, reported after Company Might and on the selected character): in battle
   every character's 0x80000 pass (the flat FOGCOL copy, fade pulsing) runs with FRAME_1 FBMSK 0x00ffffff: colour
   masked, only the frame's alpha written, a mask for a later pass. Natively it was drawn in colour, and in the sunny

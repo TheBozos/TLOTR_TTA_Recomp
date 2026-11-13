@@ -695,6 +695,25 @@ namespace tta
             material.depthTest = false;
             material.depthWrite = false;
             material.blend = blended ? bozo::render::blendOf(alpha) : bozo::render::Material::Blend::Opaque;
+            // ALPHA forms blendOf has no name for fall back to (Cs - Cd) As + Cd. The sunny battles' screen filter
+            // (0x1cf1fc / 0x1cfce8) uses two: 0x89 = Cd As (the target times the source's alpha) and 0x46 =
+            // Cd (1 - As) (four passes darken the blurred copy), and drawn as blends of the frame they kept the copy as
+            // bright as the picture, which 0x1d0540 then adds back: the ground went white. Those take the GS's own
+            // (A - B) C + D. TTA_NO_GS_BLEND_2D=1 for the old fallback.
+            if (blended && !env("TTA_NO_GS_BLEND_2D"))
+            {
+                const uint32_t a = alpha & 3u, b = (alpha >> 2) & 3u, c = (alpha >> 4) & 3u, d = (alpha >> 6) & 3u;
+                const bool named = !(material.blend == bozo::render::Material::Blend::Alpha && !(a == 0u && b == 1u && d == 1u));
+                if (!named)
+                {
+                    material.gsBlend = true;
+                    material.blendA = static_cast<uint8_t>(a);
+                    material.blendB = static_cast<uint8_t>(b);
+                    material.blendC = static_cast<uint8_t>(c);
+                    material.blendD = static_cast<uint8_t>(d);
+                    material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
+                }
+            }
             if (test & 1u) // ATE: ATST in bits 1-3, AREF in 4-11
             {
                 material.alphaTest = true;
