@@ -2,6 +2,460 @@
 
 How the port is brought up, every fix and how it was found, and what remains open.
 
+## BozoEngine (since 2026-11-09)
+
+The port moved off the PS2Recomp fork onto [BozoEngine](https://github.com/TheBozos/BozoEngine) (submodule
+`BozoEngine/`), as DC, TMB and SC3 did: no PS2 hardware model at any level, every library and kernel call answered
+natively. Everything below this section, from "The disc" on, is the PS2Recomp era, kept for its findings (addresses,
+the game's behaviour); its code is in the history before `8ade037`.
+
+- **Build** (CMakeLists.txt, modelled on DC_Recomp's): `tools/tta_overrides_list.py` lists the addresses `runtime/`
+  registers, `bozo-externals` the externals from them and the symbol map, `bozo-recomp` translates SLUS_210.27 into 32
+  files (`build/bozo/tta_gen/`, ~40 s), `tta-headless` (runtime/tta_main.cpp) runs it on the free host and prints
+  what is not native yet (unknown device accesses by site, library calls by name, the end reason).
+- **Symbol map.** The ELF is stripped. `bozo_symbolmap.py` against Dark Cloud's and Twisted Metal: Black's
+  executables names 314 functions: the kernel calls, libc/libm, much of libgraph and libsif. Their SDKs (2000-2001)
+  are older than TTA's (2004), so libcdvd, libmc, the fileio client and libpad2 did not match: those were read from
+  the code into `recomp/tta_symbols_reviewed.txt`, one line of evidence each. `tools/tta_rpc_names.py` pairs every
+  sceSifCallRpc caller with (bound server id, function number) in TTA and the references: that alone named libmc's 12
+  clients (server 0x80000400) and fileio's 6 (0x80000001). `scripts/symbols.sh <reference ELFs>` rebuilds the map.
+- **Boot, step by step** (each was a stop of the headless runner): syscall 116 at 0x32d25c (SetSyscall from the SDK's
+  kernel patch: `InitSys` 0x32d268 named, the engine answers it); syscall 120 (`sceSifSetDChain` inside
+  `sceSifInitCmd`: `sceSifInitRpc` 0x32a9c0 named); the CD init's bind loop on 0x80000592 (`sceCdInit` 0x27dd08, then
+  `sceCdMmode` 0x27dff0, S-command 0x22 with 2 = DVD); syscall 107 in the IOP reset (`sceSifResetIop` 0x32cd50,
+  `sceSifRebootIop` 0x32cef8, `sceSifSyncIop` 0x32cea8, `sceSifLoadModule` 0x32cd08); EA's sound handshake (below);
+  `sceGsResetPath` 0x275968 (VIF1/GIF reset registers) and `sceGsSyncPath` 0x275a08; libpad2's bind loop on DBCMAN
+  0x80001300 (below). Frames 0 and 1 then end through the native sceGsSyncV.
+- **EA's sound driver** (runtime/tta_audio.cpp, tools/tta_bozo_audio.py). AUDIOPF.IRX and LIBSD.IRX are relocated to
+  0x4b400 and 0x45a00 and translated by `tools/native_irx` (422 + 63 functions); two AUDIOPF functions are only reached
+  through pointers (0x4b400, libsd's transfer callback; 0x4c69c, a thread body) and are given as entries. The game
+  (0x226bd0) and the driver (0x5926c) talk only through SIF commands and software registers: each sends set-sreg
+  (0x80000001) with the address of its buffers (registers 0x1e and 0x1f) and polls its own until the other has
+  written it; the driver also sends user commands to the handlers the game registers (0, 1, 2 at 0x226b60/80/a0, in
+  libsif's table at 0x41b018+0x14). The port overrides the game's `sceSifSendCmd`/`isceSifSendCmd` (set-sreg into the
+  IOP side's registers, user commands to the driver) and runs the driver's commands as the game's handlers on
+  libsif's packet buffer (0x41af40), one at a time. AUDIOPF's start polls a libsd transfer's completion flag in a
+  call-free loop and clears its buffers byte by byte: BozoEngine#80 adds the IOP software registers, sifcmd 4-7,
+  cdvdman 4/10/13/75, `useReadyAudioCompletionsAfterImports()` and `setRootCallBudget()` (TTA: 50,000,000).
+- **Pads: libpad2** over libdbc (DBCMAN 0x80001300, DS2U_D). EA's pad manager (init 0x2154b8, end 0x2156d0, per frame
+  0x2153e8/0x214f10 after a 10-frame warm-up) calls scePad2Init/CreateSocket (ports 0 and 1)/GetState/
+  GetButtonProfile/Read/GetButtonInfo and libvib's sceVibGetProfile/SetActParam. BozoEngine#81 answers them natively
+  on libpad's controllers: an 18-byte report (libpad's DualShock 2 report without its header, pressures in the
+  controller's order L1 R1 L2 R2), a 4-byte profile (the game compares it every frame: a fifth byte would drop the
+  pad), state 1 with a controller. Note: the 0x27ea40 cluster (IPU DMA registers) is libmpeg/libipu, not the pads.
+- **VU0 microprograms** (tools/tta_vu0_gen.py): the 23 VCALLMS entries of the two microcode images in the ELF (file
+  offsets 0x249a84 and 0x239d94) translated to C++ at build time, one function per entry, registered with
+  `Registry::vu0Program`. 0x21b348 (it cleared VU1 data memory) keeps only its seven words of the game's own.
+- **Movies: libmpeg on the SDK's model** (BozoEngine#82, `MpegOptions{referenceLayout = false, paced = false,
+  sdkNodata = true}`): TTA feeds raw MPEG-2 video (the .PS2 files: 0x1000-byte "MPG2" blocks) through
+  `sceMpegAddBs` from its Nodata callback 0x1be698 and ends the input with a 0 there; it paces itself.
+- **Rendering** (runtime/tta_render.cpp, from a map of the game's renderer kept locally in build/bozo/render_spec.md).
+  Every draw goes through one VIF1 DMA chain per frame (LLList, 0x3b5be8), built as plain memory: natively it is
+  built and never sent, and the draws are taken at the game functions that append them.
+  - 0x212478, the frame swap (frame counter, sceGsSyncV, sceGsSwapDBuffDc, the display registers): publishes the
+    frame to BozoEngine's renderer and is the frame boundary. `port::frameEnd` defers a stop, so it is the last thing
+    the override does.
+  - 0x216470, the chain kick: the END tag and the game's {Count, done} bookkeeping, nothing sent.
+  - 0x216530, the game's quadword memcpy (native): its one source outside RAM, the frame end's copy of the VU1
+    programs' statistics from VU1 data memory (0x1c3718), reads zeros. That frame end then clears those four VU1
+    quadwords with `sq` (0x1c3740): called from there, the copy returns to the game's own clear of its seven words
+    (label 0x1c3770, v0/a0 set as the loop wants), past the VU1 stores. (A native frame end calling the game's
+    functions was tried first: a callee that blocks, here 0x26c290 at frame 365, leaves an override no way to go on.)
+  - 0x22af40, the movie picture's upload (one GS image transfer per 16x16 macroblock): nothing uploaded; the picture
+    libmpeg decoded (`moviePictureHook`) is the frame's backdrop when the game drew its movie that frame.
+  - The renderer has to be switched on by the port (`setEnabled(true)`, `setPresentsAlone(true)`), as TMB does: off,
+    the window presents nothing.
+  Result (2026-11-10): 600 headless frames with no unknown register access; in the window the EA GAMES and THX movies
+  play at 60 frames/s. Next: the 2D through LLPrims 0x218910 (legal screen, loading screen, title, menus), text, then
+  the 3D shaders with meshes and textures converted offline from the player's disc.
+- **2D** (runtime/tta_2d.cpp, 2026-11-10). LLPrims 0x218910(prim, xyz, rgba, st, n) is the game's immediate
+  primitive (loading screen, title, menus, effects). Nothing is read from the packets the game builds (room rule:
+  no GIF/VIF scanning, no GS register shadow):
+  - vertices: the call's own floats, through the matrix the game picked (P = *(0x36f870), P+0x90: 0 P+0x40, 1 RC+0x60,
+    2 RC+0x2e0, RC = **(0x36f350)), divided by w when w != 1, colours x 255 truncated, as its VU0 code does;
+  - material: the game's draw state LLDisSt DS = *(0x36f850), read only. Context 1 block: ALPHA +0x100, TEST +0x140,
+    FRAME +0x150, CLAMP +0x170, TEX0 +0x1a0, TEX1 +0x1b0 (context 2 at +0xe0 more); PRMODE +0x6b0 (TME 0x10, ABE 0x40);
+  - target: only the displayed frame, double-buffered at FBP 0 and 0x70. The menus draw into an off-screen 256-wide
+    target at FBP 0x1c0 (TBP 0x3800 when read back: blurred background), not drawn yet. The full-screen opaque sprite
+    0x211de4 draws at each frame start is the frame's clear (Renderer::setClearColour), not a quad over the movie.
+  - textures: tools/tta_textures.py converts every texture group on the disc once (build/bozo/textures, ~40 s, 3,690
+    files): the SCP chunk streams (SHOC/SHDR, zlib `Ldat`), every "TXF " v0x212 container in any resource payload
+    (txfe/txfs/txs3/txs4/txfx, and the UI's apxf: 5,366 groups) plus the loading screen's group in the ELF (0x260880);
+    the pixel block is written as PSMCT32 into a GS-memory model and read back per PSM (T4, T8, CT32; CLUTs CT32
+    CSM1), offline only. At runtime 0x1babe8 (the resource manager's load: object +0 payload, +0x1c type, +0x20 index,
+    +0x24 size) tracks where each resource lies, and 0x219ca8 (a group's upload) maps each record's relocated TBP0
+    and PSM to its converted file: by (type, index, offset in the payload, record) first (the UI reuses small ids:
+    0x1c names 582 images), else by the record's 64-bit id. A draw uses the texture only when its TEX0 window is the
+    record's size: the UI renderer 0x305330 reads a group's memory as one 512 x 512 8-bit image (TBW 8 over 32 x 32
+    records, CLUT at the group's base), which no record describes; open.
+  Result: the loading screen (the One Ring and its Elvish line) drawn natively.
+- **The UI: EA Apt** (2026-11-10; map in build/bozo/ui_spec.md, local). TTA's front end and HUD are EA Apt movies
+  ('apxf' resources: titl, apti, cons, txf_ ...); 'fuse' resources are PFR fonts (Frutiger, Neue Hammer Unziale),
+  'subT' the localised strings. Shapes and bitmaps go through 0x2c9a08 to the strips 0x218fb8(prim, xyz, adc mask,
+  rgba, st, n), drawn natively like LLPrims (a2 is a "closes no triangle" bit mask, a3 the colours: 0 = P+0xc0). Text:
+  each field's string is rasterised by the game's own PFR code (0x2fb040) into a 512 x 512 8-bit canvas in EE memory
+  (TM = *(0x37c490), canvas TM+0x18: +0 w, +4 h, +8 TBP, +0x20 pitch, +0x2c pixels; palette (i << 24) | 0xbfbfbf, the
+  coverage over grey): plain linear pixels, made a texture each time the game sends the canvas (0x2c80e8). Apt's
+  masks write alpha only (FRAME FBMSK 0xffffff): skipped. The title screen is complete.
+- **libmc: sceMcSync** (0x27d058) was missing from the symbol map (TTA's SDK is newer than the references'): the
+  game's own copy waited on a semaphore the native libmc never signals, and after New Game the save manager polled
+  sceMcGetInfo forever. Named, a pad script (CROSS at 2600, 3020, 3380, START at 4100) takes a headless run to the
+  first battle (Berethor against the Black Riders: the battle HUD at ~6000 frames). TTA_RES_TRACE=1 lists resource
+  loads (the scene ~2500, the battle's bMAN/cbin/gmv ~5500), TTA_3D_TRACE=1 the 3D shader renders by node key.
+- **3D** (runtime/tta_3d.cpp; maps in build/bozo/render_spec.md and skin_spec.md, local). tools/tta_meshes.py converts
+  every LLObj resource once (build/bozo/meshes, mesh format 2): the 'OBF ' payload's 0x100-byte node records, each
+  node's VIF packet as vertex batches (types 0-5: float positions, s/t, RGBA, ADC = R & 1; type 21: an instance
+  matrix, a 256-colour table and, for instance 1 of a group, the shared packet: (x y z)(s t index|ADC)), and the
+  skinned 'scbm' (type 17: bind-pose positions, normals, s/t, four skeleton bones + weights from each chunk's palette
+  stream, texture ids from material names through the game's name hash 0x26ce88; 7% of batches use a second layout,
+  skipped). Runtime key: the node's record (node+0) in its resource: (type, index, payload size, record offset).
+  Draws: the type-21 render 0x221178 (instanced terrain, trees), the type-0 render 0x2207a8 (ground, objects), and
+  LLObj_Render 0x1bdbe8; matrix RC+0x2e0 (object -> GS screen, RC = **(0x36f350)) x the instance matrix, negated (the
+  game's w is negative in front of the camera; a PC GPU clips w < 0). Characters at 0x225fb0 from G = *(0x403a60):
+  bones *(G+0x290), W *(G+0x294), sections G+0x280, fade G+0x2bc, lighting G+0x00..0x9f, skinned on the CPU, screen =
+  viewport (RC+0x440/0x450) x RC+0x260 x W. Open: type 5 (0x221630, another argument), water (19), effects, the
+  render targets (blur, glows); the battle's 3D is not yet checked against the console (the camera swings during the
+  Black Riders' attacks; characters come out dark). TTA_DETERMINISTIC=1 runs the window on the game's clock.
+- **3D, 2026-11-10 continued.** The projection is the game's: w > 0 in front (an earlier "negate the matrix" came from a
+  probe vertex behind the camera and drew the scene behind the camera through the centre). The intro cinematic's forest
+  now looks as on the console. Textured batches keep a cut-out alpha test. Characters (behind TTA_SKIN=1 for now):
+  the skinned vertices carry the skin program's /1024 (unit-height models; scale E+0x474 in bone 0); the pose builder
+  0x133298/0x133148 is native (runtime/tta_pose.cpp: quaternion rows as VU0 0xc28, B[i] = Local . B[parent], bone
+  controllers E+0x164, B[i] = InvBind[i] . B[i] read from main RAM; skin_spec.md section 8). Open: (1) the sampled pose's
+  quaternions have a wrong w (|q|^2 up to 60, x/y/z plausible): the blends' VU0 program 0xdb0 as translated by
+  tools/tta_vu0_gen.py is the suspect; w is rebuilt from xyz meanwhile (TTA_POSE_KEEP_W=1 keeps the game's);
+  (2) some drawn characters are never posed by this path (their E+0xe8 stamp lags the frame id): another pose path,
+  or G pointing at another object (G = E + 0x1d0 from 0x1b1b18 and 0x11ab40/0x2251b0). Probes: TTA_SKIN_PROBE[2-5],
+  TTA_ANIM_PROBE, TTA_POSE_TRACE.
+- **Characters fixed** (2026-11-10): tools/tta_vu0_gen.py wrote an LOI's I value before the same pair's upper
+  instruction ran; on VU0 the new I is seen from the next pair. TTA's sine series (VU0 programs 0xd38, 0xdb0) load each
+  coefficient one pair ahead, so every sine was wrong: the animation's quaternions came out with |q|^2 up to 60 and
+  0xdb0 never slerped. tools/tta_vu0_check.py (an independent VU0 micro-mode interpreter) replays recorded calls
+  (TTA_VU0_DUMP=<entry> writes them) and matched the old translation bit for bit with the old I timing, so that was the
+  only difference. With the fix, every pose is unit-length, and the characters (behind no switch now; TTA_NO_SKIN=1
+  hides them) ride, walk and fight as in the game. TTA's world has y pointing down.
+- **The first battle, native** (2026-11-10): the GS readback 0x228118 (an 8 x 5 StoreImage through the GIF FIFO from
+  the frame end's 0x1d3e58) is a no-op: there is no GS memory. The intro cinematic and the first battle play at 60
+  frames/s with everything drawn natively (the diagnostic switches are read once: tta::env).
+- **Faces** (2026-11-10): the skin influence records store each weight rounded to x/127 (a 50/50 vertex sums to
+  128/127); blended as stored, a face ~1.8 units above the model origin moves ~6% of its width: torn lips, eyelids
+  over the eyes. tools/tta_meshes.py normalises the weights; the faces are clean (offline check with the runtime
+  bones: TTA_BONE_DUMP=<frame>). Also: the skin VU stores a blended matrix in its cache slot only when position.w lacks
+  bit 15. The second skinned layout (150 parts) is shadow/silhouette meshes for the set-5 VU1 program, not drawn yet.
+- **Apt's masks** (2026-11-10): Apt clips with the depth buffer, not alpha. Mask shapes are drawn with every colour
+  channel masked (FRAME FBMSK 0xffffffff: depth writes only; a full-screen one resets), then the masked content with
+  TEST ZTST GEQUAL/GREATER. Natively the mask's triangles are kept and the content is cut to their union (convex
+  clipping, runtime/tta_2d.cpp): the round minimap. Apt strips also carry a per-vertex ADC mask (0x218fb8's a2), and
+  SCISSOR_1 (DS+0x110) clips the 2D on the CPU. TTA_2D_TRACE=8 prints every 2D draw with FBMSK/TEST/ALPHA/PRMODE.
+- **The battle's ground** (2026-11-10): the Black Riders stood over the sky. Two causes. (1) Every terrain and static
+  batch (sky dome included) is drawn with PRIM 0x7c, ABE on and opaque texels (alpha 0x80); Z writes were tied to ABE,
+  so nothing wrote depth and the sky dome, drawn after the bridge, painted over it. Z writes now follow ZBUF_1's ZMSK
+  (DS+0x120 bit 32; the scene set-up 0x1a8600 turns them on). (2) The renderer divides z by w per vertex and wraps GS Z
+  past its range like the GS, so a triangle reaching behind the camera or past the near Z gets a garbage depth: the
+  VU programs never send those (ADC / the clipping programs). runtime/tta_3d.cpp cuts the triangles in clip space to
+  w > 0 and 0 <= z/w <= 2^24-1 first (TTA_NO_NEAR_CLIP=1 turns it off). The batch key's TEX0 is the game's texture
+  key, not the GS's: its TCC/TFX bits are not the draw's. Fog is per vertex (F = min(K/w, 255), K = DS+0x54c, FOGCOL
+  DS+0x720); the first battle's scene has fog off (K = 2550000). Water (type 19, 0x2221b8) is drawn at rest. Debug:
+  TTA_3D_TRACE=2 (fog, water, nodes not converted), TTA_3D_DUMP_FRAME=<game frame> (every node drawn with its screen
+  bounds), TTA_3D_ONLY=<record offsets> (draw only those).
+- **Characters' alpha and layers** (2026-11-10): the skin's default material template 0x377aa0 sets ALPHA_1 0x44
+  ((Cs - Cd) As + Cd) and TEST_1 0x5180b: alpha >= 0x80, a failing texel still written in colour but not in Z (AFAIL
+  FB_ONLY). Drawn as two passes (opaque texels with Z, the rest blended without): hair and cloak edges blend instead
+  of showing as flat strips (TTA_SKIN_NO_AFAIL=1 for the old look). 0x1b1b18 draws every character four times a frame,
+  one per layer ("01".."04" through 0x1bf6b8) with G+0x2b0 = 0, 0x20000, 0x200, 0x1000; layers 02-04 are empty for
+  the characters seen so far. 0x200 / 0x1000 now blend as their templates say (Cs FIX + Cd / Cd - Cs FIX, FIX = the
+  fade, no Z writes). 0x80000 (the screaming Nazgul's coincident copy, template 0x377d40 = *(0x377db0), which sets
+  nothing but PRIM 0): 0x225fb0 writes PRMODE 0x68 (Gouraud, fog, blended, no texture) and skins send F = 0, so it
+  is a flat FOGCOL silhouette (0x524842 in the scream) over the textured one, blended by the vertex alpha: the
+  Nazgul turns into a pale wraith under the scream's green filter (TTA_SKIN_SILHOUETTE_TEXTURED=1 for the old
+  textured copy; no console capture of the scream yet). Open: 0x20000's render-target switches. TTA_SKIN_LAYERS=<mask> (1, 2, 4, 8,
+  16 for 0x80000) draws only some layers; TTA_3D_TRACE=2 lists the modes by model.
+- **Character shadows are shadow volumes** (2026-11-10, mapped, not drawn yet). The type-18 render 0x2255d0 runs on a
+  skinned node (only Berethor's scbm 70063 so far, ~1-2 a frame) with G+0x280 = only the model's shadow section (the
+  second part layout the converter skips: vertices, then edge {v0, face, face, v1} and face lists). It sets PRMODE
+  0x40 (flat, untextured, blended), the template 0x377a10 (ALPHA 0x44, TEST 0x50000: no alpha test, Z GEQUAL),
+  clears FBA, and uploads 14 qwords to VU 0 through 0x21d438 (the matrices from 0x225218: clip, W, the light vector
+  from G+0x298, default 0x377990, at row 8; viewport rows 9-11). Set 5's program 0x178 (overlay 0x355780) transforms
+  the mesh, finds the silhouette edges from the faces' facing to the light, extrudes them and draws the caps and
+  sides through 0xce8 with +/- signs (front / back faces): a counting pass. The darkening is then the set-5
+  full-screen passes (layer hooks 0x21a778 / 0x21aa88, MSCAL 0x1ea8). A native port needs the shadow parts
+  converted, the volume built on the CPU, a counting target (BozoEngine has no stencil) and the darkening pass.
+  Probes: TTA_SHADOW_PROBE=<game frame> (the VU block), TTA_TYPE18_DEBUG=1 (the pass's nodes and GS target).
+- **Shadow volumes, native (opt-in, TTA_SHADOWS=1)**. tools/tta_meshes.py converts the shadow parts (raw q0.x bit 15;
+  every 16-bit field ^ 0x8000 as the VU sees it): q0 = (vertices, strip length, faces, edge entries), q1 =
+  (influence records, strip start, faces start, edge start); vertices 2 qwords from q2 {x y z /1024 x scale, w: < 0
+  blend the next record and cache it at VU 158 - w, > 0 the matrix cached at VU 159 + w, 0 keep}; strip entries' .w
+  = a vertex (bit 15: no triangle ends there); faces (.x .y .z). Output: skinned triangle lists, prim 0x8003 (never
+  drawn as a surface). Berethor's hull: 415 triangles. At the type-18 pass the runtime skins them, sweeps each
+  triangle along the light (G+0x298, default (2, -2, 0)) into a closed prism, counts the faces into the renderer's
+  stencil by screen winding (z-pass) and blends the frame toward black where the count is not 0 (BozoEngine's
+  Material stencilOp / stencilNotZero / stencilClear, as SC3 does). Opt-in because PCSX2 shows no character shadow in
+  the first battle: the light, reach and strength are not checked against the console. TTA_SHADOW_SHOW=1 draws the
+  volumes in colour, TTA_SHADOW_UP_ONLY=1 / TTA_SHADOW_NO_STENCIL=1 test the stencil, TTA_SHADOW_REACH /
+  TTA_SHADOW_ALPHA tune it, TTA_SHADOW_ORDER=1 prints the pass order, light and bounds.
+- **Shadows checked in a PCSX2 GS dump** (Shift+F8 in PCSX2: one frame's GS packets, .gs.zst; parsed offline by a
+  throw-away script): layer 4 is the shadow pipeline. 0x21a778 inverts Z in place (FBP 0x100 = the Z buffer, white -
+  Cd, FBMSK alpha), 0x21aa88 clears the count buffer 0x180 (colour and Z share it), then per character the volume's
+  strips go into 0x180 with Z GREATER against the inverted Z and additive wrapping colour (B +1 / 0xff), and
+  0x21ae10 darkens the frame where the count is not 0: Cd x (1 - TA0/128), TA0 = *(0x3779a0) (G+0x2b4 when G+0x298
+  is set): 0x13-0x20, i.e. 15-25% darker. 0x21b0f8 restores Z. The native shadows now use that strength and are on
+  by default (TTA_NO_SHADOWS=1 off). The console's haze is not a post pass: it is scene geometry (large mipmapped
+  textured fans, huge additive strips, a faint veil), the Glows objects (types 9/20) not drawn natively yet.
+- **The mist: the Glows objects** (mapped; native since 2026-11-11, below). Shader types 9 and 20 (ShaderObject_Glows_Ps2.c) have no
+  render at +0x2c; their table entries 13-16 are 0x21f010, 0x21f088, 0x21f980 (render, many a frame in the forest
+  and the battle) and 0x21fce8; 0x21ea18 / 0x21ea20 run around them, and 0x21c420 (with 0x21c098) generates their VU
+  microcode each frame into BSS (0x3f6f00 / 0x3faf00). A glow: S = *(instance + 4); +0xa0 flags (0x200, 0x2000:
+  0x21ef58 instead), +0xa4 intensity times a near/far ramp (+0x134's +0xe0 / +0xe4 against +0x8c's +0xa8), skipped
+  below 0.005; +0x88 a size given to 0x21f090, which sets the draw state, uploads matrices (0x210d10, 0x213140,
+  0x213068) and kicks the mesh at +0x134 (+0x46 count) through the packet at +0x138 (12 qwords). The level files hold
+  no type-9/20 nodes: the glows come from the effects (SFX/SFXGlow.c). On the console they are the forest's haze:
+  large mipmapped T4/T8 fans across the screen, huge additive strips (light shafts) and a faint grey-blue veil.
+  Types 1-4 never render in the first level; type 5's render is 0x221760 (0x221630 is its per-frame set-up).
+- **The forest haze is the type-19 "water" module (mist banks)**, found in a PCSX2 GS dump of the Black Riders scene:
+  11 huge translucent ribbons (6-vertex strips = 3 rows per edge, vertex alpha 0x1a / 0x40 / 0x66, a 256x256 T4
+  mist texture, (Cs - Cd) As + Cd), each drawn again with alpha 0 (a no-op). Natively the at-rest conversion (one quad
+  per edge) draws one small dark sheet. The geometry is built each frame on the CPU by the animator 0x2236a0 (~1000
+  instructions: rows, the alpha gradient, waves from the sine table 0x403788) and kicked by the driver 0x2246e8;
+  a native port of that animator is the way to the haze. The Glows (types 9/20) are particle billboards (blocks of
+  16 particles at S+0x230, 0x300 bytes each, formatted by 0x21ea28: V4-8 range, 3 x 16 scalars, 16 x {position,
+  (.., angle)}, 16 RGBA5551 colours; texture id = *(S+0xc8); world or S+0x94 object matrix when S+0x84 & 4; drawn
+  by microcode 0x620 of the 422-qword image at 0x350690: random jitter seeded from the position, rotation, alpha
+  from a base plus a per-particle term). Probes: TTA_GLOW_DUMP=<game frame> (each glow's DMA blocks and records),
+  TTA_POST_DUMP.
+- **The console look: the screen filters, native** (2026-11-10). The PS2 frame was twice as bright as ours (mean 61
+  vs 30 in the intro close-up) and green-hazed in the forest: not the display (PMODE only averages the two read
+  circuits one line apart) but the screen filters 0x1c1d34 .. 0x1d235c, 2D sprites drawn with the frame as a texture:
+  the frame (TBP0 0 / 0xe00 = FBP 0 / 0x70, PSM CT24) into the 256 x 256 target FBP 0x1c0 (FBW 4), blurred onto
+  itself, then composited back over the frame (0x1d235c: 30 draws, alpha ramping) with the grade sprites (an
+  additive 0x7f x As, a tint at alpha ~0x3a). runtime/tta_2d.cpp now gives each off-screen FBP one of the renderer's
+  auxiliary targets (FBW x 64 by the scissor's height; the game's window is centred on 2048), samples TBP0 = FBP x 32
+  from it, the frame being built (source 0; the 3D draws report its FBP) or the other half of the double buffer
+  (kPreviousFrame), and draws these in the 3D frame's list. The intro close-up's mean is now 58 / 59 / 49 against the
+  console's 61 / 58 / 50. TTA_NO_TARGETS=1 for the old look. Also native: the type-19 mist banks from the animator
+  0x2236a0 (rows along each edge, base / extruded, waves; TTA_NO_MIST, TTA_MIST_SHOW): dark ground mist.
+- **The Glows, native** (2026-11-11). They are EA's ears_rt_sfx "Particle System" components (type descriptor
+  0x3782c0: create 0x22ec88 / 0x22edc0, update 0x22efe8 -> 0x22d5b8 writes the particles), rendered as shader types
+  9/20. On the console they are most of the forest's mist (about 38 blocks of 16 huge grey veils, alpha 5-15, per frame
+  in the Berethor close-up), plus sparks, smoke, light shafts and the battle's foliage vignette. PCSX2's GS dump showed
+  them as untextured strips until the reader honoured PRMODECONT 0: TTA sets PRMODE with CTXT, TME and ABE, so the
+  glows draw in context 2 (TEX0_2 / ALPHA_2 / TEST_2), as many other scene draws do. A block (48 qwords, laid out by
+  0x21ea28): +4 the first and end particle, +0xc ages A[16], birth sizes B[16], alpha rates C[16], +0xd0 16 x
+  {position xyz + angle, velocity xyz + spin}, +0x2d4 RGBA5551 tints (0x10 is 1.0, the top bit mirrors U). Constants:
+  the 12-qword packet at *(S+0x138), +0x10.. = VU c24..c32 (gravity, colour rate / floor / ceiling / birth, anchor and
+  spin cap / damping, drag / size cap / growth / reach, atlas rate and alpha cap, atlas count and frame size); matrix
+  RC+0x2e0 as 0x21f090 / 0x210d10 leave it, focal RC+0x524, aspect RC+0x5e4. Microcode 0x620 per particle: position +
+  (v - g) reach (1 - 1/(1 + drag A)^4) + g A; angle + spin (1 - damping t) t, wrapped; half size clamp(B + growth A,
+  0, cap) x focal / w (y x aspect); colour (birth + rate A) x tint, alpha min(birth + C A, cap + capRate A), clamped;
+  a 4-vertex strip (the first two ADC), the atlas frame from the age jittered by VU1's random seeded from the
+  position. runtime/tta_3d.cpp's glowRender lets 0x21f980 build its blocks, collects the blocks it chains (0x2163c8,
+  48 qwords starting 0x6e018000) and draws each particle as a screen-space quad (Material::useQ) with the game's
+  TEX0_1 / ALPHA_1 / TEST_1 / ZBUF_1. Up to ~1300 particles a frame; the forest and battle frame rate is unchanged on
+  average. TTA_NO_GLOWS=1 turns them off. Trap: with no pad input the game sits on the title screen, where the only
+  effect is the UI's "UI_bloom" (one particle); level effects only exist in game (build/pad_battle.txt).
+- **The glows' texture is the effect's record, not the GS place** (2026-11-11, later). In the intro's Black Riders
+  scene the native glows washed the screen out in green (frame mean 144 / 233 / 163 at host frame 5801): the glows
+  took their texture from where TEX0 points (TBP0 0x3013, T8), and the UI's text canvas (0x2c80e8, grey, alpha ~0xe7)
+  is placed there too; the effects send their own textures to that scratch place outside 0x219ca8. Each glow's
+  texture record is *(S+0xc8) (a group record: the 64-bit pack id first, its home TBP0 at +0x10, e.g. 0x3623) and the
+  type-19 mist banks' is the geometry's +0x1c: runtime/tta_3d.cpp's effectTexture looks them up by the id first. The
+  real mist textures are soft (alpha mean 5 and 30 of 0x80). The microcode CLIPs each corner against c12 = (2048,
+  2048, 2000.1, 2000), but it is not a 2000-pixel cull: the console's GS dump of the Black Riders shot draws veils
+  with corners at +-2046 (38 blocks of 16, colour 0x50, alpha 6, the last scene draws #7843..7880). The port skips
+  only corners past the GS's +-2048 (TTA_GLOW_GUARD to try another). Natively that shot has ~255 live particles
+  (11 glow renders) against the console's 608: the forest's remaining haze gap. Scanning RAM for glow systems
+  (S+0xa0 0xb0, +0xa4 1.0, +0xc8 a record with a mist id; TTA_GLOW_SCAN=1 counts them every 60 game frames): the
+  console's save state at the close-up has 30 (12 / 12 / 6 by mesh 0x88c690 / 0x89a710 / 0x899b10), ours 12 there,
+  but ours rise to 22-33 later in the intro and fall back to 11-14 at some cuts (game 4320, 4740, 5100): the
+  same systems, spawned and removed on the cutscene's clock. The console's game frame counter (0x3b5720) is not a
+  cutscene clock (4294 there against our 3706 at the same shot), so the two moments are not matched yet.
+  Clocks found by diffing native RAM dumps 60 game frames apart (TTA_RAM_DUMP=<game frame>,..., build/ram_<n>.bin):
+  float seconds at 0x3a4be0 / 0x3a2364 / 0x3a4bdc (+1.0) and frame counts at 0x3a4be8 / 0x3a230c / 0x3bab24 (+60).
+  Natively the game runs 60 game frames per game second; the console's save state has ~59 overall, and PCSX2 showed
+  the game at 24-30 frames a second in the forest. So the native game logic runs at 60 where the PS2 ran at 30 or
+  less. Tested (a temporary switch charging two vblanks a frame, so the main loop steps 1/30 s): the mist is the
+  same at 30 fps logic, systems peaking at 29-33 on the cutscene's clock and 38 particles a glow against 42 at 60.
+  So the frame rate is not the haze gap: our count swings 11-33 within seconds, and the one console moment
+  compared (the Black Riders shot) likely caught ours in a low phase.
+  Correction (same day): with build/pad_intro.txt the native run reaches the first battle at ~host frame 5890 and
+  the Nazgul acts first (Nazgul Scream at 5900, Berethor at 0 HP by 6391), then plays a further misty cutscene: the
+  native "sword" shot at host 6800 is on that branch. The console's save state (slot 1) runs the intro's end into
+  the battle with Berethor's turn first and the menu waiting. So shots after ~5890 are not comparable, and the
+  (resolved below: the console's state is a later battle; the first one is scripted for Berethor to lose).
+  Driving PCSX2 from a fresh boot to check failed (key presses did not reach the pad reliably; it fell into the
+  attract trailer).
+  The game's RNG (2026-11-11): its own additive lagged-Fibonacci generator (0x1ba9c8, 20 words at 0x3f96b8, index
+  0x3f9708; 93 callers, animation included), seeded once at boot (0x1c2e30 -> 0x1bab38 -> 0x1bab70, Park-Miller
+  16807 to fill both tables) from sceCdReadClock: BCD seconds + minutes + hours + 10. Lua's randomseed (0x261668)
+  reseeds the first table; newlib's rand (0x320428) is only math.random's and stays at 1 through the intro.
+  BozoEngine's sceCdReadClock answers a fixed 12:00:00 unless Libraries::cd.hostClock, which nothing set: every
+  native boot had the same RNG. tta_main now sets it when the game runs in real time (TTA_DETERMINISTIC keeps the
+  fixed clock; TTA_CLOCK=host / fixed). With clock seeds the Nazgul's opening move varies (Nazgul Scream, Wraith
+  Slash with a double critical), but it still acts first and Berethor still falls: the opening turn is not the
+  RNG's. Settled: the first battle is scripted. Played with only the New Game press (build/pad_newgame.txt; the
+  intro script's press at host 3020 skips the whole prologue film, the one at 3380 nothing that matters) the
+  native run goes prologue film -> Berethor in the forest -> the Black Riders -> the battle opening on the Nazgul
+  Scream -> Berethor falls -> Idrial's arrival (light burst) -> her cutscene, by host ~24000. The console's slot-1
+  state is later: its battle with Berethor's menu and the 'Attack a single target' hint is the next one, after
+  Idrial joins. Corrected again: the user remembers Berethor acting first in the first battle, and a PCSX2 session
+  at that battle (read from the running process: the EE's 32 MB are one block, found by the ELF's code bytes)
+  shows Berethor's menu, the 'Attack a single target' hint and the queue Berethor / Nazgul 1 / Nazgul 2, in the
+  same level (e01c01.scp), encounter (Enc01_Nazgul) and with the same stats record (0xcd1f78: HP 177, AP 65).
+  There newlib's rand state has moved (0x2781e494): its only caller in the game is the Lua C function
+  GetRandomActionInType (0x2679b8 -> 0x17e4d8), the AI's pick. Natively it stays 1 through the Nazgul Scream: the
+  AI never picks and the Scream comes first. Not the cause: the RNG seed, 30 fps logic (a temporary switch), the
+  pad's idle state, the intro's skip presses, the time manager 0x3bac10 (only its step differs, 1/60 vs 1/30).
+  The Lua C functions called around the battle start natively (a temporary probe over the 96 registered through
+  0x264498): only GetScaledElapsedTime each frame and SwitchToCombatCam (game 5819); the turn order is decided in
+  the C++ battle code (BattleModeDTB.c / Combat.c), not traced yet. Open bug.
+  **Fixed (same day): the game's rand.** The turn queue (manager around 0x3a5578; entries {time, .., .., combatant,
+  ..}, base time 0x3a557c; current actor 0x3a5a24; Berethor 0xcd11e0, the Nazgul 0xccad40 / 0xcc8220) is built at
+  the battle's start by 0x161a48 -> 0x180ee8 -> 0x180018 -> 0x1802b8: each entry starts at 100 (0x17fc30), then
+  0x17fd40 adds a jitter when the tuning struct *(0x3d48a8)+0x104 (10.0) is not 0: time += int(f(rand % e[8]) /
+  10) - int(e[8] / 10), with newlib's rand (0x320428). Berethor's e[8] is 11: 99 for any roll but 10. The symbol
+  map names 0x320428 'rand', so BozoEngine answered it with its native libc generator (Libraries::Rand, a 64-bit
+  LCG, another sequence): the roll was 10, Berethor 100, a tie the Nazgul won on list order. The console's state
+  (0x2781e494) is three newlib calls from seed 1 (rolls 0, 3, 4: 99, 100, 100). runtime/tta_port.cpp now runs
+  the game's own rand on its _rand_next (*(0x37cd14)+0x58): state, queue and opening turn match the console.
+  New, visible from Berethor's menu: the hint box shows 'Hint:' without its text, the selection ring under the
+  active character has a black square, a white shape at the screen's left (all three below). The host's per-second line now prints the game's frame
+  (0x3b5720) beside its own: TTA_GLOW_DUMP and the other probes key on the game's (host 6800 = game 6755 in the
+  intro with build/pad_intro.txt).
+- **The battle menu: ring, hint, water, waterfall** (2026-11-11). (1) The selection ring under the active character (Cobj 17,
+  a 4-vertex static batch, PRIM ABE, an opaque texture: black around white runes) carries no ALPHA_1 of its own; it
+  blends with the one in force, DS+0x100 = 0x68 (Cs x FIX + Cd, FIX pulsing 0x1d..0x22): its black adds nothing.
+  Static batches with ABE and no ALPHA of their own now take DS+0x100 (TTA_NO_DS_ALPHA=1 for the old alpha blend).
+  (2) The hint body is the native variable 'ht' (menu +0x37c, crd_<id>_hlp from subT) the combat HUD reads through
+  the binding table 0x395460 (getter 0x2d2190: 'ht' type 3, a char *). Its ActionScript reads it in Open (the menu's
+  step queue at +0x5c8: ... Open, DELAY 10, ..., ActivateMenu0's step), which runs before the turn sets the hint,
+  and in UpdateHelpText, sent only on input: a cursor move (0x1eb8a8 -> 0x1eb400 / 0x1eb610) or the stick bit 0x800
+  (action 0x13, synthesised from an analog axis in 0x1bd0b0). Natively the hint appears on the first cursor move,
+  as the game's logic says; the console capture with the hint at once was most likely taken after an input. Debug:
+  TTA_STR_TRACE, TTA_APT_TRACE, TTA_BIND_TRACE (string lookups, C-to-ActionScript calls, bound-variable reads).
+  (3) The white shape at the left was the type-19 water module's second layer (0x222fd0): an EE image (128 x 128 T8
+  at 0x3fef00, a ripple simulation 0x21c420 fills from the scratchpad only while drops are pending, so all 0 here)
+  with a cycling grey CLUT (0x3ba300), sent by 0x2221c8 into the UI's VRAM slot (TBP 0x3013, CBP 0x3003). Natively
+  the place resolved to the UI texture last put there. 0x2221c8 now makes it a live texture at that place, like the
+  text canvas (TTA_NO_WATER_LAYER=1 off). And the mist banks take their vertex colours from the animator's own
+  output (0x2236a0 writes a VIF stream: V4-32 positions, V2-16 ST, V4-8 colours), matched to the native vertices
+  by position: the second layer's alpha is 0 there (invisible without ripples) and the first layer's colours are
+  about half the native estimate (TTA_MIST_OWN_COLOURS=1 for the estimate, TTA_MIST_PACKET=<frame> dumps the
+  stream). (4) The waterfall is glow particles (types 9/20; the splash texture 0x33bb7793, spray 0x1c33bb7793,
+  mist 0xabb46ddb, ALPHA 0x44): dim natively because each particle wrote Z and hid the ones behind it. The glow's own
+  packet sets ZBUF_1/2 = 0x131000100 (ZMSK 1: tested, not written) and TEST 0x5000a, and its last block restores the
+  scene's 0x31000100, which is what DS+0x120 holds when the render returns; a PCSX2 GS dump of the forest shows the
+  glow draws (PRIM 0x254, TEX0 0x3623) with ZMSK 1. Natively the glows now take the ZBUF their packet sets (the first
+  ZBUF_1 A+D among the glow's DMA blocks): the fall is bright and streaked as on the console, the selection ring gets
+  its blue-white sparkle, and the forest's veils add up: the intro close-up (host 3751) is 69 / 68 / 60 against the
+  console's 61 / 58 / 50 (63 / 62 / 54 before), the haze closer, a little bright.
+  Where the 8 levels come from is open: without the screen filters the close-up is 38 / 36 / 33, without glows
+  53 / 52 / 44; native glows there cover 17 screens (5 systems, alpha 6, colour 0x50: the console's values), and the
+  only console GS dump with glows is a later shot (the sword close-up: 152 strips, 472 kicked triangles, 70.6
+  screens), so the coverage at 3751 is not known; the systems follow the cutscene clock (above). TTA_GLOW_DUMP now
+  prints each glow's on-screen coverage. The battle's first frame overlaid on the console capture lines up exactly
+  (camera RC+0x1a0 / +0x260 identical in both RAMs); the attack turn (target hint, hit sparks, 'Immune', the Nazgul
+  Scream's green veil) plays natively but has no console reference yet.
+- **Past the first battle** (2026-11-12). build/pad_long.txt (the intro's three CROSS, then CROSS every 60 frames
+  from 5960) plays the scripted loss (Wraith Thrust, Berethor at 0 HP), Idrial's light (the blue flower, white
+  flashes), the healing cutscene, then free control in the forest (minimap, the "Scenes" tutorial box) and the first
+  Epic Scene film (Minas Tirith) by host frame ~11800, all native and deterministic. Skin mode bit 0x80000000 (the
+  Nazgul, scbm 70063 / 70388) changes nothing in the skin render (0x225fb0 tests 0x200 / 0x1000 / 0x2000 / 0x40000 /
+  0x80000 / 0x20000 and 0xc0000 to skip); the second skinned layout is the shadow volumes, drawn (type 18).
+  Driving the forest (build/pad_walk.txt): after the battle a "Scenes" tutorial box waits for CROSS, then "Quest
+  Journal updated", then the prompt "You received an Epic Scene ... View it now?" appears a while after the last
+  input (each press pushes it back), so it is answered with DOWN + CROSS pairs every 60 frames; START opens the
+  pause menu (Scenes orbs, Menu, Stats screens: all native). The D-pad drives the left stick (BozoEngine's
+  ScriptInput): Berethor walks, the minimap follows, a chest lies on the path with its "Chests" tutorial box.
+- **Shadow volumes' length** (2026-11-12): long straight dark bands across the ground (reported at the orcs' legs, seen
+  from Berethor in the first battle's attack shot) were the volumes swept 3x the body's size along the light. The
+  console's (the GS dump of the battle, count-buffer strips into FBP 0x180) are about the size of the bodies that
+  cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
+  first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
+  defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **Game time and stalls** (2026-11-13, the user saw the character speed up for a moment on the overworld, not
+  reproduced): GetScaledElapsedTime (0x2674f8) returns 0x1dd4f8(1) = *(0x3bac4c) x *(0x3bac7c). In a real-time
+  window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
+  over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
+  the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
+- **The white battle ground** (2026-11-13, F7 in the user's sunny battle): that battle runs another screen filter
+  (0x1cbafc fills target 1, 0x1cf1fc multiplies it by the frame's alpha with ALPHA 0x89 = Cd As, 0x1cf8a0 blurs it
+  through target 2 with five additive taps, 0x1cfce8 darkens it four times with ALPHA 0x46 = Cd (1 - As), alpha 0x54,
+  and 0x1d0540 adds it back over the frame). 0x89 and 0x46 have no name in blendOf, which fell back to
+  (Cs - Cd) As + Cd: the copy stayed as bright as the picture and the add-back doubled it. The 2D draws now take the
+  GS's own (A - B) C + D for the forms without a name (TTA_NO_GS_BLEND_2D=1 for the old fallback); the first
+  battle's capture is identical either way.
+- **The white party in battle** (2026-11-12, reported after Company Might and on the selected character): in battle
+  every character's 0x80000 pass (the flat FOGCOL copy, fade pulsing) runs with FRAME_1 FBMSK 0x00ffffff: colour
+  masked, only the frame's alpha written, a mask for a later pass. Natively it was drawn in colour, and in the sunny
+  forest FOGCOL is 0xffffff (ALPHA 0x48 = Cs As + Cd): white figures. The pass now takes the frame's write mask and is
+  skipped when no colour channel is written (TTA_SKIN_SILHOUETTE_NO_FBMSK=1 for the old drawing). Found with F7 in
+  the user's battle. TTA_RNG_TRACE=1 counts the game's generator (0x1ba9c8) and traces newlib rand by caller: while
+  walking the forest only the particle systems (0x22bb..0x22d4) roll, so the random encounters roll elsewhere.
+- **The shine layer and F7** (2026-11-12, open: Company Might's white party). Layer "02" (G+0x2b0 = 0x20000, 0x2265xx)
+  draws only when inst+0x10 != 0: render target 0 with all channels (0x2132c8 flags 1: FBMSK 0; 2 = everything
+  masked, 4 = alpha only, 8 = colour only, the scene's state), pass 1 with template 0x377b10 (ALPHA 0x2a = Cs, TEST
+  ZTE GEQUAL, no alpha test: the character's own alpha into the frame's alpha), then the lights G+0xa0.. x 0x377a84 +
+  0x377a88 x the colour 0x377a90 (10 terms, on the stack, not in G) and pass 2 with 0x377b80 (ALPHA 0x58 = Cs Ad + Cd:
+  additive, weighted by that alpha; CLAMP 5) on the second texture *(inst+0x14), back to flags 8. The native skin
+  draws that layer as a plain copy. In the first battle it is empty (no sections, G+0xa0 zero, scales 1 and 0).
+  F7 in the window build (TTA_REPORT_AT=<game frame> from a script) writes the RAM to build/ram_key_<frame>.bin and
+  logs one frame of [tta:report] lines: every character draw's target, FBMSK, mode, fade, sections, lights and the
+  shine inputs.
+- **Saving** (2026-11-12): a save at a save point failed. TTA's libmc (0x27c838..0x27d8c8) has no mkdir RPC (its
+  commands: 0xfe init, 1 getinfo, 2 open, 3 close, 4 seek, 5 read, 6 write, 0xa flush, 0xc chdir, 0xd getdir, 0xf
+  delete, 0x10 format): its sceMcMkdir (0x27cb58, unnamed in the map) is sceMcOpen(port, slot, name, 0x40) and, on 0,
+  sets the pending command 0x37a610 to 0xb for sceMcSync. BozoEngine answers sceMcOpen natively, where 0x40 is no
+  create flag: a missing entry, -4, and the save folder was never made. 0x27cb58 is now named sceMcMkdir
+  (recomp/tta_symbols_reviewed.txt), answered by the native mkdir. The cards persist only with --card-dir DIR
+  (without it they are fresh formatted cards in memory); BOZO_TRACE_MC=1 traces every card call.
+  A played game (the window build, no pad script) now defaults to %APPDATA%\TheBozos\The Third Age\cards
+  (SDL_GetPrefPath): a save launched without --card-dir had lived only in memory and was gone at exit. Headless and
+  scripted runs keep in-memory cards; TTA_MEMORY_CARDS=1 does the same for a played game.
+- **Battle frame dips** (2026-11-11). Alone on the bench (scripts/bench_run.sh --alone), the window build ran the
+  battle's turn and the Nazgul Scream at 20-26 ms a picture in places, smooth with TTA_NO_GLOWS. TTA_HOST_PROFILE
+  (resolve offsets with C:/msys64/ucrt64/bin/nm.exe -C on build/bozo/tta.exe, image base 0x140000000) put the game
+  thread's time under uploadCanvas (a fresh 512 x 512 RGBA texture each time the game re-sends the UI canvas, mostly
+  unchanged) and in tta::env (a std::string built per call on the draw paths). The canvas now keeps its texture when
+  its pixels are the same, and env keys its cache by the literal's address: the worst second is 18 ms (was 26),
+  the scream 16.8 ms, pictures identical (deterministic captures compared pixel for pixel).
+- **The screen filters' bloom, at the console's strength** (2026-11-11). With the mist fixed, the intro close-up was
+  darker and flatter than the console's (mean 47 / 46 / 40 vs 61 / 58 / 50; the earlier "match" came from the grey
+  canvas veils). The console's chain in this scene (PCSX2 GS dump): clear the 256 x 256 target FBP 0x1c0; the frame
+  added into it five times at alpha 5-7 with a small ST jitter (a blur, (Cs - 0) As + Cd); downsampled into its own
+  corner at 128 then 64; the 64 x 64 image added over the frame full screen at vertex alpha 0xff (As ~ 2); the
+  previous frame blended on top with the scene's tint (e.g. 72 / a5 / 7f at 0x3a). Three things were lost natively:
+  (1) the GPU stops alpha at 1, so the bloom came back at half strength: an additive post draw past 0x80 is drawn
+  again with the rest (TTA_NO_DOUBLE_ALPHA); (2) the GS blends in integers and truncates, floor(floor(Ct Cv / 128) As /
+  128), so in the faint passes a dark texel adds nothing: before the target is read back its passes' loss (half a level
+  each) is taken off at the target's first read-back (its downsample into its own corner) by the shader's levels
+  (rgb - low, clamped at 0; TTA_BLOOM_FLOOR=n levels, TTA_NO_BLOOM_FLOOR off): shadows 23 -> 17 against the
+  console's 8-14. A separate (Cd - Cs) draw before it did the same but about one capture in twelve came out all
+  black (0 in 6 with a per-frame glReadPixels probe syncing the GPU, so a timing interaction in the renderer, not a
+  wrong draw list; one GL context, the depth PBOs unbound, TTA's batches unkeyed); the levels version adds no draw
+  and gave 0 black in 8. (3) the GS samples a
+  pixel at its integer position, the GPU at its centre: the filter draws move by half a GS pixel (TTA_NO_HALF_PIXEL),
+  else the chain drifts up-left and the bloom lands ~7 pixels off (a halo up-left of faces). TTA_2D_TRACE=2 prints
+  each post draw's rectangle and ST.
+- **The skins' vertex colours** (2026-11-11). The skin program 0x378 (set 8df1e059) lights each vertex's colour, not
+  a constant: at 0x5c0..0x668 it loads the vertex's third qword (lq -4(vi2), one vertex behind the transform), ITOF0,
+  multiplies by the order-2 light, clamps to 255, FTOI0. tools/tta_meshes.py had taken that qword for VU scratch and
+  written 0x80808080; it holds baked shading (450 distinct values in E01C01: greys 0x45 / 0x33, greens 0x4a5a38,
+  ...). The converter now writes it. The intro's Black Riders shot: shadows 17 -> 13 (console 8). The remaining gap
+  there is large-scale (console std 28 against our 14 at 16-px scale; fine detail matches): a bright background, darker
+  characters. Fog is not it: FOGCOL 524842 and K (2.55e6 in the scene, 31875 from the front end 0x1c3158 once a
+  frame) match, our scenery never gets past w ~2700 (F = 255), and on the console the canopy's vertices are F 255
+  too: its F = 0 vertices all have Q < 0 (behind the camera) and ADC set, so no drawn strip triangle uses them (a
+  GS dump reader that carries F over between draws makes them look fogged). The static program 0x2418 computes
+  F = min(K / clip.w, 255) by overwriting clip.w with K after the DIV has read it (addx.w vf23, vf30, vf0x).
+  TTA_SKIN_STATS=<game frame> prints each skin batch's mean lit / vertex colour.
+- **PCSX2 as the reference** (2026-11-10): D:/PCSX2 with the ISO; save state slot 1 = the intro's first close-up
+  (native frame ~3751). Next to it the native frame is much darker and crisper: the console image is brighter, misty
+  (the background washes to grey-blue) and soft. The full-screen glow / mist passes (set 5, layers 4/5/0xc/0x19) are
+  the biggest remaining difference in the forest and the first battle.
+- **Window build** (`tta`, TTA_WINDOW=ON by default): the same port in BozoEngine's SDL3/OpenGL window with the PC's
+  pads (DevicePad) and sound (AudioDevice), held to 60 frames/s (FramePacer); `--capture-dir DIR --capture-frame N`
+  saves frames, `--headless` runs it as tta-headless. The VU0 programs file is generated in its own folder: bozo-recomp
+  clears `tta_gen/` when it runs.
+
 ## The disc
 
 - `SYSTEM.CNF`: `BOOT2 = cdrom0:\SLUS_210.27;1`, `VMODE = NTSC`.

@@ -1,102 +1,134 @@
 cmake_minimum_required(VERSION 3.21)
-project(TLOTR_TTA_Recomp LANGUAGES C CXX)
+project(TLOTR_TTA_Recomp LANGUAGES CXX)
 
-# The Lord of the Rings: The Third Age (NTSC-U, SLUS-21027) static recompilation on top of PS2Recomp.
-#
-# Build the tools first (scripts/build_tools.sh), generate code (scripts/recomp.sh),
-# then configure this project to get the `ps2EntryRunner` executable with the
-# recompiled game linked in.
+# The Lord of the Rings: The Third Age (NTSC-U, SLUS-21027) on BozoEngine: the game's EE code recompiled by
+# bozo-recomp, every library and kernel call answered natively by the engine's runtime. No PS2 hardware model.
+# The ELF comes from the player's own disc (scripts/extract_iso.sh puts it in game/).
 
-set(TTA_GENERATED_DIR "${CMAKE_SOURCE_DIR}/generated" CACHE PATH
-    "Directory containing the output of ps2_recomp for the game ELF")
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# Only the runtime is needed here; the recompiler/analyzer are built separately.
-set(PS2X_BUILD_RECOMP OFF CACHE BOOL "" FORCE)
-set(PS2X_BUILD_ANALYZER OFF CACHE BOOL "" FORCE)
-set(PS2X_BUILD_TEST OFF CACHE BOOL "" FORCE)
-set(PS2X_BUILD_STUDIO OFF CACHE BOOL "" FORCE)
+set(TTA_GAME_DIR "${CMAKE_SOURCE_DIR}/game" CACHE PATH "User-owned extracted disc files")
+set(TTA_ISO "${CMAKE_SOURCE_DIR}/Lord of the Rings, The - The Third Age (USA).iso" CACHE FILEPATH
+    "User-owned NTSC-U disc image")
+set(BOZO_ENGINE_DIR "${CMAKE_SOURCE_DIR}/BozoEngine" CACHE PATH "Pinned native engine source")
+option(TTA_WINDOW "Build the SDL3 native game window (tta) next to tta-headless" ON)
+set(BOZO_APP ${TTA_WINDOW} CACHE BOOL "" FORCE)
+set(BOZO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BOZO_REQUIRE_FFMPEG ON CACHE BOOL "The movies need native decoding" FORCE)
+add_subdirectory("${BOZO_ENGINE_DIR}" BozoEngine)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-add_subdirectory(PS2Recomp)
+set(tta_elf ${TTA_GAME_DIR}/SLUS_210.27)
+set(tta_symbols ${CMAKE_SOURCE_DIR}/recomp/tta_symbols.txt)
+set(tta_gen ${CMAKE_BINARY_DIR}/tta_gen)
+file(MAKE_DIRECTORY ${tta_gen})
+file(GLOB tta_port_sources CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/runtime/tta_*.cpp)
 
-file(GLOB TTA_GENERATED_SOURCES CONFIGURE_DEPENDS "${TTA_GENERATED_DIR}/*.cpp")
-if(NOT TTA_GENERATED_SOURCES)
-    message(FATAL_ERROR
-        "No generated sources in ${TTA_GENERATED_DIR}. Run scripts/recomp.sh first.")
+# The externals list: library and kernel functions named by the symbol map become stubs the runtime answers; every
+# address the port registers (tools/tta_overrides_list.py scans runtime/) becomes an override.
+set(tta_externals ${tta_gen}/tta_externals.txt)
+add_custom_command(OUTPUT ${tta_externals}
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_overrides_list.py ${CMAKE_SOURCE_DIR}/runtime ${tta_gen}/tta_overrides.txt
+  COMMAND bozo-externals ${tta_elf} ${tta_externals} --symbols ${tta_symbols} --overrides ${tta_gen}/tta_overrides.txt
+  DEPENDS bozo-externals ${tta_elf} ${tta_symbols} ${CMAKE_SOURCE_DIR}/tools/tta_overrides_list.py ${tta_port_sources}
+  COMMENT "Listing the externals of SLUS_210.27")
+
+set(tta_chunks 32)
+set(tta_sources ${tta_gen}/tta_functions.h ${tta_gen}/tta_table.cpp)
+math(EXPR tta_last "${tta_chunks} - 1")
+foreach(i RANGE ${tta_last})
+  if(i LESS 10)
+    list(APPEND tta_sources ${tta_gen}/tta_00${i}.cpp)
+  else()
+    list(APPEND tta_sources ${tta_gen}/tta_0${i}.cpp)
+  endif()
+endforeach()
+add_custom_command(OUTPUT ${tta_sources}
+  COMMAND bozo-recomp ${tta_elf} ${tta_gen} --prefix tta --files ${tta_chunks} --no-comments --externals ${tta_externals}
+          --symbols ${tta_symbols} --report ${tta_gen}/tta_report.txt
+  DEPENDS bozo-recomp ${tta_elf} ${tta_externals} ${tta_symbols}
+  COMMENT "Recompiling SLUS_210.27")
+add_custom_target(tta_generate DEPENDS ${tta_sources})
+
+add_library(tta_game STATIC ${tta_sources})
+target_link_libraries(tta_game PUBLIC bozo_runtime_headers)
+target_include_directories(tta_game PUBLIC ${tta_gen})
+target_compile_options(tta_game PRIVATE -O1 -w -ffp-contract=off)
+
+# EA's sound driver and LIBSD, statically compiled from the player's disc (docs/native-irx.md in BozoEngine).
+set(tta_audio_gen ${CMAKE_BINARY_DIR}/tta_audio_gen)
+set(tta_audio_outputs ${tta_audio_gen}/tta_audio_modules.h ${tta_audio_gen}/libsd_iop.cpp ${tta_audio_gen}/audiopf_iop.cpp)
+add_custom_command(OUTPUT ${tta_audio_outputs}
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_bozo_audio.py ${TTA_GAME_DIR} ${tta_audio_gen} ${BOZO_ENGINE_DIR}
+  DEPENDS ${TTA_GAME_DIR}/MODULES/LIBSD.IRX ${TTA_GAME_DIR}/MODULES/AUDIOPF.IRX ${CMAKE_SOURCE_DIR}/tools/tta_bozo_audio.py
+          ${BOZO_ENGINE_DIR}/tools/native_irx/relocate.py ${BOZO_ENGINE_DIR}/tools/native_irx/recompile.py
+  COMMENT "Statically compiling EA's sound driver and LIBSD (strict mode)")
+add_library(tta_audio_code OBJECT ${tta_audio_gen}/libsd_iop.cpp ${tta_audio_gen}/audiopf_iop.cpp)
+target_link_libraries(tta_audio_code PRIVATE bozo_runtime_headers)
+target_compile_options(tta_audio_code PRIVATE -O1 -w)
+
+# TTA's VU0 microprograms as native C++, from the microcode in the player's ELF.
+set(tta_vu0_gen ${CMAKE_BINARY_DIR}/tta_vu0_gen)
+file(MAKE_DIRECTORY ${tta_vu0_gen})
+set(tta_vu0_programs ${tta_vu0_gen}/tta_vu0_programs.cpp) # bozo-recomp clears tta_gen when it runs
+add_custom_command(OUTPUT ${tta_vu0_programs}
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py ${tta_elf} ${tta_vu0_programs}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_vu0_gen.py
+  COMMENT "Translating the VU0 microprograms")
+add_custom_target(tta_vu0_generate DEPENDS ${tta_vu0_programs})
+
+# The textures, converted once from the player's disc (tools/tta_textures.py): one file per texture id, read by the
+# 2D and 3D draws (runtime/tta_2d.cpp). Never committed.
+set(tta_textures ${CMAKE_BINARY_DIR}/textures)
+add_custom_command(OUTPUT ${tta_textures}/index.txt
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_textures.py ${TTA_GAME_DIR} ${tta_textures}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_textures.py
+  COMMENT "Converting the disc's textures (once, ~1 min)")
+add_custom_target(tta_textures_generate DEPENDS ${tta_textures}/index.txt)
+# The meshes (terrain, trees, static objects) converted the same way (tools/tta_meshes.py): one file per resource, the
+# game's VIF packets turned into vertex batches once, never parsed at runtime (runtime/tta_3d.cpp).
+set(tta_meshes ${CMAKE_BINARY_DIR}/meshes)
+add_custom_command(OUTPUT ${tta_meshes}/index.txt
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/tta_meshes.py ${TTA_GAME_DIR} ${tta_meshes}
+  DEPENDS ${tta_elf} ${CMAKE_SOURCE_DIR}/tools/tta_meshes.py ${CMAKE_SOURCE_DIR}/tools/tta_textures.py
+  COMMENT "Converting the disc's meshes (once, ~1 min)")
+add_custom_target(tta_meshes_generate DEPENDS ${tta_meshes}/index.txt)
+
+add_executable(tta-headless ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
+set_source_files_properties(${tta_vu0_programs} PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off;-frounding-math")
+add_dependencies(tta-headless tta_vu0_generate tta_textures_generate tta_meshes_generate)
+target_link_libraries(tta-headless PRIVATE tta_game bozo_host)
+target_include_directories(tta-headless PRIVATE ${tta_audio_gen})
+set_source_files_properties(${CMAKE_SOURCE_DIR}/runtime/tta_audio.cpp PROPERTIES OBJECT_DEPENDS ${tta_audio_gen}/tta_audio_modules.h)
+target_compile_definitions(tta-headless PRIVATE TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
+                                                TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}"
+                                                TTA_MESH_DIR="${tta_meshes}")
+if(MINGW)
+  target_link_options(tta-headless PRIVATE -static)
 endif()
 
-# The runtime ships a placeholder register_functions.cpp that defines the same
-# function-table globals as the generated one; drop it from the runner.
-get_target_property(_runner_sources ps2EntryRunner SOURCES)
-list(FILTER _runner_sources EXCLUDE REGEX "src/runner/register_functions\.cpp$")
-set_property(TARGET ps2EntryRunner PROPERTY SOURCES ${_runner_sources})
-
-file(GLOB TTA_RUNTIME_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/runtime/*.cpp")
-# Out of the unity batches: an edit to the game layer then rebuilds one small file, not a batch of generated code.
-set_source_files_properties(${TTA_RUNTIME_SOURCES} TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-
-# VU1 microcode compiled ahead of time by ps2_vu_aot (scripts/recomp.sh): an object library, built at -O3 outside
-# the unity batches. Each file takes GCC several GB: at most 4 compile at once.
-file(GLOB TTA_VU1_AOT_SOURCES CONFIGURE_DEPENDS "${TTA_GENERATED_DIR}/vu1/*.cpp")
-if(TTA_VU1_AOT_SOURCES)
-    set_property(GLOBAL APPEND PROPERTY JOB_POOLS tta_vu1_aot=4)
-    add_library(tta_vu1_aot OBJECT ${TTA_VU1_AOT_SOURCES})
-    target_link_libraries(tta_vu1_aot PRIVATE ps2_runtime)
-    set_target_properties(tta_vu1_aot PROPERTIES UNITY_BUILD OFF JOB_POOL_COMPILE tta_vu1_aot)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(tta_vu1_aot PRIVATE -O3 -g0)
-    endif()
-    target_sources(ps2EntryRunner PRIVATE $<TARGET_OBJECTS:tta_vu1_aot>)
+# The game in a window (SDL3, OpenGL 3.3): the same port, the PC's pads and sound.
+if(TTA_WINDOW)
+  add_executable(tta ${tta_port_sources} ${tta_vu0_programs} $<TARGET_OBJECTS:tta_audio_code>)
+  target_link_libraries(tta PRIVATE tta_game bozo_host bozo_app)
+  add_dependencies(tta tta_vu0_generate tta_textures_generate tta_meshes_generate)
+  if(WIN32)
+    # The window's icon (docs/branding/make_logo.py tta), the UTF-8 manifest and the version information.
+    enable_language(RC)
+    set_source_files_properties(runtime/app/tta.rc PROPERTIES OBJECT_DEPENDS
+      "${CMAKE_SOURCE_DIR}/runtime/app/tta.ico;${CMAKE_SOURCE_DIR}/runtime/app/tta.manifest")
+    target_sources(tta PRIVATE runtime/app/tta.rc)
+  endif()
+  target_include_directories(tta PRIVATE ${tta_audio_gen})
+  target_compile_definitions(tta PRIVATE TTA_WITH_WINDOW TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
+                                         TTA_SYMBOL_MAP="${tta_symbols}" TTA_TEXTURE_DIR="${tta_textures}"
+                                                TTA_MESH_DIR="${tta_meshes}")
+  if(MINGW)
+    target_link_options(tta PRIVATE -static)
+  endif()
 endif()
-
-# IOP modules recompiled to native C++ by the fork's tools/iop_recomp.py (scripts/iop_recomp.sh writes them to
-# generated/iop/, derived from the game's IRX files like the rest of generated/; PS2X_IOP_NATIVE=1 runs them): their
-# own object library, out of the unity batches.
-file(GLOB TTA_IOP_NATIVE_SOURCES CONFIGURE_DEPENDS "${TTA_GENERATED_DIR}/iop/*.cpp")
-if(TTA_IOP_NATIVE_SOURCES)
-    add_library(tta_iop_native OBJECT ${TTA_IOP_NATIVE_SOURCES})
-    target_link_libraries(tta_iop_native PRIVATE ps2_iop)
-    set_target_properties(tta_iop_native PROPERTIES UNITY_BUILD OFF)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(tta_iop_native PRIVATE -O2 -g0)
-    endif()
-    target_sources(ps2EntryRunner PRIVATE $<TARGET_OBJECTS:tta_iop_native>)
-endif()
-
-# register_functions.cpp fills the function table in one constructor of ~214,000 stores: GCC takes 35 min over it at
-# -O2 -g, the tail of every full build. It runs once at startup, so build it alone and unoptimized.
-set_source_files_properties("${TTA_GENERATED_DIR}/register_functions.cpp" TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties("${TTA_GENERATED_DIR}/register_functions.cpp" TARGET_DIRECTORY ps2EntryRunner PROPERTIES COMPILE_OPTIONS "-O0;-g0")
-endif()
-
-target_sources(ps2EntryRunner PRIVATE ${TTA_GENERATED_SOURCES} ${TTA_RUNTIME_SOURCES})
-target_include_directories(ps2EntryRunner PRIVATE "${TTA_GENERATED_DIR}")
-
-# Line tables only for the runner's own sources (the generated code): full -g makes 2.8 GB of DWARF, which slows every
-# batch, the link and the split. Backtraces through generated code keep file:line; the runtime library keeps full -g.
-# (A per-source option would take the files out of their unity batches, hence the target option, after the config's -g.)
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(ps2EntryRunner PRIVATE $<$<CONFIG:RelWithDebInfo,Debug>:-g1>)
-endif()
-
-# Windows loads no image over 2 GB, and with debug info the runner is ~3 GB (2.8 GB of DWARF for the generated
-# code, 106 MB of .text). Move the debug info to ps2EntryRunner.debug next to it; gdb finds it through the debug link.
-# ps2EntryRunner is created in the submodule, where POST_BUILD cannot reach it: `tta_runner` (what
-# scripts/build_runtime.sh builds) splits once per relink, tracked by a stamp file.
-if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_OBJCOPY AND CMAKE_STRIP)
-    set(_tta_split_stamp "${CMAKE_BINARY_DIR}/ps2EntryRunner.split.stamp")
-    add_custom_command(OUTPUT "${_tta_split_stamp}"
-        COMMAND "${CMAKE_OBJCOPY}" --only-keep-debug "$<TARGET_FILE:ps2EntryRunner>" "$<TARGET_FILE_DIR:ps2EntryRunner>/ps2EntryRunner.debug"
-        COMMAND "${CMAKE_STRIP}" --strip-debug "$<TARGET_FILE:ps2EntryRunner>"
-        COMMAND "${CMAKE_OBJCOPY}" "--add-gnu-debuglink=$<TARGET_FILE_DIR:ps2EntryRunner>/ps2EntryRunner.debug" "$<TARGET_FILE:ps2EntryRunner>"
-        COMMAND "${CMAKE_COMMAND}" -E touch "${_tta_split_stamp}"
-        DEPENDS ps2EntryRunner
-        COMMENT "Moving the runner's debug info to ps2EntryRunner.debug (Windows image size limit)"
-        VERBATIM)
-    add_custom_target(tta_runner ALL DEPENDS "${_tta_split_stamp}")
-else()
-    add_custom_target(tta_runner ALL DEPENDS ps2EntryRunner)
-endif()
-
-list(LENGTH TTA_GENERATED_SOURCES _tta_count)
-message(STATUS "TLOTR_TTA_Recomp: linking ${_tta_count} generated source files from ${TTA_GENERATED_DIR}")
