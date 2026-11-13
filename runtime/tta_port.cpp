@@ -83,6 +83,28 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // TTA_TIME_TRACE=1: the game's elapsed time per category (0x1dd4f8(mask): *(0x3bac4c + 0xc i) x *(0x3bac7c), what
+        // GetScaledElapsedTime gives the scripts and the movement code reads), printed when it is not the usual step.
+        void elapsedTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], mask = ctx->r[4].uw[0];
+            func_0x1dd4f8(rdram, ctx, rt);
+            float value;
+            std::memcpy(&value, &ctx->f[0], 4);
+            static float usual = 0.0f;
+            static uint32_t lastFrame = 0;
+            const uint32_t frame = read32(rdram, 0x3b5720);
+            if (frame != lastFrame && mask == 1u)
+            {
+                lastFrame = frame;
+                if (usual == 0.0f)
+                    usual = value;
+                if (value > usual * 1.2f || value < usual * 0.8f)
+                    std::printf("[tta:time] game frame %u: step %.5f (usual %.5f) from %x%c", frame, value, usual, ra, 10);
+            }
+            ctx->pc = ra;
+        }
+
         void resetVu1State(uint8_t *rdram, R5900Context *ctx, Runtime *)
         {
             const uint32_t base = read32(rdram, 0x3779b4);
@@ -104,6 +126,8 @@ namespace tta
         registry.registerFunction(0x277b58, ipuInit);
         registry.registerFunction(0x216118, busyPaths);
         registry.registerFunction(0x320428, newlibRand);
+        if (std::getenv("TTA_TIME_TRACE"))
+            registry.registerFunction(0x1dd4f8, elapsedTrace);
         if (std::getenv("TTA_RNG_TRACE"))
             registry.registerFunction(0x1ba9c8, rngTrace);
     }

@@ -371,6 +371,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
   defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **Game time and stalls** (2026-11-13, the user saw the character speed up for a moment on the overworld, not
+  reproduced): GetScaledElapsedTime (0x2674f8) returns 0x1dd4f8(1) = *(0x3bac4c) x *(0x3bac7c). In a real-time
+  window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
+  over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
+  the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
 - **The white battle ground** (2026-11-13, F7 in the user's sunny battle): that battle runs another screen filter
   (0x1cbafc fills target 1, 0x1cf1fc multiplies it by the frame's alpha with ALPHA 0x89 = Cd As, 0x1cf8a0 blurs it
   through target 2 with five additive taps, 0x1cfce8 darkens it four times with ALPHA 0x46 = Cd (1 - As), alpha 0x54,

@@ -12,6 +12,8 @@
 #include "tta_port.h"
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -147,6 +149,9 @@ int main(int argc, char **argv)
                     }
             }
         }
+        // TTA_STALL_EVERY=<host frames>: a 90 ms stall that often (a slow picture or a load), to test the pacing.
+        if (static const char *stall = std::getenv("TTA_STALL_EVERY"); stall && *stall && f % std::strtoull(stall, nullptr, 10) == 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(90));
         // TTA_REPORT_AT=<game frame>: F7's frame report (below) from a script.
         if (static const char *at = std::getenv("TTA_REPORT_AT"); at && *at)
         {
