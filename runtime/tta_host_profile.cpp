@@ -1,6 +1,6 @@
 // TTA_HOST_PROFILE=<file>: where the PC's time goes, by host instruction address. A host thread samples every thread
 // of the process each millisecond (suspend, read the instruction pointer, resume) and every 10 s appends to <file>
-// each thread's CPU time (QueryThreadCycleTime, the driver's threads too) and, for the busiest six, the 40 most
+// each thread's CPU time (QueryThreadCycleTime, the driver's threads too) and, for the busiest six, the 400 most
 // sampled addresses as offsets into the image (resolve them with addr2line -f -C -e ps2EntryRunner.debug
 // 0x140000000+offset; bit 62 set: waiting outside the image, called from there) and "waits a>b>c>d" lines, the first
 // four return addresses into the image found on a waiting thread's stack. Windows only.
@@ -129,7 +129,7 @@ namespace
                             hot.emplace_back(count, offset);
                         std::sort(hot.rbegin(), hot.rend());
                         std::fprintf(file, "thread %lu: %u samples in the image%c", static_cast<unsigned long>(id), totals[id], 10);
-                        for (size_t i = 0; i < hot.size() && i < 40u; ++i)
+                        for (size_t i = 0; i < hot.size() && i < 400u; ++i)
                             std::fprintf(file, "  %llx %u%c", static_cast<unsigned long long>(hot[i].second), hot[i].first, 10);
                         std::vector<std::pair<uint32_t, std::array<uintptr_t, 4>>> chains;
                         for (const auto &[chain, count] : waits[id])

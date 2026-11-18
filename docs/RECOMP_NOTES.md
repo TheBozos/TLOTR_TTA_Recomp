@@ -397,6 +397,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
   over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
   the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
+- **The sunny battle's frame rate** (2026-11-18, the user: unstable frames and crackling sound). Not a regression:
+  the build of 2026-11-13 (8f23a45, engine 725fa5d) takes 83-90 s headless from boot through the first battle, today's
+  60 s. The user's session overlapped other ports' builds and tests on the same PC (the intro fell to 30 frames a
+  second; alone it runs at 60), and the stalls emptied the sound queue (the crackles). The sunny battle itself is
+  heavy: ~19-21 ms of game-thread work a frame headless (50-55 frames a second in the window): every character is
+  ~8 skinned nodes (body, head, weapons), ~1470 batches skinned on the CPU a frame, all on screen (a cull test kept
+  them all); the game's VU0 code (exact float rounding) is ~15%. A per-frame cache of skinned batches hit ~1% (the
+  layer passes 02-04 mostly draw no batch) and was dropped; kept: drawSkin's buffers reused, its bone matrices in a
+  flat table instead of a hash map, TTA_SKIN_NOLIGHT read once (~10% headless). TTA_HOST_PROFILE now lists 400
+  addresses a thread.
 - **The sunny battle's glow filter reads the frame's alpha** (2026-11-18, from the user's state, F5 in a battle:
   copied to build/states/user_battle.state, frame 9329; window states are in %APPDATA%\TLOTR_TTA_Recomp\states).
   0x1cf1fc and 0x1cfce8 read the frame (TBP0 0) as PSM CT32 with TCC 1, MODULATE: As is the frame's own alpha, and

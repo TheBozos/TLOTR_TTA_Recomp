@@ -852,17 +852,27 @@ namespace tta
             if (!fresh)
                 std::memcpy(w, object, sizeof(w));
             multiply(screen, w, matrix);
-            std::unordered_map<uint32_t, std::array<float, 16>> boneCache;
+            // The bone matrices this draw reads, by bone index (a flat table: four lookups a vertex, a hash map's cost
+            // showed in a crowded battle's profile). An entry is this draw's when its stamp is.
+            static std::array<std::array<float, 16>, 256> boneCache;
+            static std::array<uint32_t, 256> boneStamp{};
+            static uint32_t stamp = 0;
+            if (++stamp == 0)
+            {
+                boneStamp.fill(0);
+                stamp = 1;
+            }
             static const std::array<float, 16> identity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             const auto bone = [&](uint8_t b) -> const std::array<float, 16> &
             {
                 if (!fresh)
                     return identity;
-                auto [at, added] = boneCache.try_emplace(b);
-                if (added)
-                    for (int i = 0; i < 16; ++i)
-                        at->second[i] = readFloat(rdram, bones + b * 64 + i * 4);
-                return at->second;
+                if (boneStamp[b] != stamp)
+                {
+                    boneStamp[b] = stamp;
+                    std::memcpy(boneCache[b].data(), rdram + ((bones + b * 64u) & kMask), 64);
+                }
+                return boneCache[b];
             };
             if (env("TTA_SKIN_PROBE2") && frame(rdram) >= static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE2"))) && frame(rdram) < static_cast<uint32_t>(std::atoi(env("TTA_SKIN_PROBE2"))) + 2)
             {
@@ -1000,7 +1010,8 @@ namespace tta
                             bp[2], wp[0], wp[1], wp[2], sp[0] / sp[3], sp[1] / sp[3], sp[3]);
             }
             auto &renderer = bozo::render::Renderer::instance();
-            std::vector<bozo::render::Vertex> skinned, triangles;
+            // Kept between calls (the game thread only): their storage is reused, not allocated per draw.
+            static std::vector<bozo::render::Vertex> skinned, triangles;
             float extentMin[3] = {1e30f, 1e30f, 1e30f}, extentMax[3] = {-1e30f, -1e30f, -1e30f};
             for (const Batch &batch : it->second.batches)
             {
@@ -1055,7 +1066,8 @@ namespace tta
                         const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * std::fmax(light, 0.0f);
                         rgba |= static_cast<uint32_t>(std::fmin(value, 255.0f)) << (c * 8);
                     }
-                    if (env("TTA_SKIN_NOLIGHT"))
+                    static const bool noLight = env("TTA_SKIN_NOLIGHT") != nullptr;
+                    if (noLight)
                         rgba = batch.colours[v] & 0xffffffu;
                     const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * fade / 0x80u;
                     skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
