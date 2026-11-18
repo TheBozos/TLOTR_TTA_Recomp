@@ -1,0 +1,56 @@
+# Names found by reading SLUS_210.27's code, for bozo_symbolmap.py --reviewed (BozoEngine docs/specs/symbol-map.md).
+# The map is made with:
+#   python -I BozoEngine/tools/symbolmap/bozo_symbolmap.py match game/SLUS_210.27 \
+#       --ref <DC_Recomp>/game/SCUS_971.11 --ref <TMB_Recomp>/game_us/SCUS_971.01 \
+#       --reviewed recomp/tta_symbols_reviewed.txt --out recomp/tta_symbols.txt --report build/bozo/tta_symbols_report.txt
+InitSys 0x32d268 # crt0 (_start 0x110008) calls it after SetupThread/SetupHeap; it runs the SDK's inits in order, InitThread (0x3290b8) among them, and 0x32d158, which installs syscalls 0x83 and 0x5a with SetSyscall (116) and scans kernel memory 0x80000000-0x80080000
+sceSifInitRpc 0x32a9c0 # the prologue (addiu sp,-0x40) of the function the matcher offers as its only candidate at 0x32a9c4 (sceSif shape 0.79, constants 0.88); it disables interrupts (0x32d008), tests an init flag at 0x37d540, re-enables them (0x32d060) and calls sceSifInitCmd (0x32a278), as libsif sceSifInitRpc does
+sceCdInit 0x27dd08 # calls sceSifInitRpc and GetThreadId, then loops on sceSifBindRpc with the RPC id 0x80000592 (the CD/DVD init server) until it has a server, then sceSifCallRpc: libcdvd sceCdInit; just before sceCdReadClock (0x27e0c0)
+sceMcInit 0x27c838 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xfe, the pair of sceMcInit in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcOpen 0x27ca30 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x2, the pair of sceMcOpen in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcClose 0x27cb90 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x3, the pair of sceMcClose in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcSeek 0x27cc50 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x4, the pair of sceMcSeek in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcRead 0x27cdc8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x5, the pair of sceMcRead in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcWrite 0x27cee0 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x6, the pair of sceMcWrite in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcGetInfo 0x27d178 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x1, the pair of sceMcGetInfo in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcGetDir 0x27d2f8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xd, the pair of sceMcGetDir in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcChdir 0x27d4d8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xc, the pair of sceMcChdir in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcFormat 0x27d618 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0x10, the pair of sceMcFormat in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcDelete 0x27d6e8 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xf, the pair of sceMcDelete in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceMcFlush 0x27d808 # sceSifCallRpc on the client bound to 0x80000400 (mcserv) with function number 0xa, the pair of sceMcFlush in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceFsInit 0x32ba10 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0xff, the pair of sceFsInit in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceOpen 0x32bce0 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x0, the pair of sceOpen in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceClose 0x32bf68 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x1, the pair of sceClose in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceLseek 0x32c0e8 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x4, the pair of sceLseek in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceRead 0x32c320 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x2, the pair of sceRead in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceWrite 0x32c580 # sceSifCallRpc on the client bound to 0x80000001 (fileio) with function number 0x3, the pair of sceWrite in SCUS_971.11 and SCUS_971.01 (tools/tta_rpc_names.py)
+sceCdMmode 0x27dff0 # sends S-command 0x22 through libcdvd's S-command bind helper (0x27db98, server 0x80000593), its argument the media type; the game calls it with 2 (DVD) at 0x227328 and 0x227378
+sceSifResetIop 0x32cd50 # stops SIF DMA (sceSifStopDma), reads and sets the SIF registers and sends the reset packet with sceSifSetDma; only caller 0x32cef8
+sceSifRebootIop 0x32cef8 # sceSifInitRpc, sceSifExitRpc, then sceSifResetIop (0x32cd50); called by the game's IOP set-up 0x2272f8 before sceSifSyncIop
+sceSifSyncIop 0x32cea8 # returns 0 while bit 0x40000 (boot finished) of SIF register 4 is clear, else finishes the handshake and returns 1; the game's IOP set-up loops on it after sceSifRebootIop
+sceSifLoadModule 0x32cd08 # wrapper of the loadfile client 0x32cae0 (server 0x80000006, bound by _lf_bind 0x32c940) with the path and arguments, a result word on its stack and mode 0; the game's module loader 0x2271f8 calls it
+sceSifGetSreg 0x32a250 # returns word a0 of the 32-word table at 0x41b1c0, the table libsif sceSifInitCmd (0x32a278) points its command data (0x41b018) at; the matcher found it by layout between _change_addr and sceSifInitCmd but rejected it for a twin elsewhere; the game polls it for registers 0x1e/0x1f in its sound driver handshake (0x226bd0)
+sceGsResetPath 0x275968 # writes 1 to VIF1_FBRST (0x10003c10) and 2 to VIF1_ERR (0x10003c20), resets VU1 through VU0 control register 28 and waits on register 29, writes two quadwords to the GIF FIFO (0x10005000) and 1 to GIF_CTRL (0x10003000): libgraph sceGsResetPath; the game calls it right before sceGsResetGraph (0x2122d8)
+sceGsSyncPath 0x275a08 # loops reading D1_CHCR (0x10009000), VIF1_STAT (0x10003c00), GIF_STAT (0x10003020) and the VU status (VU0 control register 29) until every path is idle, then returns 0: libgraph sceGsSyncPath; between sceGsResetPath and sceGsResetGraph
+sceDbcInit 0x27e210 # sceSifInitRpc, then loops on sceSifBindRpc with the DBCMAN server id 0x80001300 until bound, creates a semaphore; returns 1; EA's pad init 0x2154b8 calls it first (build/bozo/libpad2_spec.md)
+sceDbcEnd 0x27e450 # deletes libdbc's semaphore and clears its state; EA's pad shutdown 0x2156d0 calls it last
+scePad2Init 0x277d90 # libpad2's init (clears the 16-entry socket table at 0x40eed8, 0x334 bytes each); called by EA's pad init after sceDbcInit
+scePad2End 0x277dd0 # deletes every open socket (0x277f40 on each) then clears the table; called by EA's pad shutdown
+scePad2CreateSocket 0x277e38 # takes {flag, port, slot, number, name[16]} and a 64-byte aligned buffer (printf and -1 otherwise), creates a DBC socket (sceDbcCreateSocket 0x27e508, fno 0x80001301) on the buffer and its +0x80 half, marks the table entry; EA's pad init calls it for ports 0 and 1
+scePad2DeleteSocket 0x277f40 # deletes the DBC socket (0x27e5e0, fno 0x80001302) and clears the table entry; returns 1
+scePad2Read 0x277f98 # opens the DBC link on demand (0x2783d8), takes the latest receive record (0x278430), copies its data bytes (record +0x1c, length at +0x2) to the caller and returns that length, -1 without a link; EA's pad update 0x214f10 reads 18 bytes per port
+scePad2GetState 0x278140 # the latest record's state byte, or the device state through sceDbcSRData (0x27e928, command 0x0101800c); EA's pad manager 0x2153e8 reads only on 1 and resets the port on 0, 2 and 3
+scePad2GetButtonProfile 0x278070 # copies the latest record's profile bytes (after the data) to the caller and returns their count; EA's pad update compares it every frame
+scePad2GetButtonInfo 0x278280 # ids 0..15 a button bit of the data (active low: 1 when clear), 16..31 data[id - 14], -1 otherwise; EA's pad update reads the sticks and 16 buttons with it
+sceVibGetProfile 0x2858a0 # sceDbcSRData (0x27e928) with command 0x01038002 into the caller's profile, returns the byte count; EA's pad update stores the motors' profile
+sceVibSetActParam 0x285920 # packs {profile size, data size, data, profile} and sends it with command 0x0103400b; returns 1 or 0, the game retries with sceGsSyncV between on 0; EA's vibration update 0x214cd8 calls it
+sceMpegInit 0x27ea40 # with interrupts off, clears STR of D3_CHCR (IPU_FROM) and D4_CHCR (IPU_TO), zeroes their QWC, calls sceIpuInit (0x277b58), returns 1; the movie player's Nodata callback (0x1be698) calls it when its queue runs dry (build/bozo/libmpeg_spec.md)
+sceMpegCreate 0x27eaf0 # clears the work area (0 when size < 0x10c0: "The size of work area is too small"), stores it at mp+0x40, calls sceMpegReset (0x27edb0), returns 1; called by the movie wrapper 0x2185d0
+sceMpegDelete 0x27ed00 # body: return 1; called by the wrapper 0x2186f8
+sceMpegAddBs 0x27ed08 # sends ((size + 19) >> 4) << 4 bytes to the IPU through a DMA chain on D4 (REF/REFE tags, D4_CHCR = 0x105), returns 1; only the Nodata callback calls it, with 0xFB0 for each 0xFC0-byte block
+sceMpegGetPicture 0x27ed48 # RGB32 output (sys+0xc8 = 1) into the 64-byte aligned buffer, mbcount at sys+0xfc, the decode loop 0x27f010; 1 for a picture or the end, -1 on error ("image buffer needs to be aligned to 64byte boundary", "sceMpegGetPicture is aborted"); called by 0x218590
+sceMpegIsEnd 0x27eda0 # lw v1,0x40(a0); lw v0,0(v1): the end word of the work area that 0x27f4a8 sets at the sequence end; an entry inside the recompiler's [0x27ed90, 0x27edb0); called by 0x218570
+sceMpegReset 0x27edb0 # clears the abort word and the work area's counters, mp+8, stops the IPU DMAs (0x27f600: D3/D4/D8, IPU_CTRL reset, sceIpuSync), returns 1; called at each movie start (0x218748) and by sceMpegCreate
+sceMpegAddCallback 0x27ee68 # stores {function, data, gp} at sys + 0xc + type * 12 and returns the type's previous function; the wrapper 0x2185d0 registers type 1 (Nodata) only
+sceMcMkdir 0x27cb58 # (port, slot, name): calls sceMcOpen(port, slot, name, 0x40) (mode 0x40 = create a directory, the old libmc way) and on 0 sets the pending command 0x37a610 to 0xb for sceMcSync; unnamed, the native sceMcOpen treated 0x40 as a plain open of a missing entry (-4) and every save failed at its folder
+sceMcSync 0x27d058 # (mode, *cmd, *result): returns -1 with no command pending (0x37a610), else PollSema (mode 1) or WaitSema (mode 0) on 0x37a618, writes the pending command to *cmd and the result word 0x413800 to *result, clears the command, SignalSema 0x37a614; the save manager calls it in a loop after sceMcGetInfo (0x1c4a04: mode 1)
