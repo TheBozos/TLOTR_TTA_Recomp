@@ -228,7 +228,16 @@ int main(int argc, char **argv)
     // silent: the window shows without activating, the sound is not opened.
     const bool scripted = window && !options.padScript.empty();
     if (scripted)
+    {
         SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+        // Nothing on the player's screen either: the window stays hidden and captures read the renderer's own picture
+        // (TTA_SHOW_WINDOW=1 shows it, captures then from the window as before).
+        if (!std::getenv("TTA_SHOW_WINDOW"))
+        {
+            windowOptions.hidden = true;
+            windowOptions.captureScene = true;
+        }
+    }
     host.onAudio = [&](uint64_t, const int16_t *pcm, size_t count)
     {
         if (window && !scripted)

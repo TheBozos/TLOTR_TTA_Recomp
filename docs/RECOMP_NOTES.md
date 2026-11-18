@@ -397,6 +397,22 @@ the game's behaviour); its code is in the history before `8ade037`.
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
   over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
   the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
+- **Stray shadow wedges** (2026-11-18, the user: "weird shadows from time to time"). Found from the user's state with
+  an attack played (frames 9900-9940): a large straight-edged dark wedge of ground by a character close to the camera.
+  The volumes were drawn at the type-18 pass, in the scene's traversal, and counted where the depth test passed
+  (z-pass): closed prisms count 0 there, except where the near plane cuts one or the camera is inside one, which gave
+  the wedges (and a whole-screen darkening when the camera was in Berethor's prism). The console draws them in layer
+  4 after the scene (0x21a778 inverts Z, 0x21aa88 clears the count, the volumes go in with Z GREATER against the
+  inverted Z, i.e. counting the faces behind the scene, and 0x21ae10 darkens). Natively the volumes are now queued
+  and drawn at 0x21ae10 with z-fail (BozoEngine Material::stencilDepthFail), then one darkening at the strongest
+  strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone. Open: no count is left
+  anywhere even with full strength (TTA_SHADOW_ALPHA=0x80), in the first battle and the sunny one, by either method:
+  the volumes never meet the ground's depth (their Z against the scene's), so the native shadows have only ever drawn
+  the wedges. Contact shadows need that depth relation fixed.
+- **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
+  WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
+  window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
+  visible window's capture, HUD included. TTA_SHOW_WINDOW=1 shows it.
 - **The sunny battle's frame rate** (2026-11-18, the user: unstable frames and crackling sound). Not a regression:
   the build of 2026-11-13 (8f23a45, engine 725fa5d) takes 83-90 s headless from boot through the first battle, today's
   60 s. The user's session overlapped other ports' builds and tests on the same PC (the intro fell to 30 frames a

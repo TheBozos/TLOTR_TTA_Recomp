@@ -738,6 +738,15 @@ namespace tta
         // The type-18 pass (0x2255d0): the shadow section's skinned triangles, in world space, and the screen matrix.
         bool g_shadowPass = false;
         std::vector<std::array<float, 3>> g_shadowWorld;
+        struct QueuedShadow
+        {
+            float matrix[16];
+            std::vector<bozo::render::Vertex> up, down;
+            uint32_t strength = 0;
+        };
+        std::vector<QueuedShadow> g_shadowQueue; // this frame's volumes, drawn at the shadow layer (flushShadows)
+        uint32_t g_shadowQueueFrame = 0;
+        void flushShadows(const uint8_t *rdram);
         float g_shadowScreen[16];
 
         void drawSkin(const uint8_t *rdram, uint32_t node)
@@ -1548,6 +1557,38 @@ namespace tta
                     renderer.draw(show, m, down.data(), static_cast<uint32_t>(down.size()));
                 return;
             }
+            // Queued, drawn at the game's shadow layer (flushShadows at 0x21ae10): after the whole scene, as the
+            // console's layer 4 is, so the ground's depth is there to count against. Drawn here, in the scene's
+            // traversal, the ground came later: closed volumes counted nothing (only the near plane's cuts, the
+            // straight-edged wedges by the camera).
+            const char *alpha = env("TTA_SHADOW_ALPHA");
+            const uint32_t gameStrength = (lightAt ? read32(rdram, g + 0x2b4) : read32(rdram, 0x3779a0)) & 0xffu;
+            const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : gameStrength;
+            if (g_shadowQueueFrame != frame(rdram))
+            {
+                g_shadowQueue.clear();
+                g_shadowQueueFrame = frame(rdram);
+            }
+            QueuedShadow &q = g_shadowQueue.emplace_back();
+            std::memcpy(q.matrix, m, sizeof(q.matrix));
+            q.up = up;
+            q.down = down;
+            q.strength = strength;
+            if (env("TTA_SHADOW_IMMEDIATE"))
+                flushShadows(rdram);
+        }
+
+        // The shadow layer (0x21ae10, the console's darkening): this frame's queued volumes counted into the stencil where
+        // the depth test fails (z-fail, as the console's GREATER test against its inverted Z counts the faces behind the
+        // scene), then the frame darkened once where a count is left.
+        void flushShadows(const uint8_t *rdram)
+        {
+            if (g_shadowQueue.empty() || g_shadowQueueFrame != frame(rdram))
+            {
+                g_shadowQueue.clear();
+                return;
+            }
+            auto &renderer = bozo::render::Renderer::instance();
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             // The whole GS window (TTA draws to 1792..2304 x 1824..2272).
             const auto wholeScreen = [&](const bozo::render::Material &material, uint32_t rgba)
@@ -1573,12 +1614,20 @@ namespace tta
             wholeScreen(volume, 0u);
             volume.stencilClear = false;
             volume.depthTest = true;
-            volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
-            if (!up.empty())
-                renderer.draw(volume, m, up.data(), static_cast<uint32_t>(up.size()));
-            volume.stencilOp = bozo::render::Material::StencilOp::DecrementWrap;
-            if (!down.empty() && !env("TTA_SHADOW_UP_ONLY"))
-                renderer.draw(volume, m, down.data(), static_cast<uint32_t>(down.size()));
+            // Counted where the depth test fails (z-fail): the prisms are closed, so a volume the camera is in, or one
+            // the near plane cuts (a character right by the camera in a battle), counts right; counted where it passed
+            // (z-pass, TTA_SHADOW_ZPASS=1) such a volume darkened a large straight-edged wedge of the ground.
+            const bool zFail = !env("TTA_SHADOW_ZPASS");
+            volume.stencilDepthFail = zFail;
+            for (const QueuedShadow &q : g_shadowQueue)
+            {
+                volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
+                if (!q.up.empty())
+                    renderer.draw(volume, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
+                volume.stencilOp = bozo::render::Material::StencilOp::DecrementWrap;
+                if (!q.down.empty() && !env("TTA_SHADOW_UP_ONLY"))
+                    renderer.draw(volume, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
+            }
             bozo::render::Material darken;
             darken.textured = false;
             darken.blend = bozo::render::Material::Blend::Alpha;
@@ -1586,13 +1635,18 @@ namespace tta
             darken.depthWrite = false;
             darken.stencilNotZero = !env("TTA_SHADOW_NO_STENCIL");
             darken.colourMask = 7u;
-            const char *alpha = env("TTA_SHADOW_ALPHA");
             // The game's strength (0x21ae10's TEXA.TA0 = *(0x3779a0), set by 0x225218 from G+0x2b4 when the character has
             // its own light at G+0x298): the frame times 1 - TA0 / 128 where a volume counted (0x13..0x20 seen: -15..25%).
-            const uint32_t gameStrength = (lightAt ? read32(rdram, g + 0x2b4) : read32(rdram, 0x3779a0)) & 0xffu;
-            const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : gameStrength;
+            uint32_t strength = 0;
+            for (const QueuedShadow &q : g_shadowQueue)
+                strength = std::max(strength, q.strength);
             wholeScreen(darken, std::min<uint32_t>(strength, 0x80u) << 24);
+            g_shadowQueue.clear();
         }
+
+        // 0x21ae10, the shadow layer's darkening pass: the game's own (its GS work does nothing natively), then the queued
+        // volumes (flushShadows).
+        void shadowLayer(uint8_t *rdram, R5900Context *ctx, Runtime *rt);
 
         // TTA_POST_DUMP=<game frame>: a discovery probe (not a render path): the packet bytes the post passes build in
         // that frame (the packet pointer *(0x3b5bf8) before and after each call) to build/post_<function>_<n>.bin, with the
@@ -2337,6 +2391,18 @@ namespace tta
         }
     }
 
+    namespace
+    {
+        void shadowLayer(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            postProbe<0x21ae10, func_0x21ae10>(rdram, ctx, rt);
+            ctx->pc = ra;
+            if (!env("TTA_SHADOW_IMMEDIATE"))
+                flushShadows(rdram);
+        }
+    }
+
     void installThreeD(bozo::port::Registry &registry)
     {
         registry.registerFunction(0x225fb0, skin);
@@ -2376,7 +2442,7 @@ namespace tta
         registry.registerFunction(0x2255d0, type18);
         registry.registerFunction(0x21a778, postProbe<0x21a778, func_0x21a778>);
         registry.registerFunction(0x21aa88, postProbe<0x21aa88, func_0x21aa88>);
-        registry.registerFunction(0x21ae10, postProbe<0x21ae10, func_0x21ae10>);
+        registry.registerFunction(0x21ae10, shadowLayer);
         registry.registerFunction(0x21b0f8, postProbe<0x21b0f8, func_0x21b0f8>);
         registry.registerFunction(0x211b10, postProbe<0x211b10, func_0x211b10>);
         registry.registerFunction(0x2132c8, staticRender<0x2132c8, func_0x2132c8>);
