@@ -371,6 +371,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
   defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+- **Save states** (2026-11-18, the user's request through JC2): BozoEngine's save states (JC2's b73692e, docs/
+  save-states.md) merged into TTA's engine branch (tta/save-states, b6dc6cd: libmpeg's Nodata end became a Resume
+  record keeping TTA's SDK callback; cdvdman keeps both sides' commands; libpad2's sockets, the IOP software
+  registers and libmpeg's inputEnded added to the archive). TTA's section "tta": the AUDIOPF host
+  (CompiledLibraries::serialize) and the driver commands waiting for the game, the resources the game loaded
+  (tta_2d's g_resources) and where it placed its converted textures (g_placed; the live canvas and water textures
+  are rebuilt when re-sent). The delivery end that was a lambda is a port Resume kind (kPortResumeKinds + 0).
+  --save-state FILE --save-state-at N, --load-state FILE [--load-state-at N], --dump-ram FILE; in the window F5
+  saves, F7 loads, F6 / Shift+F6 pick the slot, and the F2 window has a Save states tab. The frame report moved from
+  F7 to F10. Checked headless: a save at 9000 (taken at 9094, after the Epic Scene film: a movie makes a save wait)
+  and one mid-battle at 5800, each loaded in a new process and mid-run, gave the same EE RAM as the run that never
+  stopped; the window build loading the battle state draws frame 5990 pixel for pixel as the uninterrupted run.
 - **Game time and stalls** (2026-11-13, the user saw the character speed up for a moment on the overworld, not
   reproduced): GetScaledElapsedTime (0x2674f8) returns 0x1dd4f8(1) = *(0x3bac4c) x *(0x3bac7c). In a real-time
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;

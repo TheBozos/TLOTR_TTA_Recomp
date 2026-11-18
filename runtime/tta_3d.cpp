@@ -720,7 +720,7 @@ namespace tta
                 out[r] = m[r] * in[0] + m[4 + r] * in[1] + m[8 + r] * in[2] + m[12 + r] * w;
         }
 
-        // F7's one-frame report (requestFrameReport): asked from the window's thread, taken by the next skin draw.
+        // F10's one-frame report (requestFrameReport): asked from the window's thread, taken by the next skin draw.
         std::atomic<bool> g_reportAsked{false};
         uint32_t g_reportFrame = 0;
         bool reporting(const uint8_t *rdram)

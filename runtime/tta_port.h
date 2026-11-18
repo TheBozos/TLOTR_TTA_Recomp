@@ -2,6 +2,7 @@
 
 #include "bozo/port.h"
 #include "bozo/render/texture.h"
+#include "bozo/state.h"
 
 #include <cstdlib>
 #include <memory>
@@ -40,9 +41,11 @@ namespace tta
     // The frame buffer the scene is being drawn into (FBP 0 or 0x70), as the 3D draws see it: tta_2d.cpp's screen
     // filters tell the frame being built from the other half of the double buffer by it.
     void noteSceneFbp(uint32_t fbp);
-    // A one-frame report (F7 in the window build): the next game frame logs every character draw's mode, fade, sections
+    // A one-frame report (F10 in the window build): the next game frame logs every character draw's mode, fade, sections
     // and lights, with the 0x20000 shine layer's inputs, as [tta:report] lines (tta_3d.cpp).
     void requestFrameReport();
+    // Save states: the resources the game loaded and where it placed its textures (tta_2d.cpp).
+    void twoDState(bozo::state::Archive &a);
     // True during the reported frame (the 2D passes add their [tta:report] lines then).
     bool frameReportActive(const uint8_t *rdram);
 }

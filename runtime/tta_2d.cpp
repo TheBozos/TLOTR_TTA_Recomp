@@ -8,6 +8,7 @@
 // - the texture is the game's texture record, found by where the game placed its group (0x219ca8), and its pixels
 //   come from the offline conversion of the player's disc (tools/tta_textures.py), keyed by the record's 64-bit id.
 #include "tta_port.h"
+#include "bozo/state.h"
 
 #include "tta_functions.h"
 
@@ -201,6 +202,18 @@ namespace tta
             std::shared_ptr<const bozo::render::Texture> live; // an image the game builds in EE memory (the text canvas)
         };
         std::map<std::pair<uint32_t, uint32_t>, Placed> g_placed;
+
+        // Save states: what the game told the port once. The resources it loaded and where it placed its converted
+        // textures go into the state; the live ones (the text canvas, the water layer) are rebuilt when the game sends
+        // them again, so a load keeps the ones this run has.
+        void io(bozo::state::Archive &a, Resource &r) { bozo::state::fields(a, r.end, r.type, r.index); }
+        struct PlacedFile
+        {
+            uint64_t id = 0;
+            std::string file;
+            uint32_t logWidth = 0, logHeight = 0;
+        };
+        void io(bozo::state::Archive &a, PlacedFile &p) { bozo::state::fields(a, p.id, p.file, p.logWidth, p.logHeight); }
 
         // The game's off-screen targets by FBP: the renderer's auxiliary target (1..7) and the size drawn into it.
         struct Target
@@ -1082,5 +1095,23 @@ namespace tta
         registry.registerFunction(0x219ca8, uploadGroup);
         registry.registerFunction(0x218910, primitive);
         registry.registerFunction(0x218fb8, strip);
+    }
+
+    void twoDState(bozo::state::Archive &a)
+    {
+        bozo::state::fields(a, g_resources);
+        std::map<std::pair<uint32_t, uint32_t>, PlacedFile> placed;
+        if (!a.loading())
+            for (const auto &[at, p] : g_placed)
+                if (!p.live)
+                    placed[at] = PlacedFile{p.id, p.file, p.logWidth, p.logHeight};
+        bozo::state::fields(a, placed);
+        if (a.loading())
+        {
+            for (auto it = g_placed.begin(); it != g_placed.end();)
+                it = it->second.live ? std::next(it) : g_placed.erase(it);
+            for (const auto &[at, p] : placed)
+                g_placed[at] = Placed{p.id, p.file, p.logWidth, p.logHeight, nullptr};
+        }
     }
 }

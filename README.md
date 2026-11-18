@@ -287,6 +287,10 @@ scripts/run.sh --frames 600                    # tta-headless: runs and reports 
 `build/bozo/tta.exe` is the playable window build. Its saves (the two memory cards) live in
 `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them elsewhere.
 
+Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 window has a Save states tab. From the
+command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a
+movie plays. F10 writes a bug report of the moment (the RAM and one frame of draw state) for the developers.
+
 ### Windows
 
 The same scripts run in an MSYS2 **UCRT64** shell, with MSYS2's GCC (MSVC is not supported for this port).

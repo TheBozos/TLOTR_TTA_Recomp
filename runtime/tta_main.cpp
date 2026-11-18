@@ -51,6 +51,7 @@ int main(int argc, char **argv)
     windowOptions.height = 720;
 #endif
     options.frames = window ? 0 : 600;
+    std::string dumpRam; // --dump-ram FILE: the EE's 32 MB at the end of the run (save states are checked with it)
     for (int i = 1; i < argc; ++i)
     {
         const std::string a = argv[i];
@@ -66,6 +67,16 @@ int main(int argc, char **argv)
             options.iso = argv[++i];
         else if (a == "--symbols" && i + 1 < argc)
             options.symbolMap = argv[++i];
+        else if (a == "--load-state" && i + 1 < argc)
+            options.loadState = argv[++i];
+        else if (a == "--load-state-at" && i + 1 < argc)
+            options.loadStateFrame = std::stoul(argv[++i]);
+        else if (a == "--save-state" && i + 1 < argc)
+            options.saveState = argv[++i];
+        else if (a == "--save-state-at" && i + 1 < argc)
+            options.saveStateFrame = std::stoul(argv[++i]);
+        else if (a == "--dump-ram" && i + 1 < argc)
+            dumpRam = argv[++i];
         else if (a == "--headless")
             window = false;
 #ifdef TTA_WITH_WINDOW
@@ -80,7 +91,8 @@ int main(int argc, char **argv)
         {
             std::fprintf(stderr, "Usage: tta [--frames N] [--headless] [--elf FILE] [--iso FILE] [--symbols FILE]\n"
                                  "           [--card-dir DIR] [--pad-script FILE] [--capture-dir DIR] [--capture-frame N]\n"
-                                 "           [--fullscreen]\n");
+                                 "           [--fullscreen] [--dump-ram FILE]\n"
+                                 "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n");
             return a == "--help" ? 0 : 2;
         }
     }
@@ -103,6 +115,7 @@ int main(int argc, char **argv)
             std::printf("[tta] memory cards in %s\n", options.cardDir.c_str());
         }
 #endif
+    options.gameTag = "SLUS-21027";
     bozo::host::FreeHost host(options);
     bozo::ee::Dispatcher d(host);
     tta::installAudio(host.libraries(), d.runtime().memory.ram());
@@ -118,6 +131,15 @@ int main(int argc, char **argv)
     d.setFunctions(tta_function_table, tta_function_count, tta_resume_table, tta_resume_count);
     bozo::port::Registry registry;
     tta::install(d.runtime(), registry);
+    // Save states: TTA's own part (the engine saves its runtime, libraries and host): the sound driver's host and its
+    // waiting commands, the resources the game loaded and where it placed its textures.
+    host.stateSections()->add({"tta",
+                               [&](bozo::state::Archive &a)
+                               {
+                                   tta::audioState(a);
+                                   tta::twoDState(a);
+                               },
+                               [] { return tta::audioUnsaveable(); }});
     std::string error;
     if (!host.setUp(d, tta_external_table, tta_external_count, &registry, error))
     {
@@ -152,7 +174,7 @@ int main(int argc, char **argv)
         // TTA_STALL_EVERY=<host frames>: a 90 ms stall that often (a slow picture or a load), to test the pacing.
         if (static const char *stall = std::getenv("TTA_STALL_EVERY"); stall && *stall && f % std::strtoull(stall, nullptr, 10) == 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(90));
-        // TTA_REPORT_AT=<game frame>: F7's frame report (below) from a script.
+        // TTA_REPORT_AT=<game frame>: F10's frame report (below) from a script.
         if (static const char *at = std::getenv("TTA_REPORT_AT"); at && *at)
         {
             static bool done = false;
@@ -165,13 +187,13 @@ int main(int argc, char **argv)
             }
         }
 #ifdef TTA_WITH_WINDOW
-        // F7: a report of this moment for a bug seen while playing: the EE's RAM to build/ram_key_<game frame>.bin
+        // F10 (F7 loads a save state): a report of this moment for a bug seen while playing: the EE's RAM to build/ram_key_<game frame>.bin
         // and one game frame of [tta:report] lines (every character draw's mode, lights and blend state).
         if (window)
         {
             static bool held = false;
             const bool *keys = SDL_GetKeyboardState(nullptr);
-            const bool down = keys && keys[SDL_SCANCODE_F7];
+            const bool down = keys && keys[SDL_SCANCODE_F10];
             if (down && !held)
             {
                 uint32_t game = 0;
@@ -182,7 +204,7 @@ int main(int argc, char **argv)
                     std::fwrite(d.runtime().memory.ram(), 1, 32u << 20, out);
                     std::fclose(out);
                 }
-                std::printf("[tta:report] F7 at game frame %u: RAM in %s\n", game, path.c_str());
+                std::printf("[tta:report] F10 at game frame %u: RAM in %s\n", game, path.c_str());
                 tta::requestFrameReport();
             }
             held = down;
@@ -231,6 +253,12 @@ int main(int argc, char **argv)
             return 1;
         }
         std::printf("[tta] frames=%llu end=%s\n", (unsigned long long)frames, host.endReason().c_str());
+        if (!dumpRam.empty())
+            if (FILE *out = std::fopen(dumpRam.c_str(), "wb"))
+            {
+                std::fwrite(d.runtime().memory.ram(), 1, 32u << 20, out);
+                std::fclose(out);
+            }
         const auto &stats = host.stats();
         std::printf("[tta] compatibility: %llu register accesses, %llu unknown; %llu native VU0 calls\n",
                     (unsigned long long)stats.ioAccesses, (unsigned long long)stats.ioUnknown,
@@ -255,6 +283,14 @@ int main(int argc, char **argv)
         game.run = run;
         game.stop = [&] { host.requestStop(); };
         game.framesEnded = [&] { return host.framesEnded(); };
+        // F5 saves the slot, F7 loads it, F6 / Shift+F6 pick it (0-9); the "Save states" tab in F2.
+        game.saveState = [&](int slot) { host.requestSave(bozo::app::stateSlotPath(slot)); };
+        game.loadState = [&](int slot) { host.requestLoad(bozo::app::stateSlotPath(slot)); };
+        host.onStateMessage = [](bool, const std::string &message)
+        {
+            std::fprintf(stderr, "[state] %s\n", message.c_str());
+            bozo::app::notify(message);
+        };
         return bozo::app::runWindow(windowOptions, game, &devices);
     }
 #endif

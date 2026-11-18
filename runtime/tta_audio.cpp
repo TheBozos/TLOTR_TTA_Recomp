@@ -45,6 +45,7 @@ namespace tta
         };
         std::deque<Packet> pending; // the driver's commands to the game, delivered one at a time
         bool delivering = false;
+        constexpr uint32_t kResumeDeliverEnd = bozo::libs::kPortResumeKinds + 0;
 
         uint32_t read32(const uint8_t *rdram, uint32_t address)
         {
@@ -77,18 +78,24 @@ namespace tta
             h.gp = gp ? gp : gameGp;
             h.completion = true; // its end delivers the next one
             delivering = true;
-            l.queueHandler(h, [](bozo::libs::Libraries &l, bozo::libs::Guest &g)
-            {
-                delivering = false;
-                if (pending.empty())
-                    return;
-                Packet next = std::move(pending.front());
-                pending.pop_front();
-                deliver(l, std::move(next),
-                        [&](const std::vector<uint8_t> &d) { g.write(kPacketBuffer, d.data(), static_cast<uint32_t>(d.size())); },
-                        [&](uint32_t a) { return g.read32(a); });
-            });
+            l.queueHandler(h, bozo::libs::Resume{kResumeDeliverEnd, {}});
         }
+
+        // A delivery's end (kResumeDeliverEnd, a continuation as data so a save can be taken while one is pending): the
+        // next queued command goes to the game.
+        void deliverEnd(bozo::libs::Libraries &l, bozo::libs::Guest &g, const bozo::libs::Resume &)
+        {
+            delivering = false;
+            if (pending.empty())
+                return;
+            Packet next = std::move(pending.front());
+            pending.pop_front();
+            deliver(l, std::move(next),
+                    [&](const std::vector<uint8_t> &d) { g.write(kPacketBuffer, d.data(), static_cast<uint32_t>(d.size())); },
+                    [&](uint32_t a) { return g.read32(a); });
+        }
+
+        void io(bozo::state::Archive &a, Packet &p) { bozo::state::fields(a, p.command, p.data); }
 
         // sceSifSendCmd(command, packet, size, extra source, extra destination, extra size) and its interrupt form.
         void sendCommand(uint8_t *rdram, R5900Context *ctx, Runtime *)
@@ -134,6 +141,7 @@ namespace tta
         // AUDIOPF's start clears its buffers with its own byte-wise memset, more than the default root call allows.
         sound->setRootCallBudget(50000000);
         libraries.audioProvider = [](uint64_t cycle) { return sound->advanceTo(cycle); };
+        libraries.addResumeKind(kResumeDeliverEnd, deliverEnd);
         libraries.sif.transfer = [](uint32_t address, const uint8_t *bytes, uint32_t count)
         { sound->writeBuffer(address, bytes, count); };
         libraries.sif.allocateBuffer = [](uint32_t bytes) { return sound->allocateBuffer(bytes); };
@@ -188,4 +196,12 @@ namespace tta
         registry.registerFunction(0x32a748, sendCommand); // sceSifSendCmd
         registry.registerFunction(0x32a788, sendCommand); // isceSifSendCmd
     }
+
+    void audioState(bozo::state::Archive &a)
+    {
+        sound->serialize(a);
+        bozo::state::fields(a, pending, delivering, gameGp);
+    }
+
+    std::string audioUnsaveable() { return sound ? sound->unsaveable() : std::string(); }
 }
