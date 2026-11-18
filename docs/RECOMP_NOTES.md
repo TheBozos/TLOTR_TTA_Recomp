@@ -397,6 +397,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
   over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
   the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
+- **The sunny battle's glow filter reads the frame's alpha** (2026-11-18, from the user's state, F5 in a battle:
+  copied to build/states/user_battle.state, frame 9329; window states are in %APPDATA%\TLOTR_TTA_Recomp\states).
+  0x1cf1fc and 0x1cfce8 read the frame (TBP0 0) as PSM CT32 with TCC 1, MODULATE: As is the frame's own alpha, and
+  their targets (TBP0 0x3800 / 0x3c00) are CT32 TCC 1 too. The first battle's filters read the frame as CT24 (PSM 1),
+  where the alpha is TEXA's: they do not depend on it. On the console the scene's draws leave the frame's alpha
+  alone (FBMSK 0xff000000) and the highlight pass 0x80000 writes it alone (FBMSK 0x00ffffff), so this filter is a
+  coloured glow around the highlighted and buffed characters (fill 0x6c797f x alpha, blurred, darkened inside by the
+  alpha four times, added back). Natively the frame's alpha is not that mask (every draw writes alpha, the
+  highlight is skipped) and the frame is read without its alpha: since the blend fix the filter adds almost nothing
+  (no haze, no glow). Open: emulate the alpha through the chain (frame, targets, taps); no console reference yet.
+  The post-draw trace now prints TEX0.
 - **The white battle ground** (2026-11-13, F7 in the user's sunny battle): that battle runs another screen filter
   (0x1cbafc fills target 1, 0x1cf1fc multiplies it by the frame's alpha with ALPHA 0x89 = Cd As, 0x1cf8a0 blurs it
   through target 2 with five additive taps, 0x1cfce8 darkens it four times with ALPHA 0x46 = Cd (1 - As), alpha 0x54,

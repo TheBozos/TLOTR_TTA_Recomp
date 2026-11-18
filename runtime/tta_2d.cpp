@@ -920,9 +920,10 @@ namespace tta
                         u0 = std::min(u0, q.u), u1 = std::max(u1, q.u), v0 = std::min(v0, q.v), v1 = std::max(v1, q.v);
                     }
                     std::printf("[tta:2d] frame %u: post draw from %x into target %u (FBP %x, frame FBP %x) from source %d (TBP0 %x), "
-                                "%zu triangles, blend %d, alpha %llx, rgba %08x, xy (%.1f,%.1f)-(%.1f,%.1f) st (%.4f,%.4f)-(%.4f,%.4f)\n",
+                                "%zu triangles, blend %d, alpha %llx, tex0 %llx, rgba %08x, xy (%.1f,%.1f)-(%.1f,%.1f) st (%.4f,%.4f)-(%.4f,%.4f)\n",
                                 frame(rdram), ra, target, fbp, g_frameFbp, source, static_cast<uint32_t>(tex0 & 0x3fffu),
                                 triangles.size() / 3, static_cast<int>(material.blend), static_cast<unsigned long long>(alpha),
+                                static_cast<unsigned long long>(tex0),
                                 points[0].rgba, x0, y0, x1, y1, u0, v0, u1, v1);
                 }
                 return count(rdram, true);
