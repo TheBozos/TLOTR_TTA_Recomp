@@ -383,6 +383,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   F7 to F10. Checked headless: a save at 9000 (taken at 9094, after the Epic Scene film: a movie makes a save wait)
   and one mid-battle at 5800, each loaded in a new process and mid-run, gave the same EE RAM as the run that never
   stopped; the window build loading the battle state draws frame 5990 pixel for pixel as the uninterrupted run.
+- **Named states for checks** (2026-11-18): start checks from a state instead of replaying from boot
+  (--load-state FILE; frame numbers stay absolute, so --capture-frame and --frames count from the run's start).
+  build/states (not in git; a state loads only into the build that wrote it, so make them again after a change to
+  the state layout or TTA's section), all headless:
+  - title_2400.state: tools/pads/pad_none.txt, frame 2400 (the title menu, Load Game selected when a card has a save).
+  - outpost_3900.state: tools/pads/pad_load.txt with --card-dir build/cards_test (a copy of the user's save,
+    Eregion Elven Outpost), frame 3900, standing at the save point.
+  - battle1_5800.state: tools/pads/pad_attack.txt, frame 5800 (the first battle, Berethor's turn coming).
+  - forest_9094.state: tools/pads/pad_explore.txt, asked at 9000, taken at 9094 after the Epic Scene film.
 - **Game time and stalls** (2026-11-13, the user saw the character speed up for a moment on the overworld, not
   reproduced): GetScaledElapsedTime (0x2674f8) returns 0x1dd4f8(1) = *(0x3bac4c) x *(0x3bac7c). In a real-time
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
