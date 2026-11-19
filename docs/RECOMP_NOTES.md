@@ -392,6 +392,9 @@ the game's behaviour); its code is in the history before `8ade037`.
     Eregion Elven Outpost), frame 3900, standing at the save point.
   - battle1_5800.state: tools/pads/pad_attack.txt, frame 5800 (the first battle, Berethor's turn coming).
   - forest_9094.state: tools/pads/pad_explore.txt, asked at 9000, taken at 9094 after the Epic Scene film.
+  - 2026-11-19: BozoEngine master with TMB's save states (#104) adds the 989SND driver's section "snd", so a state
+    from before it is refused ("expected section snd, found timers"; the run goes on as it was). The scripted states
+    were made again; user_battle (the user's sunny battle, F5 at 9329) and the window's slots need saving again.
 - **Game time and stalls** (2026-11-13, the user saw the character speed up for a moment on the overworld, not
   reproduced): GetScaledElapsedTime (0x2674f8) returns 0x1dd4f8(1) = *(0x3bac4c) x *(0x3bac7c). In a real-time
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
