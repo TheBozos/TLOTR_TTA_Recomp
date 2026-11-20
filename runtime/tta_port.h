@@ -44,6 +44,13 @@ namespace tta
     // A one-frame report (F10 in the window build): the next game frame logs every character draw's mode, fade, sections
     // and lights, with the 0x20000 shine layer's inputs, as [tta:report] lines (tta_3d.cpp).
     void requestFrameReport();
+    // Debug (tta_debug.cpp): the developers' command-line options given to the game ("encounters_only"), as if from its
+    // argv; a warp to a map (an index, a path such as e02c05 or a region such as "Helm's Deep") and a battle by the
+    // current map's encounter id, each optionally "@<game frame>". Before or after install.
+    void addGameOption(const std::string &spec);
+    bool requestWarp(const std::string &spec);
+    void requestEncounter(const std::string &spec);
+    void installDebug(bozo::port::Registry &registry);
     // Save states: the resources the game loaded and where it placed its textures (tta_2d.cpp).
     void twoDState(bozo::state::Archive &a);
     // True during the reported frame (the 2D passes add their [tta:report] lines then).

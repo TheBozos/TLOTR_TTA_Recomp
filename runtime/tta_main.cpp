@@ -79,6 +79,16 @@ int main(int argc, char **argv)
             dumpRam = argv[++i];
         else if (a == "--headless")
             window = false;
+        // Debug (tta_debug.cpp): --warp MAP[@FRAME], --encounter ID[@FRAME], --game-option NAME[=VALUE].
+        else if (a == "--warp" && i + 1 < argc)
+        {
+            if (!tta::requestWarp(argv[++i]))
+                return 2;
+        }
+        else if (a == "--encounter" && i + 1 < argc)
+            tta::requestEncounter(argv[++i]);
+        else if (a == "--game-option" && i + 1 < argc)
+            tta::addGameOption(argv[++i]);
 #ifdef TTA_WITH_WINDOW
         else if (a == "--capture-dir" && i + 1 < argc)
             windowOptions.captureDir = argv[++i];
@@ -92,7 +102,8 @@ int main(int argc, char **argv)
             std::fprintf(stderr, "Usage: tta [--frames N] [--headless] [--elf FILE] [--iso FILE] [--symbols FILE]\n"
                                  "           [--card-dir DIR] [--pad-script FILE] [--capture-dir DIR] [--capture-frame N]\n"
                                  "           [--fullscreen] [--dump-ram FILE]\n"
-                                 "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n");
+                                 "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
+                                 "           [--warp MAP[@FRAME]] [--encounter ID[@FRAME]] [--game-option NAME[=VALUE]]\n");
             return a == "--help" ? 0 : 2;
         }
     }

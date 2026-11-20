@@ -287,6 +287,19 @@ Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 w
 command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a
 movie plays. F10 writes a bug report of the moment (the RAM and one frame of draw state) for the developers.
 
+Debug tools (the F2 window's **Debug** tab, built on the game's own level-script functions):
+
+- **Warp**: loads any map from its start (its films, then its start position): Eregion, Western Moria, Eastern Moria,
+  Eastemnet Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith, Pelennor Fields (and e02c04).
+- **Battles on this map**: every scripted encounter of the current map (Eregion: the Nazgul, the orc ambushes and
+  warbands, the warg camps, the Watcher...), started on the spot as the level scripts' StartEncounter does, or any id.
+  Start one while walking freely, not during a film or another battle. Enemies of another region: warp there first.
+
+From the command line: `--warp MAP[@FRAME]` (a region such as `"helms deep"`, a path such as `e02c05`, or an index)
+and `--encounter ID[@FRAME]` (frames are the game's), for example from a saved state:
+`tta --load-state build/states/forest_14900.state --encounter 2118@14940` starts Eregion's first warg camp.
+`--game-option NAME[=VALUE]` passes the developers' own options to the game (`encounters_only`).
+
 ### Windows
 
 The same scripts run in an MSYS2 **UCRT64** shell, with MSYS2's GCC (MSVC is not supported for this port).

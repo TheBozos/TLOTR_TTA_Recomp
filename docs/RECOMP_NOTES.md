@@ -409,6 +409,19 @@ the game's behaviour); its code is in the history before `8ade037`.
   inverted Z, i.e. counting the faces behind the scene, and 0x21ae10 darkens). Natively the volumes are now queued
   and drawn at 0x21ae10 with z-fail (BozoEngine Material::stencilDepthFail), then one darkening at the strongest
   strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone.
+- **Debug: battles and warps** (2026-11-20, the user's request). runtime/tta_debug.cpp; how it works is in its header.
+  Found: the Lua functions the level scripts call (StartEncounter, TeleportToPos, SpawnEnemy... registered through
+  0x264498, StartEncounter's C side 0x268668 -> 0x17f040 -> 0x15b6c8(id)), the current map's entity table
+  (*(0x3dff84), "manC", records {id, name[28]}; Eregion: 1675 records, ids 1000-2674, encounters Enc01_Nazgul 2109 ...
+  Enc27_WatcherBattle 2133; the scripted first battle is 2109, started from 0x15b94c), the map list (14 paths at
+  0x35bc88, the index at 0x35bd0c, 0x190130 sets it, chapter message 0 to handler 0x18f420 loads it; message
+  categories are routed by range from the table at 0x35dec0: 0x7d0..0x833 -> 0x18f420), and the developers'
+  command-line options (0x140670; -level never applies since the current-map buffer is always set). Checked from
+  build/states/forest_14900.state (made with tools/pads/pad_explore.txt): every map index loads (Helm's Deep's gate by
+  host frame 16600; e02c04 still black there), StartEncounter(2118) is a warg fight, StartEncounter(2109) during the
+  forest film fights the Nazgul with the film still running, the random battles' _EP / _ET ids alone end at once on
+  "Experience Earned" (a random battle pairs them elsewhere; not found yet). The first battle's capture is unchanged.
+  TTA_ENCOUNTER_TRACE=1 prints every encounter start.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by

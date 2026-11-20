@@ -52,14 +52,6 @@ namespace tta
             ctx->pc = ctx->r[31].uw[0];
         }
 
-        // 0x216118: the graphics paths still busy, as a mask (VIF1 DMA 1, GIF DMA 2, VIF1 4, VU1 8, GIF 0x10); the main
-        // loop (0x1c0158, 0x1c36b8) waits on it. There are no paths: all idle.
-        void busyPaths(uint8_t *, R5900Context *ctx, Runtime *)
-        {
-            ctx->r[2].ud[0] = 0;
-            ctx->pc = ctx->r[31].uw[0];
-        }
-
         // TTA_RNG_TRACE=1: the game's generator 0x1ba9c8 counted by caller, printed every 600 game frames ([tta:rng]): which
         // systems roll while the player walks, fights or watches.
         void rngTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
@@ -124,11 +116,11 @@ namespace tta
         installPose(registry);
         registry.registerFunction(0x21b348, resetVu1State);
         registry.registerFunction(0x277b58, ipuInit);
-        registry.registerFunction(0x216118, busyPaths);
         registry.registerFunction(0x320428, newlibRand);
         if (std::getenv("TTA_TIME_TRACE"))
             registry.registerFunction(0x1dd4f8, elapsedTrace);
         if (std::getenv("TTA_RNG_TRACE"))
             registry.registerFunction(0x1ba9c8, rngTrace);
+        installDebug(registry); // 0x216118 (the graphics paths' wait) is its once-a-frame hook
     }
 }
