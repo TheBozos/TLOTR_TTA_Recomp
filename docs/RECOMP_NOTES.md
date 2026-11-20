@@ -370,7 +370,7 @@ the game's behaviour); its code is in the history before `8ade037`.
   console's (the GS dump of the battle, count-buffer strips into FBP 0x180) are about the size of the bodies that
   cast them. Set 5's program 0x178 builds the far cap as the transformed vertex + VU row 13 ((2, 2, 1, 0.033) in the
   first battle) times a per-vertex factor (0x07a0, 0x0918), in its own transformed space, so the native sweep now
-  defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open.
+  defaults to 0.3x the body's size (TTA_SHADOW_REACH=3 for the old length); porting that exact extrusion is open (done 2026-11-20: "Shadow volumes swept as on the console").
 - **Save states** (2026-11-18, the user's request through JC2): BozoEngine's save states (JC2's b73692e, docs/
   save-states.md) merged into TTA's engine branch (tta/save-states, b6dc6cd: libmpeg's Nodata end became a Resume
   record keeping TTA's SDK callback; cdvdman keeps both sides' commands; libpad2's sockets, the IOP software
@@ -524,6 +524,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   (first battle, frame 5900: up to 12 levels darker at the game's strength 0x13, about 15%, a faint shadow in that
   night scene). TTA_SHADOW_SHOW_LATE=1 draws the queued faces in colour at the shadow layer, depth tested;
   TTA_SHADOW_ORDER=1 also prints each skin draw's viewport and clip Z.
+- **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
+  throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
+  blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
+  far ends and the far cap are C S v + VU row 13, row 13 = C (x, y, z) times VU row 12 = the light in object space
+  (block row 8), and the caps take a per-face factor from VU row 11 (.y = 0 near, .z = 1 far). In the first battle
+  block row 8 is (1.99999, -2, 0.00623) and the character's W (rigid) has W^T (2, -2, 0) equal to it: the game carries
+  the world light G+0x298 into object space, so in world space every vertex moves by the light vector itself,
+  unnormalised (2.83 units for the default, ~1.5 x a character's height). The native sweep is now exactly that
+  (TTA_SHADOW_REACH scales it, 1 by default) instead of 3 x the body's size; on flat ground the footprint is the same
+  (the head's drop is under the sweep's 2), and where the ground falls away the shadow no longer runs on as a band.
+  Block row 13 (VU row 14) is not the light: its .w (0.0327) is the skin's scale.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a

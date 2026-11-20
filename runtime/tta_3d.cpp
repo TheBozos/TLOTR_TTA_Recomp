@@ -1880,9 +1880,12 @@ namespace tta
         // one screen winding, down for the other; a pixel whose surface lies inside the swept body keeps a count), then the
         // frame darkened where the count is not 0. The game does the same with set 5's program 0x178 (the silhouette edges
         // and caps, +/-) and its full-screen pass (0x21ae10: the frame x (1 - TA0/128) where the count is not 0; checked in a PCSX2 GS dump).
-        // TTA_NO_SHADOWS=1 turns it off. TTA_SHADOW_REACH (x the mesh's size, 3 by default: the light comes in at 45
-        // degrees, so the body's top needs ~1.4 x its height to reach the ground; at 0.3 the volumes ended just under
-        // the feet and never met the ground) and TTA_SHADOW_ALPHA (0..0x80) tune it.
+        // The sweep is the game's: program 0x178 puts the far cap at clip(v) + clip(L), L = VU row 8 = the light in the
+        // character's object space (W's rotation transposed times G+0x298: (1.99999, -2, 0.00623) for (2, -2, 0) in the
+        // first battle), and the near cap and the silhouette's near ends at + 0 (factors VU row 11 .y = 0, .z = 1). W is
+        // rigid, so in world space every vertex moves by the light vector itself, unnormalised: 2.83 units for the
+        // default light, about 1.5 x a character's height. TTA_NO_SHADOWS=1 turns it off; TTA_SHADOW_REACH scales the
+        // sweep (1 by default) and TTA_SHADOW_ALPHA (0..0x80) the strength.
         void drawShadowVolume(const uint8_t *rdram)
         {
             if (g_shadowWorld.size() < 3)
@@ -1893,20 +1896,22 @@ namespace tta
             const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
             if (!(dl > 0.0f))
                 return;
-            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
-            for (const auto &p : g_shadowWorld)
-                for (int c = 0; c < 3; ++c)
-                {
-                    lo[c] = std::fmin(lo[c], p[c]);
-                    hi[c] = std::fmax(hi[c], p[c]);
-                }
-            const float size = std::fmax(hi[0] - lo[0], std::fmax(hi[1] - lo[1], hi[2] - lo[2]));
             if (env("TTA_SHADOW_ORDER"))
+            {
+                float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+                for (const auto &p : g_shadowWorld)
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        lo[c] = std::fmin(lo[c], p[c]);
+                        hi[c] = std::fmax(hi[c], p[c]);
+                    }
                 std::printf("[tta:shadow] light %x (%.3g %.3g %.3g) world x %.4g..%.4g y %.4g..%.4g z %.4g..%.4g, %zu triangles\n", light,
                             d[0], d[1], d[2], lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], g_shadowWorld.size() / 3);
-            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 3.0);
+            }
+            static const float scale = env("TTA_SHADOW_REACH") ? static_cast<float>(std::atof(env("TTA_SHADOW_REACH"))) : 1.0f;
+            const float reach = dl * scale;
             for (float &c : d)
-                c *= reach / dl;
+                c *= scale;
             const float *m = g_shadowScreen;
             const auto vertex = [](const std::array<float, 3> &p)
             {
