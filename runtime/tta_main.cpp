@@ -234,7 +234,22 @@ int main(int argc, char **argv)
     };
 #ifdef TTA_WITH_WINDOW
     bozo::app::DevicePad devices;
-    bozo::app::AudioDevice audio;
+    // TTA_AUDIO_STATS=1: the sound queue's level, latency and underruns every 2 s (stderr). TTA_SCRIPTED_SOUND=1: a
+    // scripted run opens the sound too (with SDL_AUDIO_DRIVER=dummy, a device that plays nothing at the real rate: the
+    // underruns of a test under load, silently).
+    bozo::app::AudioOptions audioOptions;
+    // A 64 ms queue (the engine's default 32): a turn-based game loses nothing to the extra latency, and the sound
+    // rides through the game thread's dips when other programs load the PC (no underrun in a test with two other
+    // copies of the game running flat out; at 32 ms, 138 in a minute).
+    audioOptions.latencyMs = 64.0;
+    audioOptions.maxQueueMs = 160.0;
+    audioOptions.stats = std::getenv("TTA_AUDIO_STATS") != nullptr;
+    // TTA_AUDIO_LATENCY_MS / TTA_AUDIO_MAX_QUEUE_MS: the queue's target and its cap (testing).
+    if (const char *l = std::getenv("TTA_AUDIO_LATENCY_MS"))
+        audioOptions.latencyMs = std::atof(l);
+    if (const char *m = std::getenv("TTA_AUDIO_MAX_QUEUE_MS"))
+        audioOptions.maxQueueMs = std::atof(m);
+    bozo::app::AudioDevice audio(audioOptions);
     if (window && options.padScript.empty())
         host.libraries().pad.input = &devices;
     // A scripted run (a test, a capture) never takes the focus from what the player is doing on the same PC, and stays
@@ -251,9 +266,30 @@ int main(int argc, char **argv)
             windowOptions.captureScene = true;
         }
     }
-    host.onAudio = [&](uint64_t, const int16_t *pcm, size_t count)
+    const bool sound = window && (!scripted || std::getenv("TTA_SCRIPTED_SOUND"));
+    host.onAudio = [&](uint64_t frame, const int16_t *pcm, size_t count)
     {
-        if (window && !scripted)
+        // TTA_AUDIO_RATE=1: the sound made, every 60 game frames: frames, samples, wall time (probe).
+        if (static const bool rate = std::getenv("TTA_AUDIO_RATE") != nullptr; rate)
+        {
+            static uint64_t firstFrame = frame, samples = 0, calls = 0, biggest = 0;
+            static auto start = std::chrono::steady_clock::now();
+            samples += count;
+            ++calls;
+            biggest = std::max<uint64_t>(biggest, count);
+            if (frame - firstFrame >= 60)
+            {
+                const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+                std::fprintf(stderr, "[audio-rate] frames %llu..%llu: %llu samples in %llu calls (largest %llu), %.0f ms wall: %.0f per game second, %.0f per wall second%c",
+                             (unsigned long long)firstFrame, (unsigned long long)frame, (unsigned long long)samples,
+                             (unsigned long long)calls, (unsigned long long)biggest, ms,
+                             samples * 60.0 / double(frame - firstFrame), samples * 1000.0 / ms, 10);
+                firstFrame = frame;
+                samples = calls = biggest = 0;
+                start = std::chrono::steady_clock::now();
+            }
+        }
+        if (sound)
             audio.push(pcm, count);
     };
 #endif
@@ -261,7 +297,7 @@ int main(int argc, char **argv)
     auto run = [&]() -> int
     {
 #ifdef TTA_WITH_WINDOW
-        if (window && !scripted)
+        if (sound)
             audio.open();
 #endif
         uint64_t frames = 0;

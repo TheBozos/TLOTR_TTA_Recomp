@@ -437,6 +437,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
   TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
   clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
+- **The sound's crackle** (2026-11-20, the user: "sometimes the sound crackles"). Measured with the window build in
+  real time on SDL's dummy audio driver (SDL_AUDIO_DRIVER=dummy TTA_SCRIPTED_SOUND=1 TTA_AUDIO_STATS=1: the device
+  drains at 48 kHz, nothing plays) on the user's forest clearing walk: 7 underruns and ~158k dropped samples in a
+  minute on a quiet PC, 154 underruns with two other copies of the game running flat out. Two causes. (1) The drops:
+  TTA_AUDIO_RATE=1 shows 801 samples a frame normally, but up to 4004 in stretches: the EE clock leaps (the engine
+  models the disc's waits the PC does not have) and the mixer, brought up to each frame's end on the EE clock, gave
+  the whole leap's sound in one host frame; the output queue (cap 64 ms) then dropped 0.2-0.6 s at a time. BozoEngine
+  (branch tta/audio-clock-leaps): in real time the frames' sound is held to the host's time (a budget of samples
+  growing at 48 kHz, spent by every output, stallSound's too; the surplus skipped where it was made). (2) The
+  underruns: the game thread's dips under load. TTA's queue is now 64 ms (cap 160) instead of the engine's 32: a
+  turn-based game loses nothing to it. After both: quiet, 0 underruns and 0 drops; under that load, 0 underruns and
+  one ~0.2 s drop in a minute.
 - **Debug: random battles and any enemy group** (2026-11-20). The map's objects carry the links: an encounter
   (type 0x1775 at +4: id at +0, its enemy group at +0x28) and an enemy group (type 0x1770, an "_ET" record: its
   placement, an "_EP" record, at +0x24; Eregion: e1c1_Rnd_Easy_01_ET -> e1c1_Rnd_2enemy_EP, Rnd_Med_01 -> the
