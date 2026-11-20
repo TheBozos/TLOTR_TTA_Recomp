@@ -429,6 +429,8 @@ namespace tta
             const Node *node = nullptr;
             float fogK = 0.0f;
             bool fogged = false, clip = false;
+            // Set 1's texture animation (shader type 5): added to every vertex's s / t.
+            float stShift[2] = {0.0f, 0.0f};
             // A skinned batch (drawSkin): the batch, its draw's inputs (SkinInputs, by index), and for the silhouette
             // pass the fog colour its vertices take.
             const Batch *skin = nullptr;
@@ -538,6 +540,8 @@ namespace tta
             for (size_t i = 0; i < v.size(); ++i)
             {
                 const uint32_t c = batch.colours[i];
+                v[i].u += d.stShift[0];
+                v[i].v += d.stShift[1];
                 v[i].rgba = batch.colourMode == 1 ? (node.colours.empty() ? 0x80808080u : node.colours[c & 0xffu]) : c;
                 // The VU programs' fog (fog_spec 1): F = min(K / clip.w, 255), K = DS+0x54c; GS F 255 = no fog.
                 if (d.fogged)
@@ -726,6 +730,49 @@ namespace tta
             d.vertices.assign(vertices, vertices + count);
         }
 
+        // Shader type 5's texture animation: set 1's program 0x58 reads the parameter qword P after each PRIM tag (kept by
+        // the converter as pseudo-registers 0xf0 = (x, y), 0xf1 = (z, w)) and adds floor(frac(P.xy x T) x P.z) x P.w to
+        // s and t, T = VU 130.x, the time 0x221630 stores at DS+0x530 (the game's counter / 29970) before the render.
+        // The river's flow sheet (Cobj 33: P = (0, 22, 16384, 1/16384), a scroll in t) and the ripple quad (Cobj
+        // 70000: (1000, 0, 8, 1/8), an 8-frame flipbook in s). TTA_NO_TEXTURE_ANIMATION=1 leaves them still.
+        void textureAnimation(const uint8_t *rdram, const Batch &batch, float shift[2])
+        {
+            static const bool off = env("TTA_NO_TEXTURE_ANIMATION") != nullptr;
+            if (off)
+                return;
+            uint64_t xy = 0, zw = 0;
+            bool found = false;
+            for (const auto &[reg, value] : batch.registers)
+                if (reg == 0xf0)
+                    xy = value, found = true;
+                else if (reg == 0xf1)
+                    zw = value;
+            if (!found)
+                return;
+            const auto asFloat = [](uint32_t bits)
+            {
+                float f;
+                std::memcpy(&f, &bits, 4);
+                return f;
+            };
+            const float time = readFloat(rdram, read32(rdram, 0x36f850) + 0x530);
+            const float p[4] = {asFloat(static_cast<uint32_t>(xy)), asFloat(static_cast<uint32_t>(xy >> 32)),
+                                asFloat(static_cast<uint32_t>(zw)), asFloat(static_cast<uint32_t>(zw >> 32))};
+            for (int c = 0; c < 2; ++c)
+            {
+                const float a = p[c] * time;
+                const float f = a - static_cast<float>(static_cast<int32_t>(a)); // FTOI0 truncates
+                shift[c] = static_cast<float>(static_cast<int32_t>(f * p[2])) * p[3];
+            }
+            if (traceLevel() >= 2)
+            {
+                static uint32_t n = 0;
+                if (n++ % 120 == 0)
+                    std::printf("[tta:3d] texture animation frame %u: T %g P (%g %g %g %g) shift (%g %g)\n", frame(rdram), time,
+                                p[0], p[1], p[2], p[3], shift[0], shift[1]);
+            }
+        }
+
         void drawNode(const uint8_t *rdram, const Mesh &mesh, const Node &node, const float screen[16])
         {
             const Node *source = &node;
@@ -860,6 +907,8 @@ namespace tta
                 d.fogK = fogK;
                 d.fogged = fogged;
                 d.clip = !boxInsideDepthRange(batch.lo, batch.hi, matrix);
+                if (node.shader == 5)
+                    textureAnimation(rdram, batch, d.stShift);
             }
         }
 
@@ -1056,6 +1105,23 @@ namespace tta
             if (Address == 0x2207a8)
                 drawFor(rdram, a0 - 0x28);
             Original(rdram, ctx, rt);
+            // Type 5 (0x221760: set 1, the instance's packet at inst+8 like type 0): drawn after the game's render,
+            // which sets its draw state (DS mode 5) first.
+            static const bool noType5 = env("TTA_NO_TYPE5") != nullptr;
+            if (Address == 0x221760 && !noType5)
+            {
+                if (traceLevel() >= 2)
+                {
+                    const uint32_t ds = read32(rdram, 0x36f850);
+                    static uint32_t n = 0;
+                    if (n++ < 8)
+                        std::printf("[tta:3d] type 5 node %x: ALPHA_1 %llx TEST_1 %llx PRMODE %x ZBUF_1 %llx\n", a0 - 0x28,
+                                    static_cast<unsigned long long>(read64(rdram, ds + 0x100)),
+                                    static_cast<unsigned long long>(read64(rdram, ds + 0x140)), read32(rdram, ds + 0x6b0),
+                                    static_cast<unsigned long long>(read64(rdram, ds + 0x120)));
+                }
+                drawFor(rdram, a0 - 0x28);
+            }
             ctx->pc = ra;
         }
     }

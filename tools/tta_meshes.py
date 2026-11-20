@@ -378,6 +378,13 @@ def static_batches(b, gs, warn):
         ad, prim, n, start, eop = tags[0]
         gs.apply(ad)
         arrays, end = arrays_after(b, start, n)
+        # The parameter qword unpacked with the tag (set 1's program 0x58, shader type 5: the texture animation, s/t +=
+        # floor(frac(P.xy x time) x P.z) x P.w), kept as two pseudo-registers 0xf0 = (x, y), 0xf1 = (z, w).
+        param = []
+        tag_writer = b.writer.get(start - 1)
+        if n > 0 and tag_writer is not None and b.writer.get(start) is tag_writer:
+            q = b.mem[start]
+            param = [(0xf0, q[0] | q[1] << 32), (0xf1, q[2] | q[3] << 32)]
         pos = st = colour = None
         for u, base in arrays:
             if pos is None and u.vt in (8, 12):
@@ -408,7 +415,7 @@ def static_batches(b, gs, warn):
                 rgba = (c[0] & 0xff) | (c[1] & 0xff) << 8 | (c[2] & 0xff) << 16 | (c[3] & 0xff) << 24
                 adc = c[0] & 1
             verts.append((x, y, z, s, t, rgba, adc))
-        res.append(dict(tex=gs.tex0, prim=effective_prim(prim, gs), cmode=0, regs=ad, verts=verts,
+        res.append(dict(tex=gs.tex0, prim=effective_prim(prim, gs), cmode=0, regs=ad + param, verts=verts,
                         layout=' '.join(UNPACK_NAME[u.vt] for u, _ in arrays)))
         if eop:
             break

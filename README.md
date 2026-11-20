@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-20.** Rohan, reached through the debug warp: the river's flowing surface (shader type 5, the only static
+scenery that was still missing in the later regions) drawn over its sky reflection, its texture drifting with the
+current as set 1's VU1 program animates it.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-20-bozo-rohan-river.png" width="400" alt="A Rider of Rohan on horseback beside the river in Rohan on BozoEngine">
+</p>
+
 **2026-11-12, early.** Past the first battle, all native: Berethor falls to the Black Riders as scripted, Idrial's
 light drives them off, she heals him, and the game hands over the controls in the forest (minimap, tutorial box)
 before Gandalf's first Epic Scene film. Boot to here with nothing but CROSS presses.

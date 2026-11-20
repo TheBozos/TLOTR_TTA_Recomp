@@ -524,6 +524,23 @@ the game's behaviour); its code is in the history before `8ade037`.
   (first battle, frame 5900: up to 12 levels darker at the game's strength 0x13, about 15%, a faint shadow in that
   night scene). TTA_SHADOW_SHOW_LATE=1 draws the queued faces in colour at the shadow layer, depth tested;
   TTA_SHADOW_ORDER=1 also prints each skin draw's viewport and clip Z.
+- **The later regions' static scenery: shader type 5** (2026-11-20). A survey with TTA_3D_TRACE=3 after a warp to
+  each region (Western Moria, the Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith, the Pelennor; a START /
+  CROSS / walk pad script) lists every static render the game runs: only type 5 (0x221760) was not drawn, in the
+  Gullies, Rohan and the Pelennor, and no static node is left unconverted anywhere (the "not converted" counts are
+  the skins). Type 5 is two objects on the whole disc, Cobj 33 (a 62-vertex sheet with a flowing-water texture) and
+  Cobj 70000 (a 100 x 100 quad, an 8-frame ripple flipbook): the river's surface over its sky reflection. The
+  render is type 0's (the instance's packet at inst+8) with microcode set 1 and DS mode 5 (ALPHA 0x44 for one
+  node, 0x48 additive for the other), so the native draw comes after the game's render, which sets that state.
+  Set 1's program 0x58 (read with the same throw-away VU disassembler) transforms like set 0 and passes the colour
+  through, but reads a parameter qword P after each PRIM tag and adds floor(frac(P.xy x T) x P.z) x P.w to s and
+  t, T = VU 130.x = DS+0x530, which the set-up 0x221630 writes before the render (the game's counter / 29970).
+  tools/tta_meshes.py keeps P as two pseudo-registers (0xf0 = x, y; 0xf1 = z, w) and the runtime shifts the
+  texture coordinates (Rohan's river: P = (29, 0, 10000, 1e-4), a slow drift in s). TTA_NO_TYPE5=1 and
+  TTA_NO_TEXTURE_ANIMATION=1 turn them off. 0x2201a8, many calls a frame in the Pelennor, draws nothing: it is a
+  set-up of the same kind (a doubled vector, the wind's likely, into DS+0x5cc..0x5fc, and the time). The pause
+  menu's black is the game's own: its Apt movie opens each frame with an opaque full-screen black quad, and the
+  screen filters then blur that frame.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
