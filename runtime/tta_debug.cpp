@@ -27,6 +27,7 @@
 
 #include "tta_functions.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdio>
@@ -109,39 +110,21 @@ namespace tta
 
         // ---- The current map's encounters ----
 
+        // An encounter (type 0x1775: id at +0, the enemy group's id at +0x28) or an enemy group (type 0x1770, an "_ET"
+        // record: the placement's id, an "_EP" record, at +0x24) as the map's objects hold them.
         struct Encounter
         {
             int32_t id;
             std::string name;
+            uint32_t address; // the object in RAM
+            int32_t link;     // an encounter's group, a group's placement
         };
-        constexpr uint32_t kRecordTable = 0x3dff84u;
+        constexpr uint32_t kRecordTable = 0x3dff84u, kEncounterType = 0x1775u, kGroupType = 0x1770u;
 
-        bool isEncounterName(const std::string &n)
+        // The current map's records by id (*(0x3dff84): "manC", count at +0xc, {id, name[28]} from +0x10).
+        std::vector<std::pair<int32_t, std::string>> readRecords(const uint8_t *rdram)
         {
-            // Enc<digits>[letter]_<Capital>...
-            size_t i = 3;
-            if (n.compare(0, 3, "Enc") != 0)
-                return false;
-            const size_t digits = i;
-            while (i < n.size() && std::isdigit(static_cast<unsigned char>(n[i])))
-                ++i;
-            if (i == digits)
-                return false;
-            if (i < n.size() && std::islower(static_cast<unsigned char>(n[i])))
-                ++i;
-            if (i + 1 >= n.size() || n[i] != '_' || !std::isupper(static_cast<unsigned char>(n[i + 1])))
-                return false;
-            for (const char *skip : {"Place", "EncounterParty", "Trigger", "Override", "Marker", "Path", "Volume", "Point"})
-                if (n.find(skip) != std::string::npos)
-                    return false;
-            const size_t cam = n.rfind("_Cam");
-            return !(cam != std::string::npos && (cam + 4 == n.size() || std::isdigit(static_cast<unsigned char>(n[cam + 4])) ||
-                                                  n[cam + 4] == '_'));
-        }
-
-        std::vector<Encounter> readEncounters(const uint8_t *rdram)
-        {
-            std::vector<Encounter> list;
+            std::vector<std::pair<int32_t, std::string>> list;
             const uint32_t table = read32(rdram, kRecordTable);
             if (!table || table >= 0x2000000u || std::memcmp(rdram + table, "manC", 4) != 0)
                 return list;
@@ -151,10 +134,48 @@ namespace tta
                 const uint32_t at = table + 0x10u + k * 0x20u;
                 char name[29] = {};
                 std::memcpy(name, rdram + ((at + 4u) & 0x1ffffffu), 28);
-                if (isEncounterName(name))
-                    list.push_back({static_cast<int32_t>(read32(rdram, at)), name});
+                list.emplace_back(static_cast<int32_t>(read32(rdram, at)), name);
             }
             return list;
+        }
+
+        // The map's encounter and group objects: RAM scanned for {id, type} with the id one of the map's records (the
+        // record names them). Encounters without a group (scripted cut-ins) are left out.
+        void scanObjects(const uint8_t *rdram, std::vector<Encounter> &encounters, std::vector<Encounter> &groups)
+        {
+            encounters.clear();
+            groups.clear();
+            const auto records = readRecords(rdram);
+            if (records.empty())
+                return;
+            int32_t lo = records.front().first, hi = lo;
+            for (const auto &r : records)
+            {
+                lo = std::min(lo, r.first);
+                hi = std::max(hi, r.first);
+            }
+            std::vector<const std::string *> byId(static_cast<size_t>(hi - lo + 1), nullptr);
+            for (const auto &r : records)
+                byId[static_cast<size_t>(r.first - lo)] = &r.second;
+            for (uint32_t a = 0x100000u; a + 0x30u < 0x2000000u; a += 4u)
+            {
+                const uint32_t type = read32(rdram, a + 4u);
+                if (type != kEncounterType && type != kGroupType)
+                    continue;
+                const int32_t id = static_cast<int32_t>(read32(rdram, a));
+                if (id < lo || id > hi || !byId[static_cast<size_t>(id - lo)])
+                    continue;
+                const int32_t link = static_cast<int32_t>(read32(rdram, a + (type == kEncounterType ? 0x28u : 0x24u)));
+                if (link < lo || link > hi || !byId[static_cast<size_t>(link - lo)])
+                    continue;
+                const std::string &name = *byId[static_cast<size_t>(id - lo)];
+                auto &into = type == kEncounterType ? encounters : groups;
+                if (std::none_of(into.begin(), into.end(), [&](const Encounter &e) { return e.id == id; }))
+                    into.push_back({id, name, a, link});
+            }
+            const auto byIdOrder = [](const Encounter &x, const Encounter &y) { return x.id < y.id; };
+            std::sort(encounters.begin(), encounters.end(), byIdOrder);
+            std::sort(groups.begin(), groups.end(), byIdOrder);
         }
 
         // ---- Requests, served on the game's thread ----
@@ -164,14 +185,15 @@ namespace tta
             enum Kind
             {
                 kEncounter,
-                kWarp
+                kWarp,
+                kGroup
             } kind;
             int32_t value;
             uint32_t atFrame;
         };
         std::mutex g_mutex;
         std::deque<Request> g_requests;
-        std::vector<Encounter> g_encounters; // the current map's, refreshed by the game thread
+        std::vector<Encounter> g_encounters, g_groups; // the current map's, refreshed by the game thread
         std::atomic<int> g_currentMap{-1};
         std::string g_last; // the last action's result, for the tab
 
@@ -238,6 +260,53 @@ namespace tta
                  (ok && handled ? "" : " (not handled)"));
         }
 
+        // A battle against any enemy group of the map: a host encounter (the map's first random encounter, "Rnd..", else
+        // its first) has its group (+0x28) pointed at the chosen one, is started, and gets its own group back 10 seconds
+        // later (the battle has read it by then). The group brings its placement (+0x24): the random groups have theirs
+        // (e1c1_Rnd_Easy_01_ET: the two-enemy layout e1c1_Rnd_2enemy_EP).
+        struct Restore
+        {
+            uint32_t address = 0, frame = 0;
+            int32_t id = 0, group = 0;
+        } g_restore;
+
+        bool objectIs(const uint8_t *rdram, const Encounter &e, uint32_t type)
+        {
+            return read32(rdram, e.address) == static_cast<uint32_t>(e.id) && read32(rdram, e.address + 4u) == type;
+        }
+
+        void startGroup(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t groupId)
+        {
+            std::vector<Encounter> encounters, groups;
+            {
+                std::lock_guard lock(g_mutex);
+                encounters = g_encounters;
+                groups = g_groups;
+            }
+            const auto group = std::find_if(groups.begin(), groups.end(), [&](const Encounter &g) { return g.id == groupId; });
+            if (group == groups.end() || !objectIs(rdram, *group, kGroupType))
+            {
+                note("no enemy group " + std::to_string(groupId) + " on this map");
+                return;
+            }
+            const Encounter *host = nullptr;
+            for (const Encounter &e : encounters)
+                if (objectIs(rdram, e, kEncounterType) && (!host || (e.name.rfind("Rnd", 0) == 0 && host->name.rfind("Rnd", 0) != 0)))
+                    host = &e;
+            if (!host)
+            {
+                note("no encounter on this map to start the group with");
+                return;
+            }
+            if (g_restore.address)
+                write32(rdram, g_restore.address + 0x28u, static_cast<uint32_t>(g_restore.group));
+            g_restore = {host->address, gameFrame(rdram) + 600u, host->id, static_cast<int32_t>(read32(rdram, host->address + 0x28u))};
+            write32(rdram, host->address + 0x28u, static_cast<uint32_t>(groupId));
+            const bool ok = callGame(rdram, ctx, rt, func_0x17f040, {static_cast<uint32_t>(host->id)});
+            note("enemy group " + std::to_string(groupId) + " (" + group->name + ") through " + host->name +
+                 (ok ? "" : " (did not return)"));
+        }
+
         // 0x216118: the graphics paths still busy (the main loop waits on it once a frame). There are none: 0. The
         // requests are served here.
         void mainLoopTick(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
@@ -258,19 +327,35 @@ namespace tta
             for (const Request &r : due)
                 if (r.kind == Request::kEncounter)
                     startEncounter(rdram, ctx, rt, r.value);
+                else if (r.kind == Request::kGroup)
+                    startGroup(rdram, ctx, rt, r.value);
                 else
                     warp(rdram, ctx, rt, r.value);
-            // The current map's encounters, twice a second (the table moves when a map loads).
+            if (g_restore.address && frame >= g_restore.frame)
+            {
+                if (read32(rdram, g_restore.address) == static_cast<uint32_t>(g_restore.id))
+                    write32(rdram, g_restore.address + 0x28u, static_cast<uint32_t>(g_restore.group));
+                g_restore = {};
+            }
+            // The current map's encounters and groups: a RAM scan when the map's record table moves (a map loaded),
+            // and every 10 seconds while the lists are empty (the objects come after the table).
             static uint32_t lastTable = 0, lastFrame = 0;
             const uint32_t table = read32(rdram, kRecordTable);
-            if (table != lastTable || frame - lastFrame >= 30u)
+            bool empty;
+            {
+                std::lock_guard lock(g_mutex);
+                empty = g_encounters.empty();
+            }
+            g_currentMap.store(static_cast<int>(read32(rdram, kMapIndex)));
+            if (table != lastTable || (empty && frame - lastFrame >= 600u))
             {
                 lastTable = table;
                 lastFrame = frame;
-                std::vector<Encounter> list = readEncounters(rdram);
-                g_currentMap.store(static_cast<int>(read32(rdram, kMapIndex)));
+                std::vector<Encounter> encounters, groups;
+                scanObjects(rdram, encounters, groups);
                 std::lock_guard lock(g_mutex);
-                g_encounters.swap(list);
+                g_encounters.swap(encounters);
+                g_groups.swap(groups);
             }
             ctx->r[2].ud[0] = 0;
             ctx->pc = ctx->r[31].uw[0];
@@ -346,6 +431,52 @@ namespace tta
             func_0x15b6c8(rdram, ctx, rt);
         }
 
+        // TTA_ZONE_TRACE=1: the random-encounter zones' updates (0x178f38(zone, step)): each zone once with its countdown
+        // and encounter list.
+        void zoneTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t zone = ctx->r[4].uw[0];
+            static std::vector<uint32_t> seen;
+            static uint32_t lastPrint = 0;
+            const bool fresh = std::find(seen.begin(), seen.end(), zone) == seen.end();
+            if (fresh || gameFrame(rdram) - lastPrint > 600u)
+            {
+                if (fresh)
+                    seen.push_back(zone);
+                lastPrint = gameFrame(rdram);
+                float countdown, step;
+                std::memcpy(&countdown, rdram + zone + 0x50u, 4);
+                std::memcpy(&step, &ctx->f[12], 4);
+                const uint32_t total = read32(rdram, zone + 0x54u), left = read32(rdram, zone + 0x5cu);
+                std::printf("[tta:debug] zone %x game frame %u: countdown %.2f step %.3f, %u encounters (%u left):", zone,
+                            gameFrame(rdram), countdown, step, total, left);
+                for (uint32_t k = 0; k < total && k < 32u; ++k)
+                    std::printf(" %u", read32(rdram, zone + 0x84u + k * 4u));
+                std::printf("  words:");
+                for (uint32_t k = 0; k < 0x84u; k += 4)
+                    std::printf(" %x", read32(rdram, zone + k));
+                std::printf("\n");
+                std::fflush(stdout);
+            }
+            func_0x178f38(rdram, ctx, rt);
+        }
+
+        // With TTA_ZONE_TRACE: the encounter manager's messages (0x17bc98: 0xc8 a zone entered, 0xc9 left; +4 the id).
+        void zoneMessageTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t msg = ctx->r[5].uw[0];
+            if (msg)
+            {
+                const uint32_t number = read32(rdram, msg + 8u);
+                if (number == 0xc8u || number == 0xc9u)
+                {
+                    std::printf("[tta:debug] zone message %x id %u, game frame %u%c", number, read32(rdram, msg + 4u), gameFrame(rdram), 10);
+                    std::fflush(stdout);
+                }
+            }
+            func_0x17bc98(rdram, ctx, rt);
+        }
+
         // "<value>[@<game frame>]"
         std::pair<std::string, uint32_t> withFrame(const std::string &spec)
         {
@@ -356,49 +487,16 @@ namespace tta
         }
 
 #ifdef BOZO_SETTINGS_UI
-        void drawTab()
+        // A filtered, scrolling list of encounters or groups with a button each.
+        void drawList(const char *id, const std::vector<Encounter> &list, const char *filter, const char *button,
+                      Request::Kind kind, float height)
         {
-            std::vector<Encounter> encounters;
-            std::string last;
+            std::string want = filter;
+            for (char &c : want)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (ImGui::BeginChild(id, ImVec2(0, height * ImGui::GetStyle().FontScaleDpi), ImGuiChildFlags_Borders))
             {
-                std::lock_guard lock(g_mutex);
-                encounters = g_encounters;
-                last = g_last;
-            }
-            const int current = g_currentMap.load();
-            ImGui::TextDisabled("Warp loads a map from its start (its films, then its start position). A battle starts on the");
-            ImGui::TextDisabled("current map: use it while walking freely, not during a film or another battle.");
-            ImGui::SeparatorText("Maps");
-            for (int i = 2; i < 14; ++i)
-            {
-                if (!kMaps[i].region)
-                    continue;
-                ImGui::PushID(i);
-                if (ImGui::Button("Warp"))
-                    request(Request::kWarp, i);
-                ImGui::SameLine();
-                ImGui::Text("%s%s  (%s)", kMaps[i].region, i == current ? "  <- current" : "", kMaps[i].path);
-                ImGui::PopID();
-            }
-            ImGui::SeparatorText("Battles on this map");
-            static char filter[64] = "";
-            ImGui::SetNextItemWidth(200.0f * ImGui::GetStyle().FontScaleDpi);
-            ImGui::InputTextWithHint("##filter", "filter", filter, sizeof(filter));
-            ImGui::SameLine();
-            static int custom = 0;
-            ImGui::SetNextItemWidth(120.0f * ImGui::GetStyle().FontScaleDpi);
-            ImGui::InputInt("##id", &custom, 0);
-            ImGui::SameLine();
-            if (ImGui::Button("Start id"))
-                request(Request::kEncounter, custom);
-            if (encounters.empty())
-                ImGui::TextDisabled("No encounters listed (no map loaded yet).");
-            if (ImGui::BeginChild("encounters", ImVec2(0, 260.0f * ImGui::GetStyle().FontScaleDpi), ImGuiChildFlags_Borders))
-            {
-                std::string want = filter;
-                for (char &c : want)
-                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                for (const Encounter &e : encounters)
+                for (const Encounter &e : list)
                 {
                     std::string lower = e.name;
                     for (char &c : lower)
@@ -406,14 +504,51 @@ namespace tta
                     if (!want.empty() && lower.find(want) == std::string::npos)
                         continue;
                     ImGui::PushID(e.id);
-                    if (ImGui::Button("Start"))
-                        request(Request::kEncounter, e.id);
+                    if (ImGui::Button(button))
+                        request(kind, e.id);
                     ImGui::SameLine();
                     ImGui::Text("%d  %s", e.id, e.name.c_str());
                     ImGui::PopID();
                 }
             }
             ImGui::EndChild();
+        }
+
+        void drawTab()
+        {
+            std::vector<Encounter> encounters, groups;
+            std::string last;
+            {
+                std::lock_guard lock(g_mutex);
+                encounters = g_encounters;
+                groups = g_groups;
+                last = g_last;
+            }
+            const int current = g_currentMap.load();
+            ImGui::TextDisabled("Warp loads a map from its start (its films, then its start position). Battles start on the");
+            ImGui::TextDisabled("current map: use them while walking freely, not during a film or another battle.");
+            if (ImGui::CollapsingHeader("Maps", ImGuiTreeNodeFlags_DefaultOpen))
+                for (int i = 2; i < 14; ++i)
+                {
+                    if (!kMaps[i].region)
+                        continue;
+                    ImGui::PushID(i);
+                    if (ImGui::Button("Warp"))
+                        request(Request::kWarp, i);
+                    ImGui::SameLine();
+                    ImGui::Text("%s%s  (%s)", kMaps[i].region, i == current ? "  <- current" : "", kMaps[i].path);
+                    ImGui::PopID();
+                }
+            static char filter[64] = "";
+            ImGui::SetNextItemWidth(220.0f * ImGui::GetStyle().FontScaleDpi);
+            ImGui::InputTextWithHint("##filter", "filter both lists (rnd, warg, orc...)", filter, sizeof(filter));
+            if (encounters.empty() && groups.empty())
+                ImGui::TextDisabled("Nothing listed yet (the map's objects are read once it has loaded).");
+            if (ImGui::CollapsingHeader("Encounters (the map's own battles, Rnd.. its random ones)", ImGuiTreeNodeFlags_DefaultOpen))
+                drawList("encounters", encounters, filter, "Start", Request::kEncounter, 200.0f);
+            if (ImGui::CollapsingHeader("Enemy groups (any group in a battle: Rnd_Easy / Med / Hard are the random battles')",
+                                        ImGuiTreeNodeFlags_DefaultOpen))
+                drawList("groups", groups, filter, "Fight", Request::kGroup, 200.0f);
             if (!last.empty())
                 ImGui::TextDisabled("Last: %s", last.c_str());
         }
@@ -457,6 +592,12 @@ namespace tta
         request(Request::kEncounter, std::atoi(what.c_str()), frame);
     }
 
+    void requestGroup(const std::string &spec)
+    {
+        const auto [what, frame] = withFrame(spec);
+        request(Request::kGroup, std::atoi(what.c_str()), frame);
+    }
+
     void installDebug(bozo::port::Registry &registry)
     {
         if (const char *list = std::getenv("TTA_GAME_OPTIONS"))
@@ -469,10 +610,17 @@ namespace tta
             requestWarp(w);
         if (const char *e = std::getenv("TTA_ENCOUNTER"))
             requestEncounter(e);
+        if (const char *g = std::getenv("TTA_GROUP"))
+            requestGroup(g);
         registry.registerFunction(0x140670, parseArguments);
         registry.registerFunction(0x216118, mainLoopTick);
         if (std::getenv("TTA_ENCOUNTER_TRACE"))
             registry.registerFunction(0x15b6c8, encounterTrace);
+        if (std::getenv("TTA_ZONE_TRACE"))
+        {
+            registry.registerFunction(0x178f38, zoneTrace);
+            registry.registerFunction(0x17bc98, zoneMessageTrace);
+        }
 #ifdef BOZO_SETTINGS_UI
         bozo::app::ui::registerTab("Debug", drawTab);
 #endif

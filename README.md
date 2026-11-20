@@ -291,12 +291,15 @@ Debug tools (the F2 window's **Debug** tab, built on the game's own level-script
 
 - **Warp**: loads any map from its start (its films, then its start position): Eregion, Western Moria, Eastern Moria,
   Eastemnet Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith, Pelennor Fields (and e02c04).
-- **Battles on this map**: every scripted encounter of the current map (Eregion: the Nazgul, the orc ambushes and
-  warbands, the warg camps, the Watcher...), started on the spot as the level scripts' StartEncounter does, or any id.
-  Start one while walking freely, not during a film or another battle. Enemies of another region: warp there first.
+- **Encounters**: every battle the current map defines, its story battles (Eregion: the Nazgul, the orc ambushes and
+  warbands, the warg camps, the Watcher...) and its random ones (`Rnd..`), started on the spot.
+- **Enemy groups**: any enemy group of the current map in a battle: the random battles' groups (`Rnd_Easy / Med /
+  Hard`, each with its 1-, 2- or 3-enemy layout) or a story battle's (the Watcher as an ordinary fight).
+
+Start them while walking freely, not during a film or another battle. Enemies of another region: warp there first.
 
 From the command line: `--warp MAP[@FRAME]` (a region such as `"helms deep"`, a path such as `e02c05`, or an index)
-and `--encounter ID[@FRAME]` (frames are the game's), for example from a saved state:
+`--encounter ID[@FRAME]` and `--group ID[@FRAME]` (frames are the game's), for example from a saved state:
 `tta --load-state build/states/forest_14900.state --encounter 2118@14940` starts Eregion's first warg camp.
 `--game-option NAME[=VALUE]` passes the developers' own options to the game (`encounters_only`).
 

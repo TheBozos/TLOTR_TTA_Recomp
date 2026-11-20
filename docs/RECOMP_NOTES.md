@@ -422,6 +422,24 @@ the game's behaviour); its code is in the history before `8ade037`.
   forest film fights the Nazgul with the film still running, the random battles' _EP / _ET ids alone end at once on
   "Experience Earned" (a random battle pairs them elsewhere; not found yet). The first battle's capture is unchanged.
   TTA_ENCOUNTER_TRACE=1 prints every encounter start.
+- **Debug: random battles and any enemy group** (2026-11-20). The map's objects carry the links: an encounter
+  (type 0x1775 at +4: id at +0, its enemy group at +0x28) and an enemy group (type 0x1770, an "_ET" record: its
+  placement, an "_EP" record, at +0x24; Eregion: e1c1_Rnd_Easy_01_ET -> e1c1_Rnd_2enemy_EP, Rnd_Med_01 -> the
+  1-enemy layout, the story groups -> their own). StartEncounter takes an encounter only (an _EP or _ET id alone opens
+  an empty battle that ends on "Experience Earned"). The random encounters are encounter objects too (Rnd01_OrcAmbush01
+  2135, Rnd02_MoriaApproach 2136, Rnd01_05_Easy...), named Rnd.., which the name filter had missed: the list now comes
+  from a RAM scan for {id, type} with the id one of the map's records (on each map load). Any group in a battle: a host
+  encounter (the first Rnd.. one) gets its +0x28 pointed at the group, is started, and gets its own back 600 game
+  frames later. Checked from forest_14900: Rnd_Easy_01 (two orc archers), Rnd_Hard_01 (two wargs), the Watcher's
+  group (the Watcher as an ordinary fight), Rnd01_OrcAmbush01. How the game itself rolls them: danger zones. Entering
+  one sends the encounter manager (0x3a4f98, 11 pools of 0x1c-byte headers) message 0xc8 with the zone's id
+  (0x17bc98 -> 0x17a080(manager, 10, id, 0)), 0xc9 on leaving; 0x17afc0 then runs the active zone (0x178f38: game mode
+  2, no film...) whose countdown (+0x50) falls with the scaled time, and at 0 0x178e88 draws an encounter from its
+  list (+0x84, count +0x54, a shuffled deck: +0x5c left) and starts it (0x15b6c8). 0x178d18 fills a zone from its
+  definition (+0x24: up to 4 ids) and the pool of kind 5. No zone was entered from any state here (forest, outpost, the
+  user's clearing); TTA_ZONE_TRACE=1 prints zone messages and updates. The user's clearing state
+  (build/states/user_slow_16590.state, F5 at 16590) held 59-60 frames/s in real time on a quiet bench (95 unpaced);
+  the drops to 38-45 in the user's session did not reproduce.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by

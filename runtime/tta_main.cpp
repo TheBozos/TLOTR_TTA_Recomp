@@ -79,7 +79,7 @@ int main(int argc, char **argv)
             dumpRam = argv[++i];
         else if (a == "--headless")
             window = false;
-        // Debug (tta_debug.cpp): --warp MAP[@FRAME], --encounter ID[@FRAME], --game-option NAME[=VALUE].
+        // Debug (tta_debug.cpp): --warp MAP[@FRAME], --encounter ID[@FRAME], --group ID[@FRAME], --game-option NAME[=VALUE].
         else if (a == "--warp" && i + 1 < argc)
         {
             if (!tta::requestWarp(argv[++i]))
@@ -87,6 +87,8 @@ int main(int argc, char **argv)
         }
         else if (a == "--encounter" && i + 1 < argc)
             tta::requestEncounter(argv[++i]);
+        else if (a == "--group" && i + 1 < argc)
+            tta::requestGroup(argv[++i]);
         else if (a == "--game-option" && i + 1 < argc)
             tta::addGameOption(argv[++i]);
 #ifdef TTA_WITH_WINDOW
@@ -103,7 +105,7 @@ int main(int argc, char **argv)
                                  "           [--card-dir DIR] [--pad-script FILE] [--capture-dir DIR] [--capture-frame N]\n"
                                  "           [--fullscreen] [--dump-ram FILE]\n"
                                  "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
-                                 "           [--warp MAP[@FRAME]] [--encounter ID[@FRAME]] [--game-option NAME[=VALUE]]\n");
+                                 "           [--warp MAP[@FRAME]] [--encounter ID[@FRAME]] [--group ID[@FRAME]] [--game-option NAME[=VALUE]]\n");
             return a == "--help" ? 0 : 2;
         }
     }

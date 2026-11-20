@@ -50,6 +50,8 @@ namespace tta
     void addGameOption(const std::string &spec);
     bool requestWarp(const std::string &spec);
     void requestEncounter(const std::string &spec);
+    // A battle against any of the current map's enemy groups (an "_ET" record id), "@<game frame>" optional.
+    void requestGroup(const std::string &spec);
     void installDebug(bozo::port::Registry &registry);
     // Save states: the resources the game loaded and where it placed its textures (tta_2d.cpp).
     void twoDState(bozo::state::Archive &a);
