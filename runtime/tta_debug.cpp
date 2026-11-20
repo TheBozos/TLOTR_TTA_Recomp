@@ -168,7 +168,17 @@ namespace tta
                 const int32_t link = static_cast<int32_t>(read32(rdram, a + (type == kEncounterType ? 0x28u : 0x24u)));
                 if (link < lo || link > hi || !byId[static_cast<size_t>(link - lo)])
                     continue;
+                // The links name what they are: an encounter's group is an "_ET" record, a group's placement an "_EP"
+                // one, and a group is itself an "_ET". Anything else is another object whose words happen to match.
+                const auto endsWith = [](const std::string &n, const char *tail)
+                {
+                    const size_t k = std::strlen(tail);
+                    return n.size() >= k && n.compare(n.size() - k, k, tail) == 0;
+                };
                 const std::string &name = *byId[static_cast<size_t>(id - lo)];
+                const std::string &linked = *byId[static_cast<size_t>(link - lo)];
+                if (type == kEncounterType ? !endsWith(linked, "_ET") : (!endsWith(name, "_ET") || !endsWith(linked, "_EP")))
+                    continue;
                 auto &into = type == kEncounterType ? encounters : groups;
                 if (std::none_of(into.begin(), into.end(), [&](const Encounter &e) { return e.id == id; }))
                     into.push_back({id, name, a, link});
@@ -338,21 +348,26 @@ namespace tta
                 g_restore = {};
             }
             // The current map's encounters and groups: a RAM scan when the map's record table moves (a map loaded),
-            // and every 10 seconds while the lists are empty (the objects come after the table).
-            static uint32_t lastTable = 0, lastFrame = 0;
+            // then again 1, 5, 15 and 60 seconds later (the objects come after the table, while the map streams in).
+            static uint32_t lastTable = 0, tableFrame = 0, rescans = 0;
+            static constexpr uint32_t kRescanAt[] = {60u, 300u, 900u, 3600u};
             const uint32_t table = read32(rdram, kRecordTable);
-            bool empty;
-            {
-                std::lock_guard lock(g_mutex);
-                empty = g_encounters.empty();
-            }
             g_currentMap.store(static_cast<int>(read32(rdram, kMapIndex)));
-            if (table != lastTable || (empty && frame - lastFrame >= 600u))
+            const bool moved = table != lastTable;
+            if (moved)
             {
                 lastTable = table;
-                lastFrame = frame;
+                tableFrame = frame;
+                rescans = 0;
+            }
+            if (moved || (rescans < 4u && frame - tableFrame >= kRescanAt[rescans]))
+            {
+                if (!moved)
+                    ++rescans;
                 std::vector<Encounter> encounters, groups;
                 scanObjects(rdram, encounters, groups);
+                std::printf("[tta:debug] map objects at game frame %u: %zu encounters, %zu enemy groups%c", frame, encounters.size(),
+                            groups.size(), 10);
                 std::lock_guard lock(g_mutex);
                 g_encounters.swap(encounters);
                 g_groups.swap(groups);
