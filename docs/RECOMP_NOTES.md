@@ -607,6 +607,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   Scream the block is read whole and sometimes covered (all 40 pixels in front), and the flare fades then (mean
   alpha 14 -> 9.6). Pixels not read back yet (headless) count as clear. TTA_FLARE_NO_DEPTH=1 for the old way;
   TTA_RENDER_TRACE=1 prints each test.
+  The same audit over a battle in each later region (the debug warp from forest_14900 at 15000, an encounter at 16200,
+  CROSS every 45 frames to 21000: Western Moria's Watcher 1000, the Gullies' 1132, Helm's Deep's breach 1129,
+  Osgiliath's Gothmog 1269, Minas Tirith's court 1448, the Pelennor's 1252; Rohan's 1172 above) finds the effect
+  components Particle System, Flare, LightBeam (0x236218: its strips through 0x218910), Visual Object and Screen,
+  and only six callers not seen before, all GS state (A+D ALPHA / ZBUF / TEST / FRAME / TEX0) for draws made through
+  native paths: 0x1cfbcc, 0x1ce02c (screen filters), 0x1d0c5c / 0x1d10b8 (0x1d0c40, Osgiliath, into the 256-wide
+  target FBP 0x1e0), 0x2202b8 (type 4's set-up) and 0x23f2dc (0x23e7e0, Visual Object). TTA_CHAIN_DUMP=<ra hex>
+  prints a caller's first blocks. Lightning, Glow (the component), Weather and Line Blur did not run in these.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
