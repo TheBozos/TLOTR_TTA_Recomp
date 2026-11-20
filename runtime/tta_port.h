@@ -44,6 +44,9 @@ namespace tta
     // A one-frame report (F10 in the window build): the next game frame logs every character draw's mode, fade, sections
     // and lights, with the 0x20000 shine layer's inputs, as [tta:report] lines (tta_3d.cpp).
     void requestFrameReport();
+    // The 3D draws queued so far (their vertex work run on the draw workers) given to the renderer in order (tta_3d.cpp).
+    // Called before any other use of the renderer: the 2D, the screen filters, the frame's begin and end.
+    void flushDraws();
     // Debug (tta_debug.cpp): the developers' command-line options given to the game ("encounters_only"), as if from its
     // argv; a warp to a map (an index, a path such as e02c05 or a region such as "Helm's Deep") and a battle by the
     // current map's encounter id, each optionally "@<game frame>". Before or after install.

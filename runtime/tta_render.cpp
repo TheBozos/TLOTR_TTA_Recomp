@@ -96,6 +96,7 @@ namespace tta
 
         void beginFrame()
         {
+            flushDraws();
             bozo::render::Renderer::instance().beginFrame(screen());
             g_frameOpen = true;
         }
@@ -110,6 +111,7 @@ namespace tta
             write32(rdram, 0x3b5720, read32(rdram, 0x3b5720) + 1);
             if (rdram[0x36f35c] == 0)
             {
+                flushDraws(); // the frame's queued 3D draws (tta_3d.cpp) before it is published
                 auto &r = bozo::render::Renderer::instance();
                 if (!g_frameOpen)
                     beginFrame();

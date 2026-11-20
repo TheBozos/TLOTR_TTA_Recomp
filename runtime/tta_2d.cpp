@@ -611,7 +611,7 @@ namespace tta
                 targetHeight = static_cast<float>(((scissor >> 48) & 0x7ffu) + 1u);
                 if (targetWidth <= 0.0f || targetHeight <= 1.0f)
                     return count(rdram, false);
-                bozo::render::Renderer::instance().setTargetSize(target, static_cast<uint16_t>(targetWidth),
+                (flushDraws(), bozo::render::Renderer::instance()).setTargetSize(target, static_cast<uint16_t>(targetWidth),
                                                                  static_cast<uint16_t>(targetHeight));
             }
             // The movie's sprites (0x22b050) draw the picture the backdrop already shows.
@@ -699,7 +699,7 @@ namespace tta
                 const float y0 = std::fmin(points[0].y, points[1].y), y1 = std::fmax(points[0].y, points[1].y);
                 if (x0 <= 1792.0f + 1.0f && y0 <= 1824.0f + 1.0f && x1 >= 2304.0f - 1.0f && y1 >= 2272.0f - 1.0f)
                 {
-                    bozo::render::Renderer::instance().setClearColour(points[1].rgba & 0xffffffu);
+                    (flushDraws(), bozo::render::Renderer::instance()).setClearColour(points[1].rgba & 0xffffffu);
                     return count(rdram, false);
                 }
             }
@@ -905,7 +905,7 @@ namespace tta
                     }
                 }
                 if (!triangles.empty())
-                    bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
                 // GS alpha goes to 0xff (As ~ 2): the screen filters add their blurred target back over the frame at alpha
                 // 0xff, twice the target. The GPU's alpha stops at 1, so an additive draw past 0x80 is drawn again with the
                 // rest (Cs As + Cd = Cs 1 + Cs (As - 1) + Cd; the sum saturates as COLCLAMP does).
@@ -918,7 +918,7 @@ namespace tta
                         const uint32_t a = q.rgba >> 24;
                         q.rgba = (q.rgba & 0xffffffu) | ((a > 0x80u ? a - 0x80u : 0u) << 24);
                     }
-                    bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
                 }
                 if (traceLevel() >= 2 || frameReportActive(rdram))
                 {
@@ -955,7 +955,7 @@ namespace tta
             }
             if (triangles.empty())
                 return count(rdram, false);
-            bozo::render::Renderer::instance().drawOverlay(material, triangles.data(),
+            (flushDraws(), bozo::render::Renderer::instance()).drawOverlay(material, triangles.data(),
                                                            static_cast<uint32_t>(triangles.size()), picture);
             if (traceLevel() >= 2)
                 std::printf("[tta:2d] frame %u: type %u n %u from %x tex %s (TEX0 %016llx: TBW %u TW %u TH %u CBP %x) blend %d "

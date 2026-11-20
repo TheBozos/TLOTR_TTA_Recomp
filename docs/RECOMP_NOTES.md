@@ -422,6 +422,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   forest film fights the Nazgul with the film still running, the random battles' _EP / _ET ids alone end at once on
   "Experience Earned" (a random battle pairs them elsewhere; not found yet). The first battle's capture is unchanged.
   TTA_ENCOUNTER_TRACE=1 prints every encounter start.
+- **The draw work off the game thread** (2026-11-20, the user: a PS2 game should hold 60 with another game running).
+  Everything ran on the game thread: in the user's forest clearing (build/states/user_slow_16590.state) ~12.5 ms of
+  the 16.7, so any competition for that core dropped frames (38-45 in the user's session). Two changes:
+  (1) BozoEngine ps2f (branch tta/softfloat-fast): addNearest and mul take the host's float add / multiply when the
+  operands and the result are normal (exponent 1..254), where the exact result rounded to nearest even is IEEE's;
+  zeros, denormals, exponent 255 and out-of-range results keep the exact path (BOZO_PS2F_EXACT_ONLY). The first
+  battle and a forest walk end with the same RAM; the battle ~15% faster headless. (2) tta_3d.cpp's draw queue: the
+  3D draws are recorded in order and their vertex work is a job (a static batch's colours, fog, triangles and
+  clipping; a skinned batch's skinning and lighting, on its bones / W / lighting / fade copied at the draw), run by
+  workers (TTA_DRAW_THREADS, default min(6, cores / 2)); tta::flushDraws runs the jobs and submits in order before any
+  other use of the renderer (the 2D, the screen filters, the frame's begin and end). The shadow pass's skins and the
+  skin debug switches stay on the game thread; shadow meshes outside the shadow pass are no longer skinned for
+  nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
+  TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
+  clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
 - **Debug: random battles and any enemy group** (2026-11-20). The map's objects carry the links: an encounter
   (type 0x1775 at +4: id at +0, its enemy group at +0x28) and an enemy group (type 0x1770, an "_ET" record: its
   placement, an "_EP" record, at +0x24; Eregion: e1c1_Rnd_Easy_01_ET -> e1c1_Rnd_2enemy_EP, Rnd_Med_01 -> the

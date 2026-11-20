@@ -18,13 +18,16 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <condition_variable>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <tuple>
 #include <unordered_map>
 #include <set>
+#include <thread>
 #include <vector>
 
 namespace tta
@@ -115,6 +118,7 @@ namespace tta
             float matrix[16] = {};
             std::vector<uint32_t> colours;
             std::vector<Batch> batches;
+            mutable int maxBone = -1; // a skinned node's highest bone index (found on first draw)
         };
 
         struct Mesh
@@ -319,7 +323,8 @@ namespace tta
         // (z / w) >= 0 and <= the 24-bit range. TTA_NO_NEAR_CLIP turns it off.
         void clipToDepthRange(std::vector<bozo::render::Vertex> &triangles, const float m[16])
         {
-            if (env("TTA_NO_NEAR_CLIP"))
+            static const bool off = env("TTA_NO_NEAR_CLIP") != nullptr; // read once: the draw workers call this too
+            if (off)
                 return;
             constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
             const auto distance = [m](const bozo::render::Vertex &v, int plane)
@@ -351,7 +356,7 @@ namespace tta
                 o.rgba = rgba;
                 return o;
             };
-            static std::vector<bozo::render::Vertex> out; // reused (swapped with the caller's buffer)
+            thread_local std::vector<bozo::render::Vertex> out; // reused (swapped with the caller's buffer), per thread
             out.clear();
             out.reserve(triangles.size());
             for (size_t t = 0; t + 2 < triangles.size(); t += 3)
@@ -403,6 +408,324 @@ namespace tta
             return true;
         }
 
+        // ---- The draw queue: the per-vertex work off the game thread ----
+        //
+        // The 3D draws go to the renderer in the game's order, but their vertex work (a static batch's colours, fog,
+        // triangles and clipping; later the skinning) is a job run by a pool of workers. The game thread records each
+        // draw (its material, matrix, texture and what the job needs, copied out of RAM where RAM can change), and the
+        // queue is flushed, its jobs run in parallel and its draws submitted in order, before any other use of the
+        // renderer (the 2D, the screen filters, the frame's end: tta::flushDraws). Ready draws (vertices already built)
+        // queue as they are. TTA_DRAW_THREADS=<n> sets the workers (0: the jobs run on the game thread at the flush).
+        void transformPoint(const float m[16], const float in[3], float w, float out[3]);
+
+        struct Deferred
+        {
+            bozo::render::Material material;
+            float matrix[16];
+            std::shared_ptr<const bozo::render::Texture> texture;
+            std::vector<bozo::render::Vertex> vertices; // the job's output, or the ready draw's
+            // A static batch (drawNode): its source data stays in the mesh cache for the program's life.
+            const Batch *batch = nullptr;
+            const Node *node = nullptr;
+            float fogK = 0.0f;
+            bool fogged = false, clip = false;
+            // A skinned batch (drawSkin): the batch, its draw's inputs (SkinInputs, by index), and for the silhouette
+            // pass the fog colour its vertices take.
+            const Batch *skin = nullptr;
+            size_t skinInputs = 0;
+            bool silhouette = false;
+            uint32_t silhouetteColour = 0;
+            // A second pass over the same vertices (the skins' alpha split): the entry whose vertices it draws.
+            long copyFrom = -1;
+        };
+
+        // A skinned draw's inputs, copied out of RAM when it is recorded: the bones it uses, W, the lighting, the fade.
+        struct SkinInputs
+        {
+            std::vector<std::array<float, 16>> bones;
+            float w[16];
+            float lighting[10][3];
+            uint32_t fade = 0;
+            bool fresh = true; // false: the node's own bind pose (the bones are the identity)
+        };
+
+        // The skinning of drawSkin's batches (the same arithmetic): each vertex blended by its four bones, lit on its
+        // world-space normal, then the triangles and the clipping.
+        void buildSkinBatch(Deferred &d, const SkinInputs &in)
+        {
+            static const std::array<float, 16> identity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            static const bool noLight = env("TTA_SKIN_NOLIGHT") != nullptr;
+            const Batch &batch = *d.skin;
+            const uint32_t type = batch.prim & 7u;
+            thread_local std::vector<bozo::render::Vertex> skinned;
+            skinned = batch.vertices;
+            for (size_t v = 0; v < skinned.size(); ++v)
+            {
+                float p[3] = {}, n[3] = {};
+                const float inPos[3] = {batch.vertices[v].x, batch.vertices[v].y, batch.vertices[v].z};
+                for (int k = 0; k < 4; ++k)
+                {
+                    const float weight = batch.weights[v][k];
+                    if (weight == 0.0f)
+                        continue;
+                    const uint8_t b = batch.bones[v][k];
+                    const auto &m = in.fresh && b < in.bones.size() ? in.bones[b] : identity;
+                    float bp[3], bn[3];
+                    transformPoint(m.data(), inPos, 1.0f, bp);
+                    transformPoint(m.data(), batch.normals[v].data(), 0.0f, bn);
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        p[c] += weight * bp[c];
+                        n[c] += weight * bn[c];
+                    }
+                }
+                skinned[v].x = p[0];
+                skinned[v].y = p[1];
+                skinned[v].z = p[2];
+                float wn[3];
+                transformPoint(in.w, n, 0.0f, wn);
+                const float len = std::sqrt(wn[0] * wn[0] + wn[1] * wn[1] + wn[2] * wn[2]);
+                if (len > 0.0f)
+                    for (float &c : wn)
+                        c /= len;
+                const float terms[10] = {1.0f, wn[0] * wn[0], wn[1] * wn[1], wn[2] * wn[2], wn[0] * wn[1],
+                                         wn[0] * wn[2], wn[1] * wn[2], wn[0], wn[1], wn[2]};
+                uint32_t rgba = 0;
+                for (int c = 0; c < 3; ++c)
+                {
+                    float light = 0.0f;
+                    for (int k = 0; k < 10; ++k)
+                        light += in.lighting[k][c] * terms[k];
+                    const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * (light > 0.0f ? light : 0.0f);
+                    rgba |= static_cast<uint32_t>(value < 255.0f ? value : 255.0f) << (c * 8);
+                }
+                if (noLight)
+                    rgba = batch.colours[v] & 0xffffffu;
+                const uint32_t alpha = ((batch.colours[v] >> 24) & 0xffu) * in.fade / 0x80u;
+                skinned[v].rgba = rgba | std::min<uint32_t>(alpha, 0xffu) << 24;
+            }
+            std::vector<bozo::render::Vertex> &triangles = d.vertices;
+            triangles.clear();
+            for (size_t i = 2; i < skinned.size(); ++i)
+            {
+                if (batch.adc[i])
+                    continue;
+                if (type == 3)
+                {
+                    if (i % 3 == 2)
+                        triangles.insert(triangles.end(), {skinned[i - 2], skinned[i - 1], skinned[i]});
+                }
+                else if (type == 4)
+                    triangles.insert(triangles.end(), {skinned[i - 2], skinned[i - 1], skinned[i]});
+                else
+                    triangles.insert(triangles.end(), {skinned[0], skinned[i - 1], skinned[i]});
+            }
+            if (!triangles.empty())
+                clipToDepthRange(triangles, d.matrix);
+            if (d.silhouette)
+                for (auto &v : triangles)
+                    v.rgba = (v.rgba & 0xff000000u) | d.silhouetteColour;
+        }
+
+        void buildStaticBatch(Deferred &d)
+        {
+            const Batch &batch = *d.batch;
+            const Node &node = *d.node;
+            const uint32_t type = batch.prim & 7u;
+            const float *matrix = d.matrix;
+            thread_local std::vector<bozo::render::Vertex> v;
+            v.assign(batch.vertices.begin(), batch.vertices.end());
+            for (size_t i = 0; i < v.size(); ++i)
+            {
+                const uint32_t c = batch.colours[i];
+                v[i].rgba = batch.colourMode == 1 ? (node.colours.empty() ? 0x80808080u : node.colours[c & 0xffu]) : c;
+                // The VU programs' fog (fog_spec 1): F = min(K / clip.w, 255), K = DS+0x54c; GS F 255 = no fog.
+                if (d.fogged)
+                {
+                    const float w = matrix[3] * v[i].x + matrix[7] * v[i].y + matrix[11] * v[i].z + matrix[15];
+                    const float f = d.fogK / w;
+                    v[i].fog = w > 0.0f ? (f < 255.0f ? f : 255.0f) / 255.0f : 1.0f;
+                }
+            }
+            std::vector<bozo::render::Vertex> &triangles = d.vertices;
+            triangles.clear();
+            for (size_t i = 2; i < v.size(); ++i)
+            {
+                if (batch.adc[i])
+                    continue;
+                if (type == 3)
+                {
+                    if (i % 3 == 2)
+                        triangles.insert(triangles.end(), {v[i - 2], v[i - 1], v[i]});
+                }
+                else if (type == 4)
+                    triangles.insert(triangles.end(), {v[i - 2], v[i - 1], v[i]});
+                else
+                    triangles.insert(triangles.end(), {v[0], v[i - 1], v[i]});
+            }
+            if (d.clip && !triangles.empty())
+                clipToDepthRange(triangles, matrix);
+        }
+
+        class DrawQueue
+        {
+        public:
+            DrawQueue()
+            {
+                const char *n = env("TTA_DRAW_THREADS");
+                const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+                const unsigned want = n ? static_cast<unsigned>(std::atoi(n)) : std::min(6u, cores > 4u ? cores / 2u : 1u);
+                for (unsigned i = 0; i < want; ++i)
+                    m_workers.emplace_back([this] { work(); });
+            }
+            ~DrawQueue()
+            {
+                {
+                    std::lock_guard lock(m_mutex);
+                    m_stop = true;
+                }
+                m_wake.notify_all();
+                for (auto &t : m_workers)
+                    t.join();
+            }
+
+            // The next entry, in order; `job`: its vertices come from a job (a static batch), else they are set now.
+            Deferred &push(bool job)
+            {
+                if (m_count == m_entries.size())
+                    m_entries.emplace_back();
+                Deferred &d = m_entries[m_count++];
+                d.batch = nullptr;
+                d.node = nullptr;
+                d.skin = nullptr;
+                d.silhouette = false;
+                d.copyFrom = -1;
+                m_jobs += job ? 1 : 0;
+                return d;
+            }
+            long index(const Deferred &d) const { return static_cast<long>(&d - m_entries.data()); }
+
+            // A skinned draw's inputs, kept until the flush (by index: the pool grows).
+            size_t pushSkinInputs()
+            {
+                if (m_skinCount == m_skins.size())
+                    m_skins.emplace_back();
+                return m_skinCount++;
+            }
+            SkinInputs &skinInputs(size_t i) { return m_skins[i]; }
+
+            void flush()
+            {
+                if (m_count == 0)
+                    return;
+                if (m_jobs > 0)
+                    runJobs();
+                auto &renderer = bozo::render::Renderer::instance();
+                for (size_t i = 0; i < m_count; ++i)
+                {
+                    Deferred &d = m_entries[i];
+                    const auto &vertices = d.copyFrom >= 0 ? m_entries[static_cast<size_t>(d.copyFrom)].vertices : d.vertices;
+                    if (!vertices.empty())
+                        renderer.draw(d.material, d.matrix, vertices.data(), static_cast<uint32_t>(vertices.size()), d.texture);
+                    d.texture.reset();
+                }
+                m_count = 0;
+                m_jobs = 0;
+                m_skinCount = 0;
+            }
+
+        private:
+            // The entries [0, m_count) shared out: the workers and the game thread take them by index until none is
+            // left. m_total is what the takers compare with: 0 outside a run, so a worker late out of the last run
+            // never touches entries the game thread is filling.
+            void runJobs()
+            {
+                m_done.store(0);
+                m_total.store(m_count);
+                m_next.store(0);
+                if (!m_workers.empty())
+                {
+                    {
+                        std::lock_guard lock(m_mutex);
+                        ++m_generation;
+                    }
+                    m_wake.notify_all();
+                }
+                drain();
+                if (!m_workers.empty())
+                {
+                    std::unique_lock lock(m_mutex);
+                    m_finished.wait(lock, [&] { return m_done.load() >= m_count; });
+                }
+                m_total.store(0);
+            }
+            void drain()
+            {
+                for (;;)
+                {
+                    const size_t i = m_next.fetch_add(1);
+                    if (i >= m_total.load())
+                        return;
+                    Deferred &d = m_entries[i];
+                    if (d.batch)
+                        buildStaticBatch(d);
+                    else if (d.skin)
+                        buildSkinBatch(d, m_skins[d.skinInputs]);
+                    if (m_done.fetch_add(1) + 1 >= m_total.load())
+                    {
+                        std::lock_guard lock(m_mutex);
+                        m_finished.notify_all();
+                    }
+                }
+            }
+            void work()
+            {
+                uint64_t seen = 0;
+                for (;;)
+                {
+                    {
+                        std::unique_lock lock(m_mutex);
+                        m_wake.wait(lock, [&] { return m_stop || m_generation != seen; });
+                        if (m_stop)
+                            return;
+                        seen = m_generation;
+                    }
+                    drain();
+                }
+            }
+
+            std::vector<Deferred> m_entries; // reused: their vertex buffers keep their capacity
+            size_t m_count = 0;
+            std::vector<SkinInputs> m_skins;
+            size_t m_skinCount = 0;
+            int m_jobs = 0;
+            std::vector<std::thread> m_workers;
+            std::mutex m_mutex;
+            std::condition_variable m_wake, m_finished;
+            uint64_t m_generation = 0;
+            bool m_stop = false;
+            std::atomic<size_t> m_next{0}, m_done{0}, m_total{0};
+        };
+
+        DrawQueue &drawQueue()
+        {
+            static DrawQueue queue;
+            return queue;
+        }
+
+        // A draw whose vertices are ready, queued in order (the vertices copied).
+        void queueDraw(const bozo::render::Material &material, const float matrix[16], const bozo::render::Vertex *vertices,
+                       uint32_t count, std::shared_ptr<const bozo::render::Texture> texture = nullptr)
+        {
+            if (count == 0)
+                return;
+            Deferred &d = drawQueue().push(false);
+            d.material = material;
+            std::memcpy(d.matrix, matrix, sizeof(d.matrix));
+            d.texture = std::move(texture);
+            d.vertices.assign(vertices, vertices + count);
+        }
+
         void drawNode(const uint8_t *rdram, const Mesh &mesh, const Node &node, const float screen[16])
         {
             const Node *source = &node;
@@ -418,7 +741,6 @@ namespace tta
                 multiply(screen, node.matrix, matrix);
             else
                 std::memcpy(matrix, screen, sizeof(matrix));
-            auto &renderer = bozo::render::Renderer::instance();
             // The scene's fog (fog_spec 1): K at DS+0x54c, FOGCOL at DS+0x720 (R, G, B bytes).
             const uint32_t ds = read32(rdram, 0x36f850);
             const float fogK = readFloat(rdram, ds + 0x54c);
@@ -439,14 +761,11 @@ namespace tta
                     fogBatches += (batch.prim & 0x20u) ? 1u : 0u;
                 }
             }
-            // Reused between nodes and frames (the scene is thousands of batches a frame).
-            static std::vector<bozo::render::Vertex> triangles, v;
             for (const Batch &batch : source->batches)
             {
                 const uint32_t type = batch.prim & 7u;
                 if (type < 3 || type > 5 || batch.vertices.size() < 3)
                     continue;
-                v.assign(batch.vertices.begin(), batch.vertices.end());
                 if (!batch.boundsKnown)
                 {
                     for (int c = 0; c < 3; ++c)
@@ -466,35 +785,6 @@ namespace tta
                     batch.boundsKnown = true;
                 }
                 const bool fogged = (batch.prim & 0x20u) != 0;
-                for (size_t i = 0; i < v.size(); ++i)
-                {
-                    const uint32_t c = batch.colours[i];
-                    v[i].rgba = batch.colourMode == 1 ? (node.colours.empty() ? 0x80808080u : node.colours[c & 0xffu]) : c;
-                    // The VU programs' fog (fog_spec 1): F = min(K / clip.w, 255), K = DS+0x54c; GS F 255 = no fog.
-                    if (fogged)
-                    {
-                        const float w = matrix[3] * v[i].x + matrix[7] * v[i].y + matrix[11] * v[i].z + matrix[15];
-                        const float f = fogK / w;
-                        v[i].fog = w > 0.0f ? (f < 255.0f ? f : 255.0f) / 255.0f : 1.0f;
-                    }
-                }
-                triangles.clear();
-                for (size_t i = 2; i < v.size(); ++i)
-                {
-                    if (batch.adc[i])
-                        continue;
-                    if (type == 3)
-                    {
-                        if (i % 3 == 2)
-                            triangles.insert(triangles.end(), {v[i - 2], v[i - 1], v[i]});
-                    }
-                    else if (type == 4)
-                        triangles.insert(triangles.end(), {v[i - 2], v[i - 1], v[i]});
-                    else
-                        triangles.insert(triangles.end(), {v[0], v[i - 1], v[i]});
-                }
-                if (triangles.empty())
-                    continue;
                 bozo::render::Material material;
                 material.depthTest = true;
                 // Z writes follow ZBUF_1's ZMSK (bit 32; DS+0x120, on for the scene, 0x1a8600), not PRIM.ABE: the
@@ -560,10 +850,16 @@ namespace tta
                         material.alphaRef = 0; // the scene's TEST (0x1a8600): alpha > 0
                     }
                 }
-                if (!boxInsideDepthRange(batch.lo, batch.hi, matrix))
-                    clipToDepthRange(triangles, matrix);
-                if (!triangles.empty())
-                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                // The vertices (colours, fog, triangles, clipping) are the queue's job.
+                Deferred &d = drawQueue().push(true);
+                d.material = material;
+                std::memcpy(d.matrix, matrix, sizeof(d.matrix));
+                d.texture = texture;
+                d.batch = &batch;
+                d.node = &node;
+                d.fogK = fogK;
+                d.fogged = fogged;
+                d.clip = !boxInsideDepthRange(batch.lo, batch.hi, matrix);
             }
         }
 
@@ -1081,10 +1377,37 @@ namespace tta
                 std::printf("[tta:skin] model %.4g %.4g %.4g world %.4g %.4g %.4g screen %.4g %.4g (w %.4g)\n", bp[0], bp[1],
                             bp[2], wp[0], wp[1], wp[2], sp[0] / sp[3], sp[1] / sp[3], sp[3]);
             }
-            auto &renderer = bozo::render::Renderer::instance();
             // Kept between calls (the game thread only): their storage is reused, not allocated per draw.
             static std::vector<bozo::render::Vertex> skinned, triangles;
             float extentMin[3] = {1e30f, 1e30f, 1e30f}, extentMax[3] = {-1e30f, -1e30f, -1e30f};
+            // The batches' skinning is the draw queue's job (buildSkinBatch), on its inputs copied now; the debug
+            // switches below that look at the skinned vertices keep it here.
+            static const bool skinDebug = env("TTA_SKIN_STATS") || env("TTA_SKIN_MODES_LOG") || env("TTA_SKIN_EXTENT");
+            const bool skinHere = skinDebug || g_flatDebug;
+            size_t inputs = 0;
+            if (!skinHere)
+            {
+                const Node &skinNode = it->second;
+                if (skinNode.maxBone < 0)
+                {
+                    int top = 0;
+                    for (const Batch &b : skinNode.batches)
+                        for (const auto &four : b.bones)
+                            for (uint8_t bi : four)
+                                top = std::max(top, static_cast<int>(bi));
+                    skinNode.maxBone = top;
+                }
+                DrawQueue &q = drawQueue();
+                inputs = q.pushSkinInputs();
+                SkinInputs &in = q.skinInputs(inputs);
+                in.fresh = fresh;
+                in.bones.resize(fresh ? static_cast<size_t>(skinNode.maxBone) + 1u : 0u);
+                for (size_t b = 0; b < in.bones.size(); ++b)
+                    std::memcpy(in.bones[b].data(), rdram + ((bones + static_cast<uint32_t>(b) * 64u) & kMask), 64);
+                std::memcpy(in.w, w, sizeof(in.w));
+                std::memcpy(in.lighting, lighting, sizeof(in.lighting));
+                in.fade = fade;
+            }
             for (const Batch &batch : it->second.batches)
             {
                 if (batch.section < 128 && !(visible[batch.section / 32] & (1u << (batch.section % 32))))
@@ -1092,6 +1415,86 @@ namespace tta
                 const uint32_t type = batch.prim & 7u;
                 if (type < 3 || type > 5 || batch.vertices.size() < 3)
                     continue;
+                // A shadow-volume mesh outside the type-18 pass draws nothing.
+                if ((batch.prim & 0x8000u) && !(g_shadowPass && type == 3))
+                    continue;
+                if (!skinHere && !(batch.prim & 0x8000u))
+                {
+                    if (!batch.textureKnown)
+                    {
+                        batch.textureCache = batch.texture ? textureById(batch.texture) : nullptr;
+                        batch.textureKnown = true;
+                    }
+                    const std::shared_ptr<const bozo::render::Texture> &texture = batch.textureCache;
+                    bozo::render::Material material;
+                    material.depthTest = true;
+                    material.depthWrite = fade >= 0x80;
+                    material.blend = fade < 0x80 ? bozo::render::Material::Blend::Alpha : bozo::render::Material::Blend::Opaque;
+                    material.textured = texture != nullptr;
+                    if (texture)
+                        material.tex0 = texture->key;
+                    const uint32_t mode = read32(rdram, g + 0x2b0);
+                    DrawQueue &q = drawQueue();
+                    const auto job = [&](const bozo::render::Material &m, std::shared_ptr<const bozo::render::Texture> tex) -> Deferred &
+                    {
+                        Deferred &d = q.push(true);
+                        d.material = m;
+                        std::memcpy(d.matrix, matrix, sizeof(d.matrix));
+                        d.texture = std::move(tex);
+                        d.skin = &batch;
+                        d.skinInputs = inputs;
+                        return d;
+                    };
+                    // The same passes as below (see there).
+                    if ((mode & 0x80000u) && !env("TTA_SKIN_SILHOUETTE_TEXTURED"))
+                    {
+                        material.textured = false;
+                        material.blend = bozo::render::Material::Blend::Alpha;
+                        const uint32_t fbmsk = read32(rdram, read32(rdram, 0x36f850) + 0x154);
+                        uint8_t mask = 0;
+                        for (uint32_t c = 0; c < 4; ++c)
+                            if (((fbmsk >> (c * 8)) & 0xffu) != 0xffu)
+                                mask |= static_cast<uint8_t>(1u << c);
+                        if (!env("TTA_SKIN_SILHOUETTE_NO_FBMSK"))
+                        {
+                            if ((mask & 7u) == 0)
+                                continue;
+                            material.colourMask = mask;
+                        }
+                        Deferred &d = job(material, nullptr);
+                        d.silhouette = true;
+                        d.silhouetteColour = read32(rdram, read32(rdram, 0x36f850) + 0x720) & 0xffffffu;
+                        continue;
+                    }
+                    if (mode & 0x1200u)
+                    {
+                        material.gsBlend = true;
+                        material.blendA = (mode & 0x200u) ? 0 : 2;
+                        material.blendB = (mode & 0x200u) ? 2 : 0;
+                        material.blendC = 2;
+                        material.blendD = 1;
+                        material.blendFix = static_cast<uint8_t>(std::min<uint32_t>(fade, 0x80u));
+                        material.depthWrite = false;
+                    }
+                    else if (texture && fade >= 0x80 && !env("TTA_SKIN_NO_AFAIL"))
+                    {
+                        material.blend = bozo::render::Material::Blend::Alpha;
+                        material.alphaTest = true;
+                        material.alphaFunc = bozo::render::Material::AlphaFunc::GreaterEqual;
+                        material.alphaRef = 0x80;
+                        const long first = q.index(job(material, texture));
+                        material.alphaFunc = bozo::render::Material::AlphaFunc::Less;
+                        material.depthWrite = false;
+                        Deferred &second = q.push(false);
+                        second.material = material;
+                        std::memcpy(second.matrix, matrix, sizeof(second.matrix));
+                        second.texture = texture;
+                        second.copyFrom = first;
+                        continue;
+                    }
+                    job(material, texture);
+                    continue;
+                }
                 skinned = batch.vertices;
                 for (size_t v = 0; v < skinned.size(); ++v)
                 {
@@ -1270,7 +1673,7 @@ namespace tta
                             continue; // nothing of the picture written
                         material.colourMask = mask;
                     }
-                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), nullptr);
+                    queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), nullptr);
                     continue;
                 }
                 if (mode & 0x1200u)
@@ -1289,11 +1692,11 @@ namespace tta
                     material.alphaTest = true;
                     material.alphaFunc = bozo::render::Material::AlphaFunc::GreaterEqual;
                     material.alphaRef = 0x80;
-                    renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                    queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
                     material.alphaFunc = bozo::render::Material::AlphaFunc::Less;
                     material.depthWrite = false;
                 }
-                renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
             ++g_skinsDrawn;
             if (env("TTA_SKIN_EXTENT") && frame(rdram) == static_cast<uint32_t>(std::atoi(env("TTA_SKIN_EXTENT"))))
@@ -1603,7 +2006,6 @@ namespace tta
                 addFace(c, a, a2, centre);
                 addFace(c, a2, c2, centre);
             }
-            auto &renderer = bozo::render::Renderer::instance();
             // TTA_SHADOW_SHOW=1: the volume's faces drawn in colour instead (red one winding, blue the other).
             if (env("TTA_SHADOW_SHOW"))
             {
@@ -1617,9 +2019,9 @@ namespace tta
                 for (auto &v : down)
                     v.rgba = 0x30ff0000u;
                 if (!up.empty())
-                    renderer.draw(show, m, up.data(), static_cast<uint32_t>(up.size()));
+                    queueDraw(show, m, up.data(), static_cast<uint32_t>(up.size()));
                 if (!down.empty())
-                    renderer.draw(show, m, down.data(), static_cast<uint32_t>(down.size()));
+                    queueDraw(show, m, down.data(), static_cast<uint32_t>(down.size()));
                 return;
             }
             // Queued, drawn at the game's shadow layer (flushShadows at 0x21ae10): after the whole scene, as the
@@ -1653,7 +2055,6 @@ namespace tta
                 g_shadowQueue.clear();
                 return;
             }
-            auto &renderer = bozo::render::Renderer::instance();
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             // The whole GS window (TTA draws to 1792..2304 x 1824..2272).
             const auto wholeScreen = [&](const bozo::render::Material &material, uint32_t rgba)
@@ -1667,7 +2068,7 @@ namespace tta
                     q[k].z = 0.0f;
                     q[k].rgba = rgba;
                 }
-                renderer.draw(material, identity, q, 6u);
+                queueDraw(material, identity, q, 6u);
             };
             // TTA_SHADOW_SHOW_LATE=1: the queued faces drawn in colour at the shadow layer, depth tested (debugging).
             if (env("TTA_SHADOW_SHOW_LATE"))
@@ -1684,9 +2085,9 @@ namespace tta
                     for (auto &v : q.down)
                         v.rgba = 0x60ff0000u;
                     if (!q.up.empty())
-                        renderer.draw(show, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
+                        queueDraw(show, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
                     if (!q.down.empty())
-                        renderer.draw(show, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
+                        queueDraw(show, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
                 }
                 g_shadowQueue.clear();
                 return;
@@ -1710,10 +2111,10 @@ namespace tta
             {
                 volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
                 if (!q.up.empty())
-                    renderer.draw(volume, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
+                    queueDraw(volume, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
                 volume.stencilOp = bozo::render::Material::StencilOp::DecrementWrap;
                 if (!q.down.empty() && !env("TTA_SHADOW_UP_ONLY"))
-                    renderer.draw(volume, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
+                    queueDraw(volume, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
             }
             bozo::render::Material darken;
             darken.textured = false;
@@ -1964,7 +2365,7 @@ namespace tta
                 material.alphaRef = static_cast<uint8_t>((test >> 4) & 0xffu);
             }
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-            bozo::render::Renderer::instance().draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
+            queueDraw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);
             if (reporting(rdram))
             {
@@ -2367,7 +2768,7 @@ namespace tta
             }
             clipToDepthRange(triangles, matrix);
             if (!triangles.empty())
-                bozo::render::Renderer::instance().draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()),
+                queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                         material.textured ? texture : nullptr);
             if (traceLevel() >= 2)
             {
@@ -2489,6 +2890,8 @@ namespace tta
                 flushShadows(rdram);
         }
     }
+
+    void flushDraws() { drawQueue().flush(); }
 
     void installThreeD(bozo::port::Registry &registry)
     {
