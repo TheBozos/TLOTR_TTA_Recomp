@@ -713,7 +713,16 @@ namespace tta
             // Cd (1 - As) (four passes darken the blurred copy), and drawn as blends of the frame they kept the copy as
             // bright as the picture, which 0x1d0540 then adds back: the ground went white. Those take the GS's own
             // (A - B) C + D. TTA_NO_GS_BLEND_2D=1 for the old fallback.
-            if (blended && !env("TTA_NO_GS_BLEND_2D"))
+            // The outpost's filter (by the crystal stone) runs the same 0x89 without the 0x46 darkening: there the
+            // exact form multiplied its cream fill by the frame's alpha, which is 1 everywhere natively (the console's
+            // scene alpha is not emulated), and the pulse whited the screen out. A 0x89 keeps the old fallback (a
+            // copy of the frame: a milder brightening) unless a 0x46 pass ran in the last frames; TTA_GS_BLEND_89=1
+            // takes the exact form always.
+            static uint32_t darkenFrame = 0;
+            if (blended && (alpha & 0xffu) == 0x46u)
+                darkenFrame = frame(rdram);
+            const bool keep89 = (alpha & 0xffu) == 0x89u && frame(rdram) - darkenFrame > 2u && !env("TTA_GS_BLEND_89");
+            if (blended && !env("TTA_NO_GS_BLEND_2D") && !keep89)
             {
                 const uint32_t a = alpha & 3u, b = (alpha >> 2) & 3u, c = (alpha >> 4) & 3u, d = (alpha >> 6) & 3u;
                 const bool named = !(material.blend == bozo::render::Material::Blend::Alpha && !(a == 0u && b == 1u && d == 1u));

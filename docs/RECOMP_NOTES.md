@@ -409,7 +409,7 @@ the game's behaviour); its code is in the history before `8ade037`.
   inverted Z, i.e. counting the faces behind the scene, and 0x21ae10 darkens). Natively the volumes are now queued
   and drawn at 0x21ae10 with z-fail (BozoEngine Material::stencilDepthFail), then one darkening at the strongest
   strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone.
-- **The outpost's pulsing whiteout** (2026-11-20, open). From the outpost state (build/states/outpost_3900.state with
+- **The outpost's pulsing whiteout** (2026-11-20, worked around). From the outpost state (build/states/outpost_3900.state with
   tools/pads/pad_outpost.txt, a short walk; build/states/outpost_pulse_5440.state just before it), near the stone
   with the crystal the frame bleaches to cream every ~180 frames (mean 37 -> 235, Berethor and the HUD stay dark).
   It is the frame-alpha glow filter of the sunny battle, run three times a frame: 0x1cbafc fills the 256 x 256 target
@@ -420,7 +420,10 @@ the game's behaviour); its code is in the history before `8ade037`.
   alpha, or reading the frame's alpha, changed nothing). Before the gsBlend change (2026-11-18) 0x89 fell back to
   (Cs - Cd) As + Cd, a copy of the frame, and the pulse was a milder brightening (62). On the console it must land
   only where the scene leaves alpha; what the scene writes there is the open question (a console capture at this
-  spot settles the strength). TTA_NO_GS_BLEND_2D=1 gives the old look.
+  spot settles the strength). The user chose the old look meanwhile: a 0x89 takes the exact form only when a 0x46
+  darkening ran in the last two frames (the sunny battle's chain), else the old fallback; the outpost's peak is 63
+  (TTA_GS_BLEND_89=1 for the exact form everywhere, TTA_NO_GS_BLEND_2D=1 for the fallback everywhere). Not
+  rechecked in the sunny battle (its state needs saving again).
 - **Character shadows on the ground** (2026-11-20). After the wedge fix no count was left anywhere: the depth was
   fine (the type-18 pass uses the same viewport and clip matrices as the character's own draw, and up faces alone,
   TTA_SHADOW_ZPASS=1 TTA_SHADOW_UP_ONLY=1, darken the whole volume), but the sweep was too short. A volume is the
