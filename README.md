@@ -24,7 +24,7 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 
 ## Status
 
-**Moving to BozoEngine (since 2026-11-09): the intro movies play in a window.** On the PS2Recomp fork the game
+**On BozoEngine (since 2026-11-09): the game plays natively in a window.** On the PS2Recomp fork the game
 played from the boot to the first battle (the older screenshots below), but its graphics went through a PS2 emulation
 layer (VU1 sandbox, GS state machine, GS memory). BozoEngine has none of it, so the picture comes back as native draw
 hooks are written from the game's own data: the frame and the movies first (2026-11-10), then the 2D, the text and
@@ -43,15 +43,11 @@ the 3D. Windows comes first, then Linux and macOS.
 | The UI (EA Apt: title, menus, battle HUD) and its text drawn natively; the boot reaches the first battle | ✅ |
 | 3D: terrain, trees, objects and animated characters from meshes converted offline, the game's matrices and skeletons | ✅ |
 | Effects, water, render targets (blur, glows), the battle menu's details | 🔧 |
-| Window, sound output, pad from the PC | ✅ |
-| The game playable again to the first battle, then through | ⏳ |
+| Window, sound output, pad from the PC, save states (F5 / F7) | ✅ |
+| The game playable again: the first battle, the forest, Eregion and on (played in the window, saves on disk) | ✅ |
 | Linux and macOS builds | ⏳ |
 
-The engine changes TTA needs are proposed upstream: [BozoEngine#80](https://github.com/TheBozos/BozoEngine/pull/80)
-(IOP software registers, more cdvdman, audio completions after imports, root call budget) and
-[BozoEngine#81](https://github.com/TheBozos/BozoEngine/pull/81) (native libpad2 and libvib) and
-[BozoEngine#82](https://github.com/TheBozos/BozoEngine/pull/82) (libmpeg on the SDK's model: sceMpegAddBs); the
-submodule points at `tta/integration`, the three merged, until they land.
+The engine changes TTA needs are merged into BozoEngine's `master`, which the submodule follows.
 
 ✅ works · 🔧 in progress · ⏳ not reached yet
 
