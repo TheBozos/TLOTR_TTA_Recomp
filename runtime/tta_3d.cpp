@@ -2749,6 +2749,20 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // TTA_CHAIN_AUDIT: the effect component (ears_rt_sfx) whose render is running, so the chain's producers can be
+        // told apart by component: the type descriptors at 0x3782c0.. (name, 0.05, .., the render at +0x38).
+        uint32_t g_sfxRender = 0;
+
+        template <uint32_t Address, void (*Original)(uint8_t *, R5900Context *, Runtime *)>
+        void sfxRender(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], outer = g_sfxRender;
+            g_sfxRender = Address;
+            Original(rdram, ctx, rt);
+            g_sfxRender = outer;
+            ctx->pc = ra;
+        }
+
         void dmaTag(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
@@ -2757,16 +2771,31 @@ namespace tta
             static const bool audit = env("TTA_CHAIN_AUDIT") != nullptr;
             if (audit)
             {
-                static std::map<uint32_t, std::pair<uint32_t, uint32_t>> calls;
+                static std::map<uint64_t, std::pair<uint32_t, uint32_t>> calls;
                 static uint32_t last = 0;
-                auto &c = calls[ra];
+                auto &c = calls[(static_cast<uint64_t>(g_sfxRender) << 32) | ra];
+                // TTA_CHAIN_DUMP=<ra hex>: that caller's first three blocks, qword by qword.
+                static const uint32_t dumpRa = env("TTA_CHAIN_DUMP") ? std::strtoul(env("TTA_CHAIN_DUMP"), nullptr, 16) : 0;
+                if (ra == dumpRa && c.first < 3)
+                {
+                    const uint32_t at = ctx->r[4].uw[0];
+                    const uint32_t ds = read32(rdram, 0x36f850);
+                    std::printf("[tta:chaindump] frame %u ra %x block %u: %u qwords at %x; FRAME %llx ALPHA %llx TEST %llx TEX0 %llx\n",
+                                frame(rdram), ra, c.first, ctx->r[5].uw[0], at,
+                                (unsigned long long)read64(rdram, ds + 0x150), (unsigned long long)read64(rdram, ds + 0x100),
+                                (unsigned long long)read64(rdram, ds + 0x140), (unsigned long long)read64(rdram, ds + 0x1a0));
+                    for (uint32_t q = 0; q < ctx->r[5].uw[0] && q < 48; ++q)
+                        std::printf("[tta:chaindump]   %08x %08x %08x %08x\n", read32(rdram, at + q * 16), read32(rdram, at + q * 16 + 4),
+                                    read32(rdram, at + q * 16 + 8), read32(rdram, at + q * 16 + 12));
+                }
                 ++c.first;
                 c.second += ctx->r[5].uw[0];
                 if (frame(rdram) / 600 != last)
                 {
                     last = frame(rdram) / 600;
                     for (const auto &[at, n] : calls)
-                        std::printf("[tta:chain] frame %u: ra %x x%u, %u qwords\n", frame(rdram), at, n.first, n.second);
+                        std::printf("[tta:chain] frame %u: component %x ra %x x%u, %u qwords\n", frame(rdram),
+                                    static_cast<uint32_t>(at >> 32), static_cast<uint32_t>(at), n.first, n.second);
                     std::fflush(stdout);
                     calls.clear();
                 }
@@ -3171,6 +3200,18 @@ namespace tta
         registry.registerFunction(0x21f088, staticRender<0x21f088, func_0x21f088>);
         registry.registerFunction(0x21f980, glowRender);
         registry.registerFunction(0x2163c8, dmaTag);
+        if (env("TTA_CHAIN_AUDIT"))
+        {
+            registry.registerFunction(0x22efa0, sfxRender<0x22efa0, func_0x22efa0>);
+            registry.registerFunction(0x23e4d8, sfxRender<0x23e4d8, func_0x23e4d8>);
+            registry.registerFunction(0x241290, sfxRender<0x241290, func_0x241290>);
+            registry.registerFunction(0x239918, sfxRender<0x239918, func_0x239918>);
+            registry.registerFunction(0x23fdb8, sfxRender<0x23fdb8, func_0x23fdb8>);
+            registry.registerFunction(0x233a90, sfxRender<0x233a90, func_0x233a90>);
+            registry.registerFunction(0x232bd0, sfxRender<0x232bd0, func_0x232bd0>);
+            registry.registerFunction(0x236218, sfxRender<0x236218, func_0x236218>);
+            registry.registerFunction(0x245008, sfxRender<0x245008, func_0x245008>);
+        }
         registry.registerFunction(0x21e270, rings);
         registry.registerFunction(0x21fce8, staticRender<0x21fce8, func_0x21fce8>);
         registry.registerFunction(0x21c098, postProbe<0x21c098, func_0x21c098>);

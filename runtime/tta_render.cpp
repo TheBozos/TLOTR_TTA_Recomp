@@ -11,6 +11,7 @@
 #include "bozo/render/renderer.h"
 #include "bozo/runtime_api.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -197,10 +198,66 @@ namespace tta
 
     namespace
     {
-        // 0x228118(i): reads an 8 x 5 block of GS memory back into *(0x36b228) + i * 0x100 + 0x3c0 (sceGsSetDefStoreImage,
-        // sceGsExecStoreImage through the GIF FIFO), from the frame end's 0x1d3e58. There is no GS memory to read: the
-        // buffer keeps what it holds.
-        void readBack(uint8_t *, R5900Context *ctx, Runtime *) { ctx->pc = ctx->r[31].uw[0]; }
+        float readFloat(const uint8_t *rdram, uint32_t address)
+        {
+            float v;
+            std::memcpy(&v, rdram + (address & kMask), 4);
+            return v;
+        }
+
+        // 0x228118(i): the lens flares' occlusion test (render map: the Flare component 0x232bd0 -> 0x1d3f28). Flare i's
+        // record R = *(0x36b228) + i * 0x100 + 0x3c0 holds the light's place on screen (+0xc8 / +0xcc, 0..1 of the
+        // viewport) and GS Z (+0xd0). 0x2281e8 copies the Z buffer's 8 x 5 pixels around it (x - 4 .. x + 3, y - 2 ..
+        // y + 2, moved inside the screen; +0xa4 / +0xa8 / +0xac / +0xb0 the part that is the light's window) to a small
+        // place in GS memory, and this function reads them back (sceGsSetDefStoreImage PSMZ32, sceGsExecStoreImage) into
+        // R +0..+0x9f, rows of 8 words. Next frame 0x228040 sums the weights (0x397c78, by pixel) of the pixels whose
+        // Z & 0xffffff < the light's Z + 16 (nothing in front of it): the flare's visibility. Natively the block is the
+        // window's depth (BozoEngine's depthAt: GS Z of the frame presented last; TTA's GS Z is the matrices' z / w); a
+        // pixel not read back yet (headless, the first frames) counts as clear, as before. TTA_FLARE_NO_DEPTH=1 leaves
+        // the block alone (always visible).
+        void readBack(uint8_t *rdram, R5900Context *ctx, Runtime *)
+        {
+            ctx->pc = ctx->r[31].uw[0];
+            static const bool off = env("TTA_FLARE_NO_DEPTH") != nullptr;
+            if (off)
+                return;
+            const uint32_t i = ctx->r[4].uw[0], rec = read32(rdram, 0x36b228) + i * 0x100u + 0x3c0u;
+            const uint32_t rc = read32(rdram, 0x36f350), vp = read32(rdram, read32(rdram, rc) + 0x14),
+                           dims = read32(rdram, read32(rdram, rc) + 0x18);
+            const float w = readFloat(rdram, vp + 8) * readFloat(rdram, dims + 8),
+                        h = readFloat(rdram, vp + 12) * readFloat(rdram, dims + 12);
+            int x0 = static_cast<int>(readFloat(rdram, rec + 0xc8) * w) - 4;
+            int y0 = static_cast<int>(readFloat(rdram, rec + 0xcc) * h) - 2;
+            if (x0 < 0)
+                x0 = 0;
+            if (y0 < 0)
+                y0 = 0;
+            if (static_cast<float>(x0 + 8) > w)
+                x0 = static_cast<int>(w) - 8;
+            if (static_cast<float>(y0 + 5) > h)
+                y0 = static_cast<int>(h) - 5;
+            x0 += static_cast<int>(readFloat(rdram, vp) * readFloat(rdram, dims + 8));
+            y0 += static_cast<int>(readFloat(rdram, vp + 4) * readFloat(rdram, dims + 12));
+            auto &renderer = bozo::render::Renderer::instance();
+            renderer.wantDepth();
+            const bozo::render::Screen s = screen();
+            uint32_t seen = 0, front = 0;
+            for (int r = 0; r < 5; ++r)
+                for (int c = 0; c < 8; ++c)
+                {
+                    uint32_t z = 0;
+                    if (renderer.depthAt(s.originX + static_cast<float>(x0 + c) + 0.5f, s.originY + static_cast<float>(y0 + r) + 0.5f, z))
+                        ++seen;
+                    else
+                        z = 0;
+                    z = std::min<uint32_t>(z, 0xffffffu);
+                    write32(rdram, rec + static_cast<uint32_t>(r * 32 + c * 4), z);
+                    front += z >= static_cast<uint32_t>(static_cast<int32_t>(readFloat(rdram, rec + 0xd0))) + 16u ? 1u : 0u;
+                }
+            if (trace())
+                std::printf("[tta:render] flare %u: block at %d,%d, %u of 40 read, %u in front of the light (Z %.0f)\n", i, x0,
+                            y0, seen, front, readFloat(rdram, rec + 0xd0));
+        }
     }
 
     void installRender(bozo::port::Registry &registry)

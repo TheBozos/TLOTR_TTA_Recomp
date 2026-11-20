@@ -556,8 +556,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   600 game frames, the callers of the chain append 0x2163c8 by return address and size: the game's producers of GS
   work, to be matched against the native hooks. Run on the first battle (battle1_5800 + build/pad_attack.txt), the
   forest and Rohan (build/chain/, local). Battle-only producers: the screen filters (0x1c9c08 .. 0x1d08b0, native),
-  the movie (0x22b050), and still unclassified 0x1d1a38, 0x1d2880, 0x22ea60, 0x2281e8, 0x230768 / 0x2311f8 (from
-  0x231f38 / 0x231f48, ~2 a frame, ~25 qwords each), 0x23b988 (a pointer at 0x378578), 0x23f388. And 0x21e6b8 with
+  the movie (0x22b050) and the effect components (ears_rt_sfx; their type descriptors from 0x3782c0, 0x40 bytes:
+  the name, then functions, the render at +0x38; with the audit on, each render is wrapped and the chain counted by
+  component). Particle System (0x22efa0) is the Glows (types 9 / 20, native) and its modes 2 / 4 (+0xc3: 0x230768
+  meshes through the type-0 render 0x2207a8, 0x2311f8 strips through the immediate primitive 0x218910, both native;
+  their own chain blocks are state). Visual Object (0x23e4d8) and Screen (0x23fdb8) work through skins, textures,
+  the screen filters and 0x218910 (native). LineTrail (0x23b988, the sword trails) sends its state and a matrix, then
+  its strip through 0x218910 (native). 0x1d1a38 (from 0x1d19b8) sends only ALPHA / ZBUF / TEST for both contexts.
+  Flare (0x232bd0) fills the type-11 list (below) and runs an occlusion test (0x1d2880, 0x2281e8, below). And 0x21e6b8 with
   0x21e270 under it: shader type 11's effect render (the type table 0x35f690, 0x44 bytes a type: type 11 is
   0x21e5e8 / 0x21e638 at +0, +4 and 0x21e6a8 / 0x21e6b0 / 0x21e6b8 / 0x21e800 at +0x34 .. +0x40, as the Glows'
   0x21f980 is at +0x3c of types 9 / 20), which nothing drew natively. 0x21e6b8 selects VU program 0x13 (DS+0x6a8,
@@ -579,7 +585,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   runtime/tta_3d.cpp's rings builds the same strips in view space, takes them back to the world with the inverse of
   vf1-vf4 and draws them through RC+0x1a0. The frame is 10-27 levels brighter on average while it plays (with the
   Scream's green filter over it). TTA_NO_RINGS=1 turns it off; TTA_SPRITE_PROBE=1 prints the lists. No console
-  reference of the Scream yet.
+  reference of the Scream yet. The flare's strength is its visibility: 0x1d3f28 puts the light's place on screen
+  (0..1, R+0xc8 / +0xcc) and GS Z (+0xd0) in its record R = *(0x36b228) + i * 0x100 + 0x3c0; 0x2281e8 copies the Z
+  buffer's 8 x 5 pixels around it (x - 4 .. x + 3, y - 2 .. y + 2, moved inside the screen; +0xa4 .. +0xb0 the part
+  that is the light's window) to a small GS place; the frame end's 0x228118(i) reads them back (PSMZ32 StoreImage)
+  into R +0 .. +0x9f; next frame 0x228040 sums the weights 0x397c78 of the pixels with Z & 0xffffff < the light's Z +
+  16 (nothing in front). The readback did nothing natively, so every flare counted as fully visible. It now reads
+  the window's depth (BozoEngine's depthAt, the frame presented last; TTA's GS Z is the matrices' z / w): in the
+  Scream the block is read whole and sometimes covered (all 40 pixels in front), and the flare fades then (mean
+  alpha 14 -> 9.6). Pixels not read back yet (headless) count as clear. TTA_FLARE_NO_DEPTH=1 for the old way;
+  TTA_RENDER_TRACE=1 prints each test.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
