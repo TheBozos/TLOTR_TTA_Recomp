@@ -482,6 +482,19 @@ the game's behaviour); its code is in the history before `8ade037`.
   darkening ran in the last two frames (the sunny battle's chain), else the old fallback; the outpost's peak is 63
   (TTA_GS_BLEND_89=1 for the exact form everywhere, TTA_NO_GS_BLEND_2D=1 for the fallback everywhere). Not
   rechecked in the sunny battle (its state needs saving again).
+  Later (2026-11-20), toward emulating the frame's alpha: (a) the scene's static draws all run with FRAME_1 FBMSK
+  0xff000000 (outpost and first battle): the console's scenery never writes alpha; (b) the game clears the frame's
+  alpha itself just before the glow chain (0x1c1d34: a full-screen alpha-only draw, FBMSK 0x00ffffff, rgba 0);
+  (c) BozoEngine keeps the frame's alpha as coverage for presenting and samples it as 1.0 (uTarget 1) whenever a draw
+  reads the frame. Tried (reverted): FBMSK as the 3D draws' colour mask plus an engine Material::frameAlpha reading
+  the frame's own alpha. The frame's alpha was then 0 at the chain's read (a debug view of it), yet with the exact
+  0x89 the peak still reached 201 (skipping 0x89: 235, skipping the blur or the add-back: 26), and with the old
+  fallback 220. Something else in the chain (the targets' alpha under the post draws' FBMSK 0xff000000, the GS's As
+  past 0x80) is still not as on the console; without a console capture of this spot it stays open. PCSX2's GS dumps
+  do not help here: with the hardware renderer their VRAM snapshot has the textures but not the frame buffers.
+- **All regions reached through the warp** (2026-11-20): Western and Eastern Moria, the Gullies, Rohan, Helm's Deep,
+  Osgiliath, Minas Tirith and the Pelennor load, play their films and battles (cave trolls, Uruk archers) with no new
+  rendering faults seen (build/msv, a START / CROSS / walk script after each warp).
 - **Character shadows on the ground** (2026-11-20). After the wedge fix no count was left anywhere: the depth was
   fine (the type-18 pass uses the same viewport and clip matrices as the character's own draw, and up faces alone,
   TTA_SHADOW_ZPASS=1 TTA_SHADOW_UP_ONLY=1, darken the whole volume), but the sweep was too short. A volume is the
