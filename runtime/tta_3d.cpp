@@ -845,6 +845,10 @@ namespace tta
             }
             viewport[15] = 1.0f;
             multiply(viewport, clip, screen);
+            if (env("TTA_SHADOW_ORDER"))
+                std::printf("[tta:shadowz] frame %u pass18 %d G %x viewport z %.6g + %.6g clip z %.4g %.4g %.4g %.4g w %.4g %.4g %.4g %.4g\n",
+                            frame(rdram), g_shadowPass ? 1 : 0, g, viewport[10], viewport[14], clip[2], clip[6], clip[10], clip[14],
+                            clip[3], clip[7], clip[11], clip[15]);
             // G is set only by the VisualEntity draw 0x1b1b18 (through 0x225920): a skinned node drawn by another path
             // (the scene 0x1a7108, 0x1b24a8) runs with the last character's G. Fresh, RC+0x20 is the root bone
             // (bones[E+0x1c6], E = G - 0x1d0) placed by W; otherwise the node's own matrix is RC+0x20, in bind pose.
@@ -1413,8 +1417,9 @@ namespace tta
         // one screen winding, down for the other; a pixel whose surface lies inside the swept body keeps a count), then the
         // frame darkened where the count is not 0. The game does the same with set 5's program 0x178 (the silhouette edges
         // and caps, +/-) and its full-screen pass (0x21ae10: the frame x (1 - TA0/128) where the count is not 0; checked in a PCSX2 GS dump).
-        // TTA_NO_SHADOWS=1 turns it off. TTA_SHADOW_REACH (x the mesh's size)
-        // and TTA_SHADOW_ALPHA (0..0x80) tune it.
+        // TTA_NO_SHADOWS=1 turns it off. TTA_SHADOW_REACH (x the mesh's size, 3 by default: the light comes in at 45
+        // degrees, so the body's top needs ~1.4 x its height to reach the ground; at 0.3 the volumes ended just under
+        // the feet and never met the ground) and TTA_SHADOW_ALPHA (0..0x80) tune it.
         void drawShadowVolume(const uint8_t *rdram)
         {
             if (g_shadowWorld.size() < 3)
@@ -1436,7 +1441,7 @@ namespace tta
             if (env("TTA_SHADOW_ORDER"))
                 std::printf("[tta:shadow] light %x (%.3g %.3g %.3g) world x %.4g..%.4g y %.4g..%.4g z %.4g..%.4g, %zu triangles\n", light,
                             d[0], d[1], d[2], lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], g_shadowWorld.size() / 3);
-            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 0.3);
+            const float reach = size * static_cast<float>(env("TTA_SHADOW_REACH") ? std::atof(env("TTA_SHADOW_REACH")) : 3.0);
             for (float &c : d)
                 c *= reach / dl;
             const float *m = g_shadowScreen;
@@ -1604,6 +1609,28 @@ namespace tta
                 }
                 renderer.draw(material, identity, q, 6u);
             };
+            // TTA_SHADOW_SHOW_LATE=1: the queued faces drawn in colour at the shadow layer, depth tested (debugging).
+            if (env("TTA_SHADOW_SHOW_LATE"))
+            {
+                bozo::render::Material show;
+                show.textured = false;
+                show.blend = bozo::render::Material::Blend::Alpha;
+                show.depthTest = true;
+                show.depthWrite = false;
+                for (QueuedShadow &q : g_shadowQueue)
+                {
+                    for (auto &v : q.up)
+                        v.rgba = 0x600000ffu;
+                    for (auto &v : q.down)
+                        v.rgba = 0x60ff0000u;
+                    if (!q.up.empty())
+                        renderer.draw(show, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
+                    if (!q.down.empty())
+                        renderer.draw(show, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
+                }
+                g_shadowQueue.clear();
+                return;
+            }
             bozo::render::Material volume;
             volume.textured = false;
             volume.blend = bozo::render::Material::Blend::Opaque;

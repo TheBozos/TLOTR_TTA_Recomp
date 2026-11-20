@@ -408,10 +408,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   4 after the scene (0x21a778 inverts Z, 0x21aa88 clears the count, the volumes go in with Z GREATER against the
   inverted Z, i.e. counting the faces behind the scene, and 0x21ae10 darkens). Natively the volumes are now queued
   and drawn at 0x21ae10 with z-fail (BozoEngine Material::stencilDepthFail), then one darkening at the strongest
-  strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone. Open: no count is left
-  anywhere even with full strength (TTA_SHADOW_ALPHA=0x80), in the first battle and the sunny one, by either method:
-  the volumes never meet the ground's depth (their Z against the scene's), so the native shadows have only ever drawn
-  the wedges. Contact shadows need that depth relation fixed.
+  strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone.
+- **Character shadows on the ground** (2026-11-20). After the wedge fix no count was left anywhere: the depth was
+  fine (the type-18 pass uses the same viewport and clip matrices as the character's own draw, and up faces alone,
+  TTA_SHADOW_ZPASS=1 TTA_SHADOW_UP_ONLY=1, darken the whole volume), but the sweep was too short. A volume is the
+  body swept along the light (0x377990 = (2, -2, 0): down and sideways at 45 degrees, y up) by TTA_SHADOW_REACH x the
+  mesh's size, and at 0.3 it ended just under the feet. At 3 the shadows land on the ground beside each character
+  (first battle, frame 5900: up to 12 levels darker at the game's strength 0x13, about 15%, a faint shadow in that
+  night scene). TTA_SHADOW_SHOW_LATE=1 draws the queued faces in colour at the shadow layer, depth tested;
+  TTA_SHADOW_ORDER=1 also prints each skin draw's viewport and clip Z.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
