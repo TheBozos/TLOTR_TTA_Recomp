@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-20.** The first battle's Nazgul Scream with its lens flare: the discs strung from the light on the
+Ringwraith's blade through the middle of the screen (shader type 11, an effect render found missing by a survey of what
+the game puts in its GS chain), built from the same unit-circle strips as set 2's VU1 program.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-20-bozo-scream-flare.png" width="400" alt="The Nazgul Scream in the first battle on BozoEngine, with the lens flare's discs over the green veil">
+</p>
+
 **2026-11-20.** Rohan, reached through the debug warp: the river's flowing surface (shader type 5, the only static
 scenery that was still missing in the later regions) drawn over its sky reflection, its texture drifting with the
 current as set 1's VU1 program animates it.

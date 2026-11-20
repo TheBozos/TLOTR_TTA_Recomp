@@ -2242,6 +2242,175 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // ---- Shader type 11's rings: 0x21e270(list, layer, ..) ---------------------------------------------------------------
+        // Type 11's effect render 0x21e6b8 selects VU program 0x13 (microcode set 2: the program at 0x48 after the set-up
+        // at 0) and calls 0x21e270 with its list (*(instance + 4)), the layer (instance + 8 == 0) and a third word. The
+        // list: up to 160 entries of 0x30 bytes, their count at +0x1e00. An entry: +0 the world position (w 1), +0x10 /
+        // +0x14 two RGBA colours, +0x18 / +0x1c two radii, +0x20 an angle, +0x2c the layer (drawn only by that call),
+        // +0x2d the shape. VU0's vf1-vf4 (the camera's world -> view matrix) put the centre in view space; a centre with
+        // view z <= 0 is skipped. Each entry sends five qwords (the centre, the rotation (cos, sin) / (-sin, cos), the
+        // radii, the colours as V4-8) and a precompiled strip from the table 0x403718 {address, qwords}: a VIF unpack, a
+        // GIF tag (PRIM 0x4c: a Gouraud, blended triangle strip of NLOOP vertices) and unit-circle vertices (x, y, 0,
+        // flags): flags bit 0 takes radius 0 / colour 0, else radius 1 / colour 1; bit 1 (the first two) does not draw.
+        // The program puts each vertex at centre + radius (x cos - y sin, x sin + y cos) in the view plane and projects
+        // it: rings and discs facing the camera, blended by the scene's ALPHA_1 (0x48: Cs As + Cd), Z as TEST_1 says.
+        // Shapes: +0x2d < 0x80 is the strip of that index with the two radii; with bit 7, up to three: (bits 0-1 = k) a
+        // disc of radius 0.5 k r (strip 3), (bits 2-4 = k) a ring r .. 1.5 r (strip 3 + k), (bits 5-6 = k) a thin ring at
+        // 0.4 k r, 1/64 wide on both sides (strip 3, twice); r = +0x18. In the first battle they are the Nazgul Scream's
+        // lens flare: 39 discs strung from the light on the blade through the screen's middle, alpha rising to ~14.
+        // Natively the same strips are built in view space, taken back to the world (the inverse of vf1-vf4) and drawn
+        // through the scene's world -> screen RC+0x1a0. TTA_NO_RINGS=1 turns them off; TTA_SPRITE_PROBE=1 prints the lists.
+        void rings(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            const uint32_t list = ctx->r[4].uw[0], layer = ctx->r[6].uw[0];
+            static const bool probe = env("TTA_SPRITE_PROBE") != nullptr, off = env("TTA_NO_RINGS") != nullptr;
+            float m[16];
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    m[c * 4 + r] = ctx->vu0_vf[1 + c].f[r];
+            const uint32_t n = std::min<uint32_t>(read32(rdram, list + 0x1e00), 160u);
+            if (probe)
+            {
+                static uint32_t lastFrame = 0, shown = 0;
+                if (frame(rdram) / 30 != lastFrame)
+                    lastFrame = frame(rdram) / 30, shown = 0;
+                if (shown++ < 2)
+                {
+                    const uint32_t ds = read32(rdram, 0x36f850);
+                    std::printf("[tta:rings] frame %u list %x layer %u n %u ALPHA %llx TEST %llx ZBUF %llx\n", frame(rdram), list,
+                                layer, n, (unsigned long long)read64(rdram, ds + 0x100), (unsigned long long)read64(rdram, ds + 0x140),
+                                (unsigned long long)read64(rdram, ds + 0x120));
+                    for (uint32_t i = 0; i < n && i < 4; ++i)
+                    {
+                        const uint32_t e = list + i * 0x30;
+                        std::printf("[tta:rings]   [%u] at %.4g %.4g %.4g colours %08x %08x radii %.4g %.4g angle %.3g layer %u shape %02x\n",
+                                    i, readFloat(rdram, e), readFloat(rdram, e + 4), readFloat(rdram, e + 8), read32(rdram, e + 0x10),
+                                    read32(rdram, e + 0x14), readFloat(rdram, e + 0x18), readFloat(rdram, e + 0x1c),
+                                    readFloat(rdram, e + 0x20), rdram[(e + 0x2c) & kMask], rdram[(e + 0x2d) & kMask]);
+                    }
+                    std::fflush(stdout);
+                }
+            }
+            func_0x21e270(rdram, ctx, rt);
+            ctx->pc = ra;
+            if (off || n == 0)
+                return;
+            const uint32_t ds = read32(rdram, 0x36f850);
+            {
+                const uint32_t fbp = read32(rdram, ds + 0x150) & 0x1ffu;
+                if (fbp != 0 && fbp != 0x70)
+                    return;
+            }
+            // view -> world: the inverse of the (affine) camera matrix (column-major, translation in m[12..14]).
+            const float a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], k = m[10];
+            const float det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
+            if (std::fabs(det) < 1e-12f)
+                return;
+            float inv[16] = {};
+            inv[0] = (e * k - f * h) / det;
+            inv[4] = -(b * k - c * h) / det;
+            inv[8] = (b * f - c * e) / det;
+            inv[1] = -(d * k - f * g) / det;
+            inv[5] = (a * k - c * g) / det;
+            inv[9] = -(a * f - c * d) / det;
+            inv[2] = (d * h - e * g) / det;
+            inv[6] = -(a * h - b * g) / det;
+            inv[10] = (a * e - b * d) / det;
+            for (int r = 0; r < 3; ++r)
+                inv[12 + r] = -(inv[r] * m[12] + inv[4 + r] * m[13] + inv[8 + r] * m[14]);
+            inv[15] = 1.0f;
+            const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
+            float screen[16];
+            for (int i = 0; i < 16; ++i)
+                screen[i] = readFloat(rdram, rc + 0x1a0 + i * 4);
+            std::vector<bozo::render::Vertex> triangles;
+            const auto strip = [&](const float centre[3], float cs, float sn, float r0, float r1, uint32_t c0, uint32_t c1,
+                                   uint32_t shape)
+            {
+                if (shape >= 13)
+                    return;
+                const uint32_t at = read32(rdram, 0x403718 + shape * 8), qwords = read32(rdram, 0x403718 + shape * 8 + 4);
+                if (at < 0x100000u || at >= 0x2000000u || qwords < 2)
+                    return;
+                const uint32_t count = std::min<uint32_t>(read32(rdram, at + 4) & 0x7fffu, qwords - 2);
+                bozo::render::Vertex prev[2];
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    const uint32_t v = at + 4 + 16 * (i + 1);
+                    const float x = readFloat(rdram, v), y = readFloat(rdram, v + 4);
+                    const uint32_t flags = read32(rdram, v + 12);
+                    const float radius = (flags & 1u) ? r0 : r1;
+                    const float vx = centre[0] + radius * (x * cs - y * sn), vy = centre[1] + radius * (x * sn + y * cs),
+                                vz = centre[2];
+                    bozo::render::Vertex out{};
+                    out.x = inv[0] * vx + inv[4] * vy + inv[8] * vz + inv[12];
+                    out.y = inv[1] * vx + inv[5] * vy + inv[9] * vz + inv[13];
+                    out.z = inv[2] * vx + inv[6] * vy + inv[10] * vz + inv[14];
+                    out.q = 1.0f;
+                    out.rgba = (flags & 1u) ? c0 : c1;
+                    if (i >= 2 && !(flags & 2u))
+                        triangles.insert(triangles.end(), {prev[0], prev[1], out});
+                    prev[0] = prev[1];
+                    prev[1] = out;
+                }
+            };
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                const uint32_t en = list + i * 0x30;
+                if (rdram[(en + 0x2c) & kMask] != layer)
+                    continue;
+                const float p[3] = {readFloat(rdram, en), readFloat(rdram, en + 4), readFloat(rdram, en + 8)};
+                float centre[3];
+                for (int r = 0; r < 3; ++r)
+                    centre[r] = m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r];
+                if (!(centre[2] > 0.0f))
+                    continue;
+                const float angle = readFloat(rdram, en + 0x20);
+                const float sn = angle == 0.0f ? 0.0f : std::sin(angle), cs = angle == 0.0f ? 1.0f : std::cos(angle);
+                const uint32_t c0 = read32(rdram, en + 0x10), c1 = read32(rdram, en + 0x14);
+                const float size = readFloat(rdram, en + 0x18), size1 = readFloat(rdram, en + 0x1c);
+                const uint32_t shape = rdram[(en + 0x2d) & kMask];
+                if (!(shape & 0x80u))
+                {
+                    strip(centre, cs, sn, size, size1, c0, c1, shape);
+                    continue;
+                }
+                if (const uint32_t q = shape & 3u)
+                    strip(centre, cs, sn, 0.0f, size * static_cast<float>(q) * 0.5f, c0, c1, 3);
+                if (const uint32_t q = (shape >> 2) & 7u)
+                    strip(centre, cs, sn, size, size * 1.5f, c0, c1, 3 + q);
+                if (const uint32_t q = (shape >> 5) & 3u)
+                {
+                    const float r = size * static_cast<float>(q) * 0.4f;
+                    strip(centre, cs, sn, r, r + 0.015625f, c0, c1, 3);
+                    strip(centre, cs, sn, r, r - 0.015625f, c0, c1, 3);
+                }
+            }
+            if (triangles.empty())
+                return;
+            const uint64_t alpha = read64(rdram, ds + 0x100), test = read64(rdram, ds + 0x140), zbuf = read64(rdram, ds + 0x120);
+            bozo::render::Material material;
+            material.textured = false;
+            material.gsBlend = true;
+            material.blendA = static_cast<uint8_t>(alpha & 3u);
+            material.blendB = static_cast<uint8_t>((alpha >> 2) & 3u);
+            material.blendC = static_cast<uint8_t>((alpha >> 4) & 3u);
+            material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
+            material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
+            material.depthTest = ((test >> 16) & 1u) && ((test >> 17) & 3u) >= 2u;
+            material.depthWrite = ((zbuf >> 32) & 1u) == 0;
+            queueDraw(material, screen, triangles.data(), static_cast<uint32_t>(triangles.size()));
+            if (probe)
+            {
+                double sum = 0;
+                for (const auto &v : triangles)
+                    sum += v.rgba >> 24;
+                std::printf("[tta:rings] frame %u: %zu triangles, mean alpha %.1f\n", frame(rdram), triangles.size() / 3,
+                            sum / static_cast<double>(triangles.size()));
+            }
+        }
+
         // ---- The Glows (shader types 9 / 20, ShaderObject_Glows_Ps2.c): particle billboards -------------------------------
         // The render 0x21f980 chains, per glow, the blocks of 16 particles it keeps at S+0x230 (S = *(instance + 4)), 48 qwords
         // each, laid out by 0x21ea28 for VU1 microcode 0x620 (the 422-qword image at 0x350690):
@@ -2583,6 +2752,25 @@ namespace tta
         void dmaTag(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0];
+            // TTA_CHAIN_AUDIT=1: every 600 game frames, who appended to the frame's chain (by return address) and how
+            // much: the producers a native draw hook may still be missing.
+            static const bool audit = env("TTA_CHAIN_AUDIT") != nullptr;
+            if (audit)
+            {
+                static std::map<uint32_t, std::pair<uint32_t, uint32_t>> calls;
+                static uint32_t last = 0;
+                auto &c = calls[ra];
+                ++c.first;
+                c.second += ctx->r[5].uw[0];
+                if (frame(rdram) / 600 != last)
+                {
+                    last = frame(rdram) / 600;
+                    for (const auto &[at, n] : calls)
+                        std::printf("[tta:chain] frame %u: ra %x x%u, %u qwords\n", frame(rdram), at, n.first, n.second);
+                    std::fflush(stdout);
+                    calls.clear();
+                }
+            }
             if (g_inGlow)
             {
                 const uint32_t address = ctx->r[4].uw[0], qwords = ctx->r[5].uw[0];
@@ -2983,6 +3171,7 @@ namespace tta
         registry.registerFunction(0x21f088, staticRender<0x21f088, func_0x21f088>);
         registry.registerFunction(0x21f980, glowRender);
         registry.registerFunction(0x2163c8, dmaTag);
+        registry.registerFunction(0x21e270, rings);
         registry.registerFunction(0x21fce8, staticRender<0x21fce8, func_0x21fce8>);
         registry.registerFunction(0x21c098, postProbe<0x21c098, func_0x21c098>);
         registry.registerFunction(0x21c420, postProbe<0x21c420, func_0x21c420>);

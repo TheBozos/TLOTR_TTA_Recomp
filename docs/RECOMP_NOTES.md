@@ -552,6 +552,34 @@ the game's behaviour); its code is in the history before `8ade037`.
   (TTA_SHADOW_REACH scales it, 1 by default) instead of 3 x the body's size; on flat ground the footprint is the same
   (the head's drop is under the sweep's 2), and where the ground falls away the shadow no longer runs on as a band.
   Block row 13 (VU row 14) is not the light: its .w (0.0327) is the skin's scale.
+- **What the chain still carries: shader type 11, the lens flare** (2026-11-20). TTA_CHAIN_AUDIT=1 counts, every
+  600 game frames, the callers of the chain append 0x2163c8 by return address and size: the game's producers of GS
+  work, to be matched against the native hooks. Run on the first battle (battle1_5800 + build/pad_attack.txt), the
+  forest and Rohan (build/chain/, local). Battle-only producers: the screen filters (0x1c9c08 .. 0x1d08b0, native),
+  the movie (0x22b050), and still unclassified 0x1d1a38, 0x1d2880, 0x22ea60, 0x2281e8, 0x230768 / 0x2311f8 (from
+  0x231f38 / 0x231f48, ~2 a frame, ~25 qwords each), 0x23b988 (a pointer at 0x378578), 0x23f388. And 0x21e6b8 with
+  0x21e270 under it: shader type 11's effect render (the type table 0x35f690, 0x44 bytes a type: type 11 is
+  0x21e5e8 / 0x21e638 at +0, +4 and 0x21e6a8 / 0x21e6b0 / 0x21e6b8 / 0x21e800 at +0x34 .. +0x40, as the Glows'
+  0x21f980 is at +0x3c of types 9 / 20), which nothing drew natively. 0x21e6b8 selects VU program 0x13 (DS+0x6a8,
+  DS+0x730 |= 0x10000: the flush 0x2133d0 sends STCYCL, FLUSHA, a matrix to VU 4..7 and MSCAL 0) and calls
+  0x21e270(list, instance + 8 == 0, ..). Microcode set 2 (the MPG at 0x350690; the game's seven sets start at
+  0x3492e0, 0x34d1b0, 0x350690, 0x352100, 0x355780, 0x3578c0, 0x358a80): its program 0 loads vf1-vf8 from VU 0..7
+  and stops; the strips continue at 0x48 (MSCNT). The list: up to 160 entries of 0x30 bytes, count at +0x1e00;
+  +0 a world position, +0x10 / +0x14 two RGBA colours, +0x18 / +0x1c two radii, +0x20 an angle, +0x2c the layer (the
+  call's second argument), +0x2d the shape. VU0 vf1-vf4 hold the camera's world -> view matrix; a centre behind the
+  camera is skipped. Per entry: five qwords (the view-space centre, (cos, sin) and (-sin, cos), the radii, the
+  colours as V4-8) and a precompiled strip from the table 0x403718 {address, qwords} (13 shapes, unit circles of 5
+  to 32 segments: a GIF tag PRIM 0x4c, a Gouraud blended triangle strip, then (x, y, 0, flags) per vertex; flag bit 0
+  takes radius / colour 0, else 1; bit 1, on the first two, draws nothing). The program places each vertex at
+  centre + radius (x cos - y sin, x sin + y cos) in the view plane, projects it, and sends the colour with the
+  scene's ALPHA_1 (0x48, Cs As + Cd) and TEST_1 (layer 1: Z ALWAYS; layer 0: GEQUAL). Shape bytes with bit 7 draw up
+  to three rings (a disc 0.5 k r; a ring r .. 1.5 r on strip 3 + k; a thin ring at 0.4 k r, 1/64 wide each side). In
+  the first battle it is the Nazgul Scream's lens flare: 39 discs strung from the light on the Ringwraith's blade
+  through the screen's middle, alpha rising from 0 to ~14 over ~450 frames (host 6195 .. 6660), 2432 triangles.
+  runtime/tta_3d.cpp's rings builds the same strips in view space, takes them back to the world with the inverse of
+  vf1-vf4 and draws them through RC+0x1a0. The frame is 10-27 levels brighter on average while it plays (with the
+  Scream's green filter over it). TTA_NO_RINGS=1 turns it off; TTA_SPRITE_PROBE=1 prints the lists. No console
+  reference of the Scream yet.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
