@@ -615,6 +615,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   native paths: 0x1cfbcc, 0x1ce02c (screen filters), 0x1d0c5c / 0x1d10b8 (0x1d0c40, Osgiliath, into the 256-wide
   target FBP 0x1e0), 0x2202b8 (type 4's set-up) and 0x23f2dc (0x23e7e0, Visual Object). TTA_CHAIN_DUMP=<ra hex>
   prints a caller's first blocks. Lightning, Glow (the component), Weather and Line Blur did not run in these.
+  Captures of those battles look right except Helm's Deep (encounters 1129 Breech, 1126 Deeping Wall, 1133 Random 01,
+  started from the valley's daytime start): mounted riders over black or a cloudy sky, no ground. Open, likely the
+  debug start: the game itself draws only four type-0 nodes there (ter 104 pieces, its chain shows no terrain render),
+  placed by RC+0x2e0 = viewport x RC+0x260 x the identity object matrix (TTA_3D_DUMP_FRAME now prints that check),
+  mostly off-screen: the battle's ground is not among the nodes the game renders, as if the area the encounter places
+  the battle in were not streamed in. Not checked through the story's own way to those battles.
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a

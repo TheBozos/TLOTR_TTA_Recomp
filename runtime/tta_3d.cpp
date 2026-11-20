@@ -940,13 +940,14 @@ namespace tta
                 else if (it->second.kind == 2 || it->second.kind == 3) // not converted, or skinned (drawSkin)
                 {
                     count(rdram, g_unconverted);
-                    if (traceLevel() >= 2 && it->second.kind == 2)
+                    if (traceLevel() >= 2)
                     {
                         static std::set<std::string> seen;
                         char key[96];
                         std::snprintf(key, sizeof(key), "%s %u +%x shader %d", type.c_str(), index, offset, it->second.shader);
                         if (seen.insert(key).second)
-                            std::printf("[tta:3d] not converted: %s (frame %u)\n", key, frame(rdram));
+                            std::printf("[tta:3d] %s: %s (frame %u)\n",
+                                        it->second.kind == 2 ? "not converted" : "skinned (the skin path draws it)", key, frame(rdram));
                     }
                 }
                 else
@@ -1002,6 +1003,28 @@ namespace tta
                         std::printf("[tta:dump] %s %u +%x kind %d shader %d: %zu batches %zu verts, x %.0f..%.0f y %.0f..%.0f w %.1f..%.1f\n",
                                     type.c_str(), index, offset, it->second.kind, it->second.shader, n.batches.size(), verts,
                                     x0, x1, y0, y1, w0, w1);
+                        // The matrices it was placed by: the object's RC+0x20 and RC+0x2e0 against the skins' way
+                        // (viewport RC+0x440 / 0x450 x clip RC+0x260 x RC+0x20).
+                        float obj[16], clipM[16], vp[16] = {}, s1[16], s2[16];
+                        for (int i = 0; i < 16; ++i)
+                        {
+                            obj[i] = readFloat(rdram, rc + 0x20 + i * 4);
+                            clipM[i] = readFloat(rdram, rc + 0x260 + i * 4);
+                        }
+                        for (int r = 0; r < 3; ++r)
+                        {
+                            vp[r * 4 + r] = readFloat(rdram, rc + 0x440 + r * 4);
+                            vp[12 + r] = readFloat(rdram, rc + 0x450 + r * 4);
+                        }
+                        vp[15] = 1.0f;
+                        multiply(vp, clipM, s1);
+                        multiply(s1, obj, s2);
+                        float diff = 0.0f;
+                        for (int i = 0; i < 16; ++i)
+                            diff = std::fmax(diff, std::fabs(s2[i] - screen[i]) / (1.0f + std::fabs(screen[i])));
+                        std::printf("[tta:dump]   RC %x object translation %.1f %.1f %.1f, diag %.3f %.3f %.3f; RC+0x2e0 vs "
+                                    "viewport x clip x object: %.3g\n",
+                                    rc, obj[12], obj[13], obj[14], obj[0], obj[5], obj[10], diff);
                     }
                 }
             }
