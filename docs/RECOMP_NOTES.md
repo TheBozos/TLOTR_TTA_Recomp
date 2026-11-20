@@ -400,6 +400,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   window run with a 90 ms stall every 300 frames (TTA_STALL_EVERY=300) the step stays 1/60 s through the stalls;
   over the forest walk two frames took 2/60. The pacer never catches up (a late frame restarts its schedule), and
   the game's frames a second never pass 60.04. TTA_TIME_TRACE=1 prints every step that is not the usual one.
+  **Found and fixed (2026-11-20).** Not a stall but the EE clock's leaps: during streaming the engine models the
+  disc's waits (that the PC does not have) and the EE clock jumps up to five fields in one frame; the game measures the
+  frame's time from it (0x1c4018: *(0x3ba70c), the frame's seconds, times 0x1c4240's *(0x35fcd8), a global 1.0, to the
+  time manager 0x1dd588), so in the user's forest clearing (build/states/user_slow_16590.state, a scripted walk in
+  real time) runs of ~5 frames had steps of 0.033-0.083 s while each lasted 1/60 s: the party moved two to five times
+  as fast. In real time, tta_port.cpp's hook on GetScaledElapsedTime (0x1dd4f8, called only through the table: 33
+  callers; 0x1c4240 is called directly) scales each frame's elapsed times by the host's own fields since the last
+  frame (at least one) over the measured seconds: 46 off steps on the walk -> 0. Scripted deterministic runs keep the
+  console's count (the first battle's captures unchanged). The same leaps made the sound overflow (BozoEngine #111).
 - **Stray shadow wedges** (2026-11-18, the user: "weird shadows from time to time"). Found from the user's state with
   an attack played (frames 9900-9940): a large straight-edged dark wedge of ground by a character close to the camera.
   The volumes were drawn at the type-18 pass, in the scene's traversal, and counted where the depth test passed

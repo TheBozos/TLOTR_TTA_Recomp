@@ -115,6 +115,7 @@ int main(int argc, char **argv)
     // TTA_DETERMINISTIC=1: the window build on the game's clock as tta-headless (reproducible captures, not paced).
     const bool deterministic = std::getenv("TTA_DETERMINISTIC") != nullptr;
     options.realTime = window && !deterministic;
+    tta::setRealTime(options.realTime);
 #ifdef TTA_WITH_WINDOW
     // A played game keeps its memory cards on disk, in the user's application data (%APPDATA%\TheBozos\The Third
     // Age\cards: mc0, mc1), so a save outlives the session without --card-dir. Headless and scripted runs keep fresh

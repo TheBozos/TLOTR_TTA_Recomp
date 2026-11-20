@@ -4,6 +4,9 @@
 #include "tta_audio.h"
 #include "tta_functions.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -75,24 +78,73 @@ namespace tta
             ctx->pc = ra;
         }
 
-        // TTA_TIME_TRACE=1: the game's elapsed time per category (0x1dd4f8(mask): *(0x3bac4c + 0xc i) x *(0x3bac7c), what
-        // GetScaledElapsedTime gives the scripts and the movement code reads), printed when it is not the usual step.
-        void elapsedTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        // The frame's time step is *(0x3ba70c) (the frame's measured seconds: its fields times a field's time) times
+        // 0x1c4240's *(0x35fcd8) (a global scale, 1.0), given to the time manager 0x1dd588; GetScaledElapsedTime 0x1dd4f8 returns a category's factor
+        // times it. During streaming the EE clock leaps (the engine models the disc's waits the PC does not have) and up
+        // to five fields count in one frame that the host lived in one: the party ran two to five times as fast for a
+        // few frames (the user: "my character speeds up for a short time" on the overworld). In real time each frame's
+        // elapsed times are scaled to the host's own fields since the last frame (at least one); scripted,
+        // deterministic runs keep the console's count. 0x1c4240 itself is called directly (not overridable); 0x1dd4f8
+        // only through the table (33 callers).
+        bool g_realTime = false;
+        float g_timeFactor = 1.0f;
+        uint32_t g_timeFrame = ~0u;
+
+        void elapsedTime(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
         {
             const uint32_t ra = ctx->r[31].uw[0], mask = ctx->r[4].uw[0];
+            static const bool trace = std::getenv("TTA_TIME_TRACE") != nullptr;
+            const uint32_t frame = read32(rdram, 0x3b5720);
+            if (g_realTime && frame != g_timeFrame)
+            {
+                g_timeFrame = frame;
+                static auto last = std::chrono::steady_clock::time_point{};
+                const auto now = std::chrono::steady_clock::now();
+                g_timeFactor = 1.0f;
+                if (last != std::chrono::steady_clock::time_point{})
+                {
+                    // The frame's measured seconds (*(0x3ba70c): fields x a field's time) against the host's fields.
+                    const double hostFields = std::chrono::duration<double>(now - last).count() * 59.94;
+                    const float cap = static_cast<float>(std::max(1.0, std::floor(hostFields + 0.5)) / 59.94);
+                    float seconds;
+                    std::memcpy(&seconds, rdram + 0x3ba70c, 4);
+                    if (seconds > cap * 1.05f)
+                    {
+                        g_timeFactor = cap / seconds;
+                        if (trace)
+                            std::printf("[tta:time] game frame %u: %.4f s counted, %.2f fields lived: scaled by %.3f%c", frame, seconds,
+                                        hostFields, g_timeFactor, 10);
+                    }
+                }
+                last = now;
+            }
             func_0x1dd4f8(rdram, ctx, rt);
             float value;
             std::memcpy(&value, &ctx->f[0], 4);
-            static float usual = 0.0f;
-            static uint32_t lastFrame = 0;
-            const uint32_t frame = read32(rdram, 0x3b5720);
-            if (frame != lastFrame && mask == 1u)
+            if (g_timeFactor != 1.0f && value > 0.0f)
             {
-                lastFrame = frame;
-                if (usual == 0.0f)
-                    usual = value;
-                if (value > usual * 1.2f || value < usual * 0.8f)
-                    std::printf("[tta:time] game frame %u: step %.5f (usual %.5f) from %x%c", frame, value, usual, ra, 10);
+                value *= g_timeFactor;
+                std::memcpy(&ctx->f[0], &value, 4);
+            }
+            // TTA_TIME_TRACE=1: a category-1 step that is not the usual one.
+            if (trace && mask == 1u)
+            {
+                static float usual = 0.0f;
+                static uint32_t lastFrame = 0;
+                if (frame != lastFrame)
+                {
+                    lastFrame = frame;
+                    if (usual == 0.0f)
+                        usual = value;
+                    if (value > usual * 1.2f || value < usual * 0.8f)
+                    {
+                        float fields, field;
+                        std::memcpy(&fields, rdram + 0x35fcd8, 4);
+                        std::memcpy(&field, rdram + 0x3ba70c, 4);
+                        std::printf("[tta:time] game frame %u: step %.5f (usual %.5f) from %x; fields %.3f x %.5f, real time %d, factor %.3f%c",
+                                    frame, value, usual, ra, fields, field, g_realTime ? 1 : 0, g_timeFactor, 10);
+                    }
+                }
             }
             ctx->pc = ra;
         }
@@ -104,6 +156,8 @@ namespace tta
             ctx->pc = ctx->r[31].uw[0];
         }
     }
+
+    void setRealTime(bool on) { g_realTime = on; }
 
     void install(Runtime &, bozo::port::Registry &registry)
     {
@@ -117,8 +171,7 @@ namespace tta
         registry.registerFunction(0x21b348, resetVu1State);
         registry.registerFunction(0x277b58, ipuInit);
         registry.registerFunction(0x320428, newlibRand);
-        if (std::getenv("TTA_TIME_TRACE"))
-            registry.registerFunction(0x1dd4f8, elapsedTrace);
+        registry.registerFunction(0x1dd4f8, elapsedTime); // held to the host's time in real time; TTA_TIME_TRACE
         if (std::getenv("TTA_RNG_TRACE"))
             registry.registerFunction(0x1ba9c8, rngTrace);
         installDebug(registry); // 0x216118 (the graphics paths' wait) is its once-a-frame hook
