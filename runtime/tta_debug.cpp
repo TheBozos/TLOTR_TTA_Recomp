@@ -14,8 +14,8 @@
 // then the map's own opening (its films, its start position). Indices 6 (e99c01) and 13 (e03c04) have no files on the
 // disc; 0 and 1 are the developers' test maps (e98c03 went back to the title, e98c02 played Eregion's films).
 //
-// Both run from the main loop's wait on the graphics paths (0x216118, once a frame, see tta_port.cpp's busyPaths), as
-// calls into the game with the caller's registers kept.
+// Both run from the main loop's wait on the graphics paths (0x216118, once a frame, see tta_port.cpp's busyPaths): a warp
+// as calls into the game with the caller's registers kept, a battle as the loop's next call (callStartEncounter).
 //
 // Command-line options: 0x140670 parses the game's argv (argc at 0x37a728, argv at 0x37a72c) into an option table:
 // every "-name" with the next argument as its value when that does not start with '-' (else ""). The table is
@@ -168,16 +168,23 @@ namespace tta
                 const int32_t link = static_cast<int32_t>(read32(rdram, a + (type == kEncounterType ? 0x28u : 0x24u)));
                 if (link < lo || link > hi || !byId[static_cast<size_t>(link - lo)])
                     continue;
-                // The links name what they are: an encounter's group is an "_ET" record, a group's placement an "_EP"
-                // one, and a group is itself an "_ET". Anything else is another object whose words happen to match.
+                // The links name what they are: an encounter's group is an enemy template, a group's placement a
+                // placement, and a group is itself a template. Anything else is another object whose words happen to
+                // match. Eregion names them "..._ET" / "..._EP"; Rohan and the later maps "..._Encounter_Template" /
+                // "..._EncounterPlacement" and the like, cut at the record's 27 characters ("sBridge02_Encounter_Templat").
                 const auto endsWith = [](const std::string &n, const char *tail)
                 {
                     const size_t k = std::strlen(tail);
                     return n.size() >= k && n.compare(n.size() - k, k, tail) == 0;
                 };
+                const auto has = [](const std::string &n, const char *part) { return n.find(part) != std::string::npos; };
+                const auto isTemplate = [&](const std::string &n)
+                { return endsWith(n, "_ET") || (has(n, "Encounter") && has(n, "Templ")); };
+                const auto isPlacement = [&](const std::string &n)
+                { return endsWith(n, "_EP") || (has(n, "Encounter") && has(n, "Placem")); };
                 const std::string &name = *byId[static_cast<size_t>(id - lo)];
                 const std::string &linked = *byId[static_cast<size_t>(link - lo)];
-                if (type == kEncounterType ? !endsWith(linked, "_ET") : (!endsWith(name, "_ET") || !endsWith(linked, "_EP")))
+                if (type == kEncounterType ? !isTemplate(linked) : (!isTemplate(name) || !isPlacement(linked)))
                     continue;
                 auto &into = type == kEncounterType ? encounters : groups;
                 if (std::none_of(into.begin(), into.end(), [&](const Encounter &e) { return e.id == id; }))
@@ -242,11 +249,41 @@ namespace tta
             g_last = text;
         }
 
+        // StartEncounter 0x17f040(id), as the main loop's own next call: the hook 0x216118 hands its caller's call over to
+        // it, returning to the loop's jal 0x216118 (ra - 8), so the loop asks the hook again when it is done. A call made
+        // from inside the hook (callGame) can switch threads in the game (Rohan's encounters do)
+        // and then never comes back to the hook, which left the main loop broken and the frame stopped.
+        bool g_tailCall = false;
+
+        void callStartEncounter(R5900Context *ctx, int32_t id)
+        {
+            ctx->r[4].ud[0] = static_cast<uint64_t>(static_cast<int64_t>(id));
+            ctx->r[31].ud[0] = ctx->r[31].ud[0] - 8u;
+            ctx->pc = 0x17f040u;
+            g_tailCall = true;
+        }
+
+        bool objectIs(const uint8_t *rdram, const Encounter &e, uint32_t type);
+
         void startEncounter(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id)
         {
-            const bool ok = callGame(rdram, ctx, rt, func_0x17f040, {static_cast<uint32_t>(id)});
-            note("StartEncounter(" + std::to_string(id) + ") at game frame " + std::to_string(gameFrame(rdram)) +
-                 (ok ? "" : " (did not return)"));
+            // Only one of the current map's encounters: StartEncounter with an id the map does not have never comes back
+            // (the game's frame stops; seen with an Eregion id right after a warp to Rohan, its list still empty).
+            bool listed = false;
+            size_t count = 0;
+            {
+                std::lock_guard lock(g_mutex);
+                count = g_encounters.size();
+                for (const Encounter &e : g_encounters)
+                    listed = listed || (e.id == id && objectIs(rdram, e, kEncounterType));
+            }
+            if (!listed)
+            {
+                note("no encounter " + std::to_string(id) + " on this map (" + std::to_string(count) + " listed): not started");
+                return;
+            }
+            note("StartEncounter(" + std::to_string(id) + ") at game frame " + std::to_string(gameFrame(rdram)));
+            callStartEncounter(ctx, id);
         }
 
         void warp(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t index)
@@ -312,9 +349,8 @@ namespace tta
                 write32(rdram, g_restore.address + 0x28u, static_cast<uint32_t>(g_restore.group));
             g_restore = {host->address, gameFrame(rdram) + 600u, host->id, static_cast<int32_t>(read32(rdram, host->address + 0x28u))};
             write32(rdram, host->address + 0x28u, static_cast<uint32_t>(groupId));
-            const bool ok = callGame(rdram, ctx, rt, func_0x17f040, {static_cast<uint32_t>(host->id)});
-            note("enemy group " + std::to_string(groupId) + " (" + group->name + ") through " + host->name +
-                 (ok ? "" : " (did not return)"));
+            note("enemy group " + std::to_string(groupId) + " (" + group->name + ") through " + host->name);
+            callStartEncounter(ctx, host->id);
         }
 
         // 0x216118: the graphics paths still busy (the main loop waits on it once a frame). There are none: 0. The
@@ -334,13 +370,24 @@ namespace tta
                     else
                         ++it;
             }
-            for (const Request &r : due)
+            g_tailCall = false;
+            for (size_t k = 0; k < due.size(); ++k)
+            {
+                const Request &r = due[k];
+                if (g_tailCall)
+                {
+                    // One battle a tick: the rest wait for the next one.
+                    std::lock_guard lock(g_mutex);
+                    g_requests.push_back(r);
+                    continue;
+                }
                 if (r.kind == Request::kEncounter)
                     startEncounter(rdram, ctx, rt, r.value);
                 else if (r.kind == Request::kGroup)
                     startGroup(rdram, ctx, rt, r.value);
                 else
                     warp(rdram, ctx, rt, r.value);
+            }
             if (g_restore.address && frame >= g_restore.frame)
             {
                 if (read32(rdram, g_restore.address) == static_cast<uint32_t>(g_restore.id))
@@ -368,12 +415,20 @@ namespace tta
                 scanObjects(rdram, encounters, groups);
                 std::printf("[tta:debug] map objects at game frame %u: %zu encounters, %zu enemy groups%c", frame, encounters.size(),
                             groups.size(), 10);
+                // TTA_DEBUG_LIST=1: the ids and names, for --encounter / --group in scripted runs.
+                if (std::getenv("TTA_DEBUG_LIST"))
+                {
+                    for (const Encounter &e : encounters)
+                        std::printf("[tta:debug]   encounter %d %s (group %d)%c", e.id, e.name.c_str(), e.link, 10);
+                    for (const Encounter &g : groups)
+                        std::printf("[tta:debug]   group %d %s%c", g.id, g.name.c_str(), 10);
+                }
                 std::lock_guard lock(g_mutex);
                 g_encounters.swap(encounters);
                 g_groups.swap(groups);
             }
             ctx->r[2].ud[0] = 0;
-            ctx->pc = ctx->r[31].uw[0];
+            ctx->pc = g_tailCall ? 0x17f040u : ctx->r[31].uw[0]; // StartEncounter next (callStartEncounter), else back
         }
 
         // ---- Command-line options ----

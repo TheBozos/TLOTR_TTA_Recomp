@@ -476,6 +476,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   user's clearing); TTA_ZONE_TRACE=1 prints zone messages and updates. The user's clearing state
   (build/states/user_slow_16590.state, F5 at 16590) held 59-60 frames/s in real time on a quiet bench (95 unpaced);
   the drops to 38-45 in the user's session did not reproduce.
+- **Debug battles outside Eregion** (2026-11-20). Two faults stopped them. (1) The scan's name rule: Rohan (and the
+  later maps) name their groups "..._Encounter_Template" / "...EncounterTemplate" and placements
+  "..._Encounter_Placement" / "...EncounterPlacement", cut at the record's 27 characters ("sBridge02_Encounter_Templat"),
+  where Eregion has "_ET" / "_EP": Rohan listed nothing. Templates and placements are now recognised by either form
+  (Rohan: 83 encounters, 39 groups: EncounterInstance_Random1.., EI_Morwain_Random1.., Instance_Morwain, the
+  bridge / tower / worm / Sharku fights). TTA_DEBUG_LIST=1 prints the ids and names on each scan. (2) StartEncounter
+  was called from inside the main loop's hook 0x216118 (callGame): in Rohan the call switches the game's threads
+  on the way and never comes back to the hook, which left the loop broken (the frame stopped at 0x216118, "did not
+  return"). The hook now hands the loop's own call over to 0x17f040 (a0 the id, ra the loop's jal 0x216118, so the
+  loop asks the hook again when it returns): one battle a tick, the game's own flow. And an id that is not one of the
+  current map's encounters is refused instead of started. Checked: Rohan encounter 1172 from forest_14900 (warp at
+  15000, --encounter 1172@16200): four orcs, Rage of Saruman, the party's loss, back to the forest.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by
