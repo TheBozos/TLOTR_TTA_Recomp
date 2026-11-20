@@ -96,6 +96,13 @@ namespace tta
             std::vector<std::array<float, 3>> normals;
             std::vector<std::array<uint8_t, 4>> bones;
             std::vector<std::array<float, 4>> weights;
+            // The vertices' bounding box (filled on first use; static batches only): a box wholly inside the depth
+            // range needs no clipping.
+            mutable bool boundsKnown = false;
+            mutable float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+            // Its texture, looked up once (textureById goes through two maps keyed by strings).
+            mutable bool textureKnown = false;
+            mutable std::shared_ptr<const bozo::render::Texture> textureCache;
         };
 
         struct Node
@@ -246,9 +253,19 @@ namespace tta
         std::shared_ptr<Mesh> meshFor(const std::string &type, uint32_t index, uint32_t size)
         {
             static std::map<std::tuple<std::string, uint32_t, uint32_t>, std::shared_ptr<Mesh>> cache;
+            // The scene draws a mesh's nodes one after another: the last answer first.
+            static std::string lastType;
+            static uint32_t lastIndex = 0, lastSize = 0;
+            static std::shared_ptr<Mesh> last;
+            static bool lastValid = false;
+            if (lastValid && index == lastIndex && size == lastSize && type == lastType)
+                return last;
             const auto key = std::make_tuple(type, index, size);
             if (auto it = cache.find(key); it != cache.end())
+            {
+                lastType = type, lastIndex = index, lastSize = size, last = it->second, lastValid = true;
                 return it->second;
+            }
             std::string name = type;
             while (!name.empty() && name.back() == ' ')
                 name.pop_back();
@@ -334,7 +351,8 @@ namespace tta
                 o.rgba = rgba;
                 return o;
             };
-            std::vector<bozo::render::Vertex> out;
+            static std::vector<bozo::render::Vertex> out; // reused (swapped with the caller's buffer)
+            out.clear();
             out.reserve(triangles.size());
             for (size_t t = 0; t + 2 < triangles.size(); t += 3)
             {
@@ -367,6 +385,22 @@ namespace tta
                     out.insert(out.end(), {poly[0], poly[f], poly[f + 1]});
             }
             triangles.swap(out);
+        }
+
+        // Whether the box lo..hi lies wholly inside clipToDepthRange's planes (w > kWMin, 0 <= z <= the 24-bit range
+        // x w): the planes are linear in position, so its eight corners decide.
+        bool boxInsideDepthRange(const float lo[3], const float hi[3], const float m[16])
+        {
+            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
+            for (int c = 0; c < 8; ++c)
+            {
+                const float x = (c & 1) ? hi[0] : lo[0], y = (c & 2) ? hi[1] : lo[1], z = (c & 4) ? hi[2] : lo[2];
+                const float w = m[3] * x + m[7] * y + m[11] * z + m[15];
+                const float gz = m[2] * x + m[6] * y + m[10] * z + m[14];
+                if (!(w - kWMin >= 0.0f && gz >= 0.0f && kDepthMax * w - gz >= 0.0f))
+                    return false;
+            }
+            return true;
         }
 
         void drawNode(const uint8_t *rdram, const Mesh &mesh, const Node &node, const float screen[16])
@@ -405,13 +439,32 @@ namespace tta
                     fogBatches += (batch.prim & 0x20u) ? 1u : 0u;
                 }
             }
-            std::vector<bozo::render::Vertex> triangles;
+            // Reused between nodes and frames (the scene is thousands of batches a frame).
+            static std::vector<bozo::render::Vertex> triangles, v;
             for (const Batch &batch : source->batches)
             {
                 const uint32_t type = batch.prim & 7u;
                 if (type < 3 || type > 5 || batch.vertices.size() < 3)
                     continue;
-                std::vector<bozo::render::Vertex> v = batch.vertices;
+                v.assign(batch.vertices.begin(), batch.vertices.end());
+                if (!batch.boundsKnown)
+                {
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        batch.lo[c] = 1e30f;
+                        batch.hi[c] = -1e30f;
+                    }
+                    for (const auto &p : batch.vertices)
+                    {
+                        const float q[3] = {p.x, p.y, p.z};
+                        for (int c = 0; c < 3; ++c)
+                        {
+                            batch.lo[c] = std::fmin(batch.lo[c], q[c]);
+                            batch.hi[c] = std::fmax(batch.hi[c], q[c]);
+                        }
+                    }
+                    batch.boundsKnown = true;
+                }
                 const bool fogged = (batch.prim & 0x20u) != 0;
                 for (size_t i = 0; i < v.size(); ++i)
                 {
@@ -421,7 +474,8 @@ namespace tta
                     if (fogged)
                     {
                         const float w = matrix[3] * v[i].x + matrix[7] * v[i].y + matrix[11] * v[i].z + matrix[15];
-                        v[i].fog = w > 0.0f ? std::fmin(fogK / w, 255.0f) / 255.0f : 1.0f;
+                        const float f = fogK / w;
+                        v[i].fog = w > 0.0f ? (f < 255.0f ? f : 255.0f) / 255.0f : 1.0f;
                     }
                 }
                 triangles.clear();
@@ -484,9 +538,13 @@ namespace tta
                         material.clampV = ((value >> 2) & 3u) == 1u;
                     }
                 }
-                std::shared_ptr<const bozo::render::Texture> texture;
-                if ((batch.prim & 0x10u) && batch.texture)
-                    texture = textureById(batch.texture);
+                if (!batch.textureKnown)
+                {
+                    if ((batch.prim & 0x10u) && batch.texture)
+                        batch.textureCache = textureById(batch.texture);
+                    batch.textureKnown = true;
+                }
+                const std::shared_ptr<const bozo::render::Texture> &texture = batch.textureCache;
                 material.fog = fogged;
                 material.fogColour = fogColour;
                 material.textured = texture != nullptr;
@@ -502,7 +560,8 @@ namespace tta
                         material.alphaRef = 0; // the scene's TEST (0x1a8600): alpha > 0
                     }
                 }
-                clipToDepthRange(triangles, matrix);
+                if (!boxInsideDepthRange(batch.lo, batch.hi, matrix))
+                    clipToDepthRange(triangles, matrix);
                 if (!triangles.empty())
                     renderer.draw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
             }
@@ -1055,8 +1114,9 @@ namespace tta
                     }
                     for (int c = 0; c < 3; ++c)
                     {
-                        extentMin[c] = std::fmin(extentMin[c], p[c]);
-                        extentMax[c] = std::fmax(extentMax[c], p[c]);
+                        // Comparisons, not std::fmin / fmax: those are C library calls here (a dozen a vertex).
+                        extentMin[c] = p[c] < extentMin[c] ? p[c] : extentMin[c];
+                        extentMax[c] = p[c] > extentMax[c] ? p[c] : extentMax[c];
                     }
                     skinned[v].x = p[0];
                     skinned[v].y = p[1];
@@ -1076,8 +1136,8 @@ namespace tta
                         float light = 0.0f;
                         for (int k = 0; k < 10; ++k)
                             light += lighting[k][c] * terms[k];
-                        const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * std::fmax(light, 0.0f);
-                        rgba |= static_cast<uint32_t>(std::fmin(value, 255.0f)) << (c * 8);
+                        const float value = static_cast<float>((batch.colours[v] >> (c * 8)) & 0xffu) * (light > 0.0f ? light : 0.0f);
+                        rgba |= static_cast<uint32_t>(value < 255.0f ? value : 255.0f) << (c * 8);
                     }
                     static const bool noLight = env("TTA_SKIN_NOLIGHT") != nullptr;
                     if (noLight)

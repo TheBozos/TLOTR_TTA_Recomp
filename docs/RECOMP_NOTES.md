@@ -409,6 +409,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   inverted Z, i.e. counting the faces behind the scene, and 0x21ae10 darkens). Natively the volumes are now queued
   and drawn at 0x21ae10 with z-fail (BozoEngine Material::stencilDepthFail), then one darkening at the strongest
   strength; TTA_SHADOW_ZPASS=1 / TTA_SHADOW_IMMEDIATE=1 for the old ways. The wedges are gone.
+- **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
+  build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
+  new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by
+  a string tuple per node, fminf per fogged vertex), 7% in clipToDepthRange (every vertex tested against the near and
+  far planes) and 7.5% in operator new. Now: reused buffers (drawNode, the clipper's output), each batch's texture
+  and bounding box kept on it (a box wholly inside the depth range skips the clip test; the planes are linear, so its
+  corners decide), a last-hit cache in front of meshFor, and comparisons instead of std::fmin / fmax in the fog and
+  skin-lighting loops (C library calls on this toolchain, a dozen a skinned vertex). drawFor is 5.5%, allocation is
+  gone from the profile, and the battle's 1700 frames run at ~105-109 frames/s unpaced (64-78 before, noisy with
+  the other ports' work on the machine). Captures that land on the same frame are pixel-identical (battle 5900,
+  outpost 5451, forest 14940 / 14971). What is left on the main thread: the game's own VU0 maths (madd / msub /
+  fmac / mulf, ~25%), skinning (~20%), the renderer's batching (~8%).
 - **The outpost's pulsing whiteout** (2026-11-20, worked around). From the outpost state (build/states/outpost_3900.state with
   tools/pads/pad_outpost.txt, a short walk; build/states/outpost_pulse_5440.state just before it), near the stone
   with the crystal the frame bleaches to cream every ~180 frames (mean 37 -> 235, Berethor and the HUD stay dark).
