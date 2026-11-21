@@ -670,6 +670,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   In Eastern Moria's film (warp e01c04, frames ~16980-17400) the Balrog now arrives in fire: flames behind it, on
   its crown and over the screen in its blast. TTA_NO_TYPE4=1 turns it off. Other scenes unchanged (scripts/regress.sh,
   now with the film's frame 17250 as a twelfth scene, balrog).
+- **Soak runs and the draw counters over every region** (2026-11-21). tta-headless from forest_14900, a warp to each
+  of Western and Eastern Moria, the Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith and the Pelennor at 15000,
+  that region's debug battle at 16200 (Eastern Moria and Minas Tirith: the map's own start), CROSS every 45 frames
+  to 21000 (tools/pads/pad_warp_battle.txt), run to 26000: all eight end at the frame limit, the game's frame
+  counter moving in every 60-frame report, no unknown register access, no warning. With TTA_3D_TRACE=2 to 21000:
+  no static node without a mesh, none not converted (besides the skins, which the skin path draws), no off-screen
+  pass skipped. With the type-4 fire drawn, the chain audit's callers while exploring and in battle all have a
+  native counterpart; what is left open needs a console reference (below, "Open").
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
