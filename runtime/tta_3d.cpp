@@ -2045,36 +2045,44 @@ namespace tta
             up.reserve(g_shadowWorld.size() * 8);
             down.reserve(g_shadowWorld.size() * 8);
             constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
-            const auto addFace = [&](std::array<float, 3> a, std::array<float, 3> b, std::array<float, 3> c, const float centre[3])
+            // A prism corner, projected once: each corner is in up to six of the prism's eight faces (projected per
+            // face, the sweep was a tenth of the main thread in Helm's Deep's crowded battle).
+            struct Corner
             {
+                std::array<float, 3> p;
+                float sx, sy;
+                bool inside; // in front of the camera and inside the Z range
+            };
+            const auto corner = [&](const std::array<float, 3> &q)
+            {
+                Corner k{q, 0.0f, 0.0f, false};
+                const float w = m[3] * q[0] + m[7] * q[1] + m[11] * q[2] + m[15];
+                const float z = m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14];
+                k.inside = w > kWMin && z >= 0.0f && z <= kDepthMax * w;
+                if (k.inside)
+                {
+                    k.sx = (m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12]) / w;
+                    k.sy = (m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13]) / w;
+                }
+                return k;
+            };
+            const auto addFace = [&](const Corner &ka, const Corner &kb0, const Corner &kc0, const float centre[3])
+            {
+                const std::array<float, 3> &a = ka.p;
                 // Outward: the face's normal away from the prism's centre.
-                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, t[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float u[3] = {kb0.p[0] - a[0], kb0.p[1] - a[1], kb0.p[2] - a[2]};
+                const float t[3] = {kc0.p[0] - a[0], kc0.p[1] - a[1], kc0.p[2] - a[2]};
                 const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
                 const float out = n[0] * (a[0] - centre[0]) + n[1] * (a[1] - centre[1]) + n[2] * (a[2] - centre[2]);
                 if (out == 0.0f)
                     return;
-                if (out < 0.0f)
-                    std::swap(b, c);
+                const Corner &kb = out < 0.0f ? kc0 : kb0, &kc = out < 0.0f ? kb0 : kc0;
+                const std::array<float, 3> &b = kb.p, &c = kc.p;
                 // The common case: all three in front of the camera and inside the Z range: no clipping, the screen
                 // winding from the projected points directly.
-                const std::array<float, 3> *p[3] = {&a, &b, &c};
-                float sx[3], sy[3];
-                bool inside = true;
-                for (int k = 0; k < 3 && inside; ++k)
+                if (ka.inside && kb.inside && kc.inside)
                 {
-                    const auto &q = *p[k];
-                    const float w = m[3] * q[0] + m[7] * q[1] + m[11] * q[2] + m[15];
-                    const float z = m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14];
-                    inside = w > kWMin && z >= 0.0f && z <= kDepthMax * w;
-                    if (inside)
-                    {
-                        sx[k] = (m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12]) / w;
-                        sy[k] = (m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13]) / w;
-                    }
-                }
-                if (inside)
-                {
-                    const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);
+                    const float area = (kb.sx - ka.sx) * (kc.sy - ka.sy) - (kb.sy - ka.sy) * (kc.sx - ka.sx);
                     auto &into = area > 0.0f ? up : down;
                     into.push_back(vertex(a));
                     into.push_back(vertex(b));
@@ -2118,14 +2126,15 @@ namespace tta
                 float centre[3];
                 for (int k = 0; k < 3; ++k)
                     centre[k] = (a[k] + b[k] + c[k]) / 3.0f + d[k] * 0.5f;
-                addFace(a, b, c, centre);
-                addFace(a2, b2, c2, centre);
-                addFace(a, b, b2, centre);
-                addFace(a, b2, a2, centre);
-                addFace(b, c, c2, centre);
-                addFace(b, c2, b2, centre);
-                addFace(c, a, a2, centre);
-                addFace(c, a2, c2, centre);
+                const Corner ka = corner(a), kb = corner(b), kc = corner(c), ka2 = corner(a2), kb2 = corner(b2), kc2 = corner(c2);
+                addFace(ka, kb, kc, centre);
+                addFace(ka2, kb2, kc2, centre);
+                addFace(ka, kb, kb2, centre);
+                addFace(ka, kb2, ka2, centre);
+                addFace(kb, kc, kc2, centre);
+                addFace(kb, kc2, kb2, centre);
+                addFace(kc, ka, ka2, centre);
+                addFace(kc, ka2, kc2, centre);
             }
             // TTA_SHADOW_SHOW=1: the volume's faces drawn in colour instead (red one winding, blue the other).
             if (env("TTA_SHADOW_SHOW"))

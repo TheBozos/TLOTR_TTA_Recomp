@@ -53,7 +53,14 @@ namespace
                         if (entry.th32OwnerProcessID != GetCurrentProcessId() || entry.th32ThreadID == self)
                             continue;
                         if (HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ThreadID))
+                        {
                             threads.emplace_back(entry.th32ThreadID, thread);
+                            // A thread's CPU time counts from when it is first seen: without this the first report
+                            // gave every thread 0 and listed the wrong ones.
+                            ULONG64 start = 0;
+                            if (!cycles.count(entry.th32ThreadID) && QueryThreadCycleTime(thread, &start))
+                                cycles[entry.th32ThreadID] = start;
+                        }
                     }
                     CloseHandle(snapshot);
                 }

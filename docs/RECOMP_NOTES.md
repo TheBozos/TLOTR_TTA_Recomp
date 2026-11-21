@@ -507,6 +507,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   not the explorer; it was taken out. The party list is 0x3a6e50 (0x3a5bd0 + 0x1280, as GetPartyMemberByName's
   0x1941f8): count at +8, member k's actor at +0xba4 + k * 0x20 (gonj, fewj, rofk, duwj, mdwj, eadj).
   TTA_DEBUG_OBJDUMP=1 prints the encounter's, group's and placement's words.
+- **Frame times in the later regions** (2026-11-21). PS2X_FRAME_STATS=1 (BozoEngine's pacer: the work of each frame,
+  the wait for the cap left out), window build on the PC's clock, after a warp from forest_14900 with
+  tools/pads/pad_warp_battle.txt (note: --frames counts from the boot, not from the state): Minas Tirith, Osgiliath
+  and the Pelennor Fields run at 3-10 ms a frame (a few single frames over 16.7 ms around loads). Helm's Deep holds 60
+  except from about game frame 18900 to 19550, the end of the opening films and the start of debug battle 1126 (the
+  camera over the army on the wall): 16-19.5 ms on average there, 49-57 frames a second for ~10 s, then 60 through
+  the battle. Reproduced unpaced from a state at 18896 (TTA_DETERMINISTIC=1, --encounter 1126@18900). TTA_HOST_PROFILE
+  (its first report used to give every thread 0 cycles and list the wrong ones: a thread's CPU time now counts from
+  when it is first seen) puts the game thread at a full core: ~25% the game's own VU0 macro code (vu0::madd / fmac /
+  ps2f::addNearest / mulf, from game functions 0x1d5118 and 0x1d52c8, already on the host-float fast path for normal
+  numbers), ~17% the vertex copies into Renderer::draw at the flush, ~10% drawShadowVolume's face sweep, then drawSkin's
+  recording. The sweep now projects each of a prism's six corners once instead of once per face (it was each corner up
+  to six times): its share halved, pixels unchanged (scripts/regress.sh), the frame time not measurably. What is left
+  is a SIMD VU0 macro path in BozoEngine (all four fields at once, the exact path only for fields that leave the
+  normal range) or fewer vertex copies (the skin jobs writing straight into the renderer's frame).
 - **Visual regression check** (2026-11-21): scripts/regress.sh runs the window build (TTA_DETERMINISTIC=1) on five
   scenes from the local states (the first battle 5900 / 6300 / 6800 with tools/pads/pad_attack.txt, the outpost 4500 /
   5451, the forest 14940 / 14971, Rohan's debug battle 1172 at 16750 and Helm's Deep's 1126 at 19800 / 20400 with
@@ -1068,11 +1083,12 @@ Boots 55-69 on the way there; boot 69 reaches the title screen with every defaul
 
 ## Open
 
-- Movie sound from the 2nd film on: JC2 found the sceMpeg HLE keeping one more copy of the stream callbacks for every
-  sceMpegAddStrCallback on a handle whose sceMpegDelete is not routed (jc2/native cc18c10). TTA plays several films.
-- The CPU GS rasterizer's magenta movie frames (unsupported texture path).
-- Fork branches not on main yet: `native/vu1-stream`, `tlotr/mpeg-nodata-end`, `tlotr/runner-pch`; the submodule
-  is on `tlotr/native` (native/renderer + main + those three).
-- VU1 AOT flag observer: which TTA microprogram reads a flag the analysis treats as unread (sc3-port).
-- The text on the loading screen is garbled (font texture or CLUT upload).
-- HLE `sceGsExecLoadImage` copies the whole image into a guest packet: images over ~1 MB would not fit the pinned heap.
+On BozoEngine (reviewed 2026-11-21; the PS2Recomp-era items, the GS rasterizer, the VU1 AOT, the fork branches,
+sceGsExecLoadImage, the garbled loading text, have no counterpart there: the loading screen is drawn natively, and
+BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback leak JC2 found cannot happen):
+- The screen filter's frame alpha (above, "The glow filter"): the console's scene leaves the frame's alpha alone and
+  the highlight pass writes it alone; natively every draw writes alpha, so the coloured glow around highlighted and
+  buffed characters is missing. No console capture of it yet.
+- The shine layer "02" (above, "The shine layer and F7"): no case seen to check it against.
+- Helm's Deep's ~10 s at 49-57 frames a second as its battle starts (above, "Frame times in the later regions").
+- The Linux and macOS builds (WSL here has no compiler; installing one needs the user's sudo).
