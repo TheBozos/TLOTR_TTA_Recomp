@@ -581,6 +581,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   its sound opened. 18 captures in ~3.2 minutes, each pixel-identical over three runs. user_battle.state (the sunny
   battle) is from before the sound section of the save states and no longer loads (the loader puts the game back and
   it boots to the title): that battle needs saving again before it can be a scene.
+  Three later regions (2026-11-21), after a survey of a battle in each of five (captures from 15800 to 19000; no
+  defect found: Minas Tirith's and the Pelennor's near-black frames under the battle HUD are the battles' fade-in
+  after their films): moria (warp e01c02, the Watcher 1000 at 16200: 16700 / 17300, the tentacles and the water's
+  splash), osgiliath (1269, Gothmog's archers: 16700 / 17900) and minastirith (warp e03c02 alone: its opening films
+  lead to the troll battle; 16080 in its fade-in, 16200). The warps use the map paths: regress.sh splits a scene's
+  arguments on spaces. 24 captures in ~5 minutes; the new ones pixel-identical over two runs.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by

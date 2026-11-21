@@ -3,7 +3,8 @@
 # captures fixed frames, and compares them with a local baseline (tools/tta_regress.py).
 #   scripts/regress.sh            capture into build/regress/new and compare with build/regress/baseline
 #   scripts/regress.sh --update   capture straight into build/regress/baseline
-#   scripts/regress.sh [--update] <scene>...   only those scenes (battle1 outpost forest rohan helmsdeep boot pause idrial)
+#   scripts/regress.sh [--update] <scene>...   only those scenes (battle1 outpost forest rohan helmsdeep boot pause idrial
+#                                                moria osgiliath minastirith)
 # Runs are deterministic (TTA_DETERMINISTIC=1, the window in lockstep): the game holds at each capture frame until the window has captured
 # it, so the same build gives the same pixels. Build first (ninja -C build/bozo tta).
 # Python with PIL, run without MSYS2 on the PATH (common.sh puts it first; its DLLs break this PIL).
@@ -28,6 +29,9 @@ SCENES=(
     "boot|$NONE|1500 2000 2380"
     "pause|$FOREST --pad-script $PADS/pad_pause.txt|15050 15140 15260"
     "idrial|--load-state $STATES/forest_9094.state $NONE|9450 9750"
+    "moria|$FOREST --warp e01c02@15000 --encounter 1000@16200 --pad-script $PADS/pad_warp_battle.txt|16700 17300"
+    "osgiliath|$FOREST --warp Osgiliath@15000 --encounter 1269@16200 --pad-script $PADS/pad_warp_battle.txt|16700 17900"
+    "minastirith|$FOREST --warp e03c02@15000 --pad-script $PADS/pad_warp_battle.txt|16080 16200"
 )
 
 out="$ROOT/build/regress/$([ $update = 1 ] && echo baseline || echo new)"

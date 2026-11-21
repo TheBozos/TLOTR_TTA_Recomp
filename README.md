@@ -315,9 +315,9 @@ need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM
 through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
-`scripts/regress.sh` is the visual regression check: eight scenes (the boot films and title, the first battle, the
-outpost, the forest, the pause menu, Idrial's film, a Rohan and a Helm's Deep battle) captured from local save states
-and compared with a local baseline (`--update` makes it), ~3 minutes. Its runs are reproducible to the pixel.
+`scripts/regress.sh` is the visual regression check: eleven scenes (the boot films and title, the first battle, the
+outpost, the forest, the pause menu, Idrial's film, and battles in Western Moria, Rohan, Helm's Deep, Osgiliath and
+Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 
 Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 window has a Save states tab. From the
 command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a
