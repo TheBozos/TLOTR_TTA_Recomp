@@ -693,7 +693,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   pillarboxed (the backdrop 384 wide), the lens flare reads the depth where its block is drawn (wideX). The 2D into
   the frame and the targets (the screen filters) is full-screen and unchanged. Without the option every capture is
   as before; scripts/regress.sh gains widescreen (the first battle at 5900 / 6300). A thin light vertical line in
-  Rohan's sky (debug battle 1172, 16590) is there in 4:3 too, at the right edge.
+  Rohan's sky (debug battle 1172, 16590) is there in 4:3 too, at the right edge (below).
+- **Texture edges: no wrap bleed** (2026-11-22). Rohan's light line in the sky (x ~937 of 960 at 16590, in 4:3 too)
+  survived every TTA_NO_* switch; TTA_3D_ONLY on the nodes crossing the camera plane found it in one, ter 101 +0x2dc08
+  (E02C03, 5 batches, the sky panorama): two 512 x 512 T8 textures 0x1ca8a7494d / 0x1da8a7494d, each spanning u 0..1,
+  whose own first and last columns differ (mean |diff| ~55 a channel) while each one's last matches the other's first
+  (~5): the panels are continuous across textures, not within one. The batches' CLAMP_1 is 0 (REPEAT) and TEX1_1 is 0
+  (nearest): the GS never mixes texels, while the GPU's bilinear filter mixed the last texel with the first through
+  REPEAT in the last half texel, a light seam. A static batch whose s (or t) stays within [0, 1] is now clamped on
+  that axis (Batch::insideU / insideV, found with its bounds); types 4 and 5 (shifted coordinates) keep REPEAT;
+  TTA_NO_EDGE_CLAMP=1 for the old way. The line is gone; elsewhere a few pixels at texture edges (at most 44 in
+  Helm's Deep's 19800, by up to 14 levels); rohan's scene now also captures 16590. Tried first, kept, no capture
+  changed: clipToDepthRange cuts each edge from its inside vertex, so two triangles sharing an edge get the same point.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

@@ -106,6 +106,8 @@ namespace tta
             // range needs no clipping.
             mutable bool boundsKnown = false;
             mutable float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+            // Texture coordinates wholly within [0, 1] on that axis (found with the bounds): no wrap needed there.
+            mutable bool insideU = false, insideV = false;
             // Its texture, looked up once (textureById goes through two maps keyed by strings).
             mutable bool textureKnown = false;
             mutable std::shared_ptr<const bozo::render::Texture> textureCache;
@@ -394,8 +396,13 @@ namespace tta
                         const int k1 = (k + 1) % n;
                         if (d[k] >= 0.0f)
                             next[n2++] = poly[k];
-                        if ((d[k] >= 0.0f) != (d[k1] >= 0.0f))
+                        // The cut always from the inside vertex: two triangles sharing an edge walk it in opposite
+                        // directions, and computed each way the cut point can differ in its last bits (a sliver drawn
+                        // twice or not at all). No capture changed with it.
+                        if (d[k] >= 0.0f && !(d[k1] >= 0.0f))
                             next[n2++] = lerp(poly[k], poly[k1], d[k] / (d[k] - d[k1]));
+                        else if (!(d[k] >= 0.0f) && d[k1] >= 0.0f)
+                            next[n2++] = lerp(poly[k1], poly[k], d[k1] / (d[k1] - d[k]));
                     }
                     for (int k = 0; k < n2; ++k)
                         poly[k] = next[k];
@@ -857,6 +864,7 @@ namespace tta
                         batch.lo[c] = 1e30f;
                         batch.hi[c] = -1e30f;
                     }
+                    batch.insideU = batch.insideV = true;
                     for (const auto &p : batch.vertices)
                     {
                         const float q[3] = {p.x, p.y, p.z};
@@ -865,6 +873,8 @@ namespace tta
                             batch.lo[c] = std::fmin(batch.lo[c], q[c]);
                             batch.hi[c] = std::fmax(batch.hi[c], q[c]);
                         }
+                        batch.insideU = batch.insideU && p.u >= 0.0f && p.u <= 1.0f;
+                        batch.insideV = batch.insideV && p.v >= 0.0f && p.v <= 1.0f;
                     }
                     batch.boundsKnown = true;
                 }
@@ -911,6 +921,16 @@ namespace tta
                         material.clampU = (value & 3u) == 1u;
                         material.clampV = ((value >> 2) & 3u) == 1u;
                     }
+                }
+                // The scene's TEX1 is 0 (nearest): the GS never blends a texture's last texel with its first. The GPU's
+                // bilinear filter does, through REPEAT, half a texel into each edge: Rohan's sky panorama (two 512 x
+                // 512 textures whose own edges differ, each matching the other's) showed a light vertical line where
+                // its panels meet. A batch whose coordinates stay within [0, 1] on an axis is clamped there; the
+                // animated ones (types 4 and 5: s / t shifted) keep wrapping.
+                if (node.shader != 4 && node.shader != 5 && !env("TTA_NO_EDGE_CLAMP"))
+                {
+                    material.clampU = material.clampU || batch.insideU;
+                    material.clampV = material.clampV || batch.insideV;
                 }
                 if (!batch.textureKnown)
                 {
