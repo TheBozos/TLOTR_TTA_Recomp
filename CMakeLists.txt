@@ -20,6 +20,16 @@ option(TTA_WINDOW "Build the SDL3 native game window (tta) next to tta-headless"
 set(BOZO_APP ${TTA_WINDOW} CACHE BOOL "" FORCE)
 set(BOZO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(BOZO_REQUIRE_FFMPEG ON CACHE BOOL "The movies need native decoding" FORCE)
+# The movies' decoder: the minimal static FFmpeg of scripts/build_ffmpeg.sh (MPEG-2 video only; build_runtime.sh
+# builds it when missing), handed to BozoEngine as BOZO_FFMPEG_ROOT. Empty, or not built: the system's FFmpeg through
+# pkg-config (on Windows MSYS2's, whose ~80 DLLs the post-link step below then copies next to the executables).
+set(TTA_FFMPEG_ROOT "${CMAKE_SOURCE_DIR}/build/ffmpeg" CACHE PATH "Minimal static FFmpeg (scripts/build_ffmpeg.sh)")
+if(TTA_FFMPEG_ROOT AND EXISTS "${TTA_FFMPEG_ROOT}/lib/libavcodec.a")
+  set(BOZO_FFMPEG_ROOT "${TTA_FFMPEG_ROOT}" CACHE PATH "FFmpeg folder (include/, lib/) for libmpeg's decoder" FORCE)
+  message(STATUS "TTA: the movies' FFmpeg from ${TTA_FFMPEG_ROOT} (static, MPEG-2 only)")
+else()
+  set(BOZO_FFMPEG_ROOT "" CACHE PATH "FFmpeg folder (include/, lib/) for libmpeg's decoder" FORCE)
+endif()
 add_subdirectory("${BOZO_ENGINE_DIR}" BozoEngine)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -133,8 +143,9 @@ if(TTA_WINDOW)
   endif()
 endif()
 
-# MinGW: the DLLs the executables still need (FFmpeg's, and what MSYS2 built FFmpeg with: everything else is linked
-# static) copied next to them after each link, so tta.exe starts from Explorer without MSYS2 on the PATH.
+# MinGW with the system's FFmpeg (TTA_SYSTEM_FFMPEG=1, MSYS2's: everything else is linked static): its DLLs copied next
+# to the executables after each link, so tta.exe starts from Explorer without MSYS2 on the PATH. With the minimal FFmpeg
+# (build/ffmpeg) nothing is left to copy.
 if(MINGW)
   get_filename_component(tta_toolchain_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
   foreach(exe tta-headless tta)

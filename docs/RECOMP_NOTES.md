@@ -514,7 +514,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   did not start at all without MSYS2 on the PATH (exit 127): everything is linked static except FFmpeg (avcodec-63,
   avutil-61), whose MSYS2 build pulls ~80 DLLs. A post-link step (cmake/copy_runtime_dlls.cmake, MinGW only:
   file(GET_RUNTIME_DEPENDENCIES) against the compiler's bin folder) copies them next to the executables, only when
-  missing or changed; both run with a PATH without MSYS2.
+  missing or changed; both run with a PATH without MSYS2. Then (same day) the lean way: scripts/build_ffmpeg.sh builds
+  FFmpeg 9.0.2 (LGPL; the TMB build kit's release and configuration, swscale left out) with only the mpeg2video
+  decoder and mpegvideo parser, static, into build/ffmpeg (1.9 MB of libraries; the tarball checked against its
+  SHA-256; ~2 minutes; on Windows it runs itself again in MSYS2's UCRT64 shell, whose make cannot start the
+  compiler from Git Bash, and needs pacman -S make). CMakeLists.txt hands it to BozoEngine as BOZO_FFMPEG_ROOT (the
+  engine already took a static FFmpeg folder) and build_runtime.sh builds it when missing (TTA_SYSTEM_FFMPEG=1: the
+  system's through pkg-config, the DLL copy then still there). tta.exe imports only Windows' DLLs; the 18
+  regression captures (the boot films among them) are identical to the MSYS2 FFmpeg's.
 - **Frame times in the later regions** (2026-11-21). PS2X_FRAME_STATS=1 (BozoEngine's pacer: the work of each frame,
   the wait for the cap left out), window build on the PC's clock, after a warp from forest_14900 with
   tools/pads/pad_warp_battle.txt (note: --frames counts from the boot, not from the state): Minas Tirith, Osgiliath
@@ -1119,6 +1126,3 @@ BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback l
 - Helm's Deep's battle start still dips to ~56 frames a second for two seconds (above, "Frame times in the later
   regions"; was ~10 s at 49-57 before BozoEngine#112).
 - The Linux and macOS builds (WSL here has no compiler; installing one needs the user's sudo).
-- A lean FFmpeg for Windows: the movies need only libavcodec's mpeg2video decoder, but MSYS2's FFmpeg brings ~80
-  DLLs (121 MB: x264, x265, aom, cairo, glib...), copied next to the executables after each link
-  (cmake/copy_runtime_dlls.cmake). An FFmpeg configured with that one decoder, static, would leave none.

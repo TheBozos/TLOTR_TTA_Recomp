@@ -289,7 +289,8 @@ disc (your ISO) ──► scripts/extract_iso.sh ──► game/ (SLUS_210.27, M
 
 - Windows 10/11 with [MSYS2](https://www.msys2.org/) (UCRT64), Linux, or macOS
 - CMake 3.21+, Ninja, GCC 13+ or Clang with C++20
-- FFmpeg development libraries (`libavcodec`, `libavformat`, `libavutil`, `libswresample`, `libswscale`) and `pkg-config`
+- GNU make and curl (the movies' minimal FFmpeg is built from its source once: scripts/build_ffmpeg.sh); or FFmpeg
+  development libraries (`libavcodec`, `libavutil`) through `pkg-config` with `TTA_SYSTEM_FFMPEG=1`
 - `bsdtar` (libarchive) to extract the disc, Python 3
 - To regenerate the symbol map: reference executables that keep their symbols (scripts/symbols.sh)
 - A CPU with AVX2 (the runtime is built for `x86-64-v3`)
@@ -307,9 +308,11 @@ scripts/run.sh --frames 600                    # tta-headless: runs and reports 
 
 `build/bozo/tta.exe` is the playable window build. It reads the disc image at the repository's root under its
 No-Intro name (`Lord of the Rings, The - The Third Age (USA).iso`); give another place with `--iso FILE` or configure
-with `-DTTA_ISO=FILE`. Without it the game stops at once and says where it looked. On Windows the build copies the
-DLLs it still needs (FFmpeg's) next to the executables, so `tta.exe` also starts from Explorer, without MSYS2 on the
-PATH. Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
+with `-DTTA_ISO=FILE`. Without it the game stops at once and says where it looked. The movies' decoder is a minimal
+FFmpeg (9.0.2, LGPL, only its MPEG-2 video decoder) that `scripts/build_runtime.sh` downloads (checked against its
+SHA-256) and builds once into `build/ffmpeg` (`scripts/build_ffmpeg.sh`, ~2 minutes), linked static: the executables
+need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM_FFMPEG=1` uses the system's FFmpeg
+through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
 `scripts/regress.sh` is the visual regression check: eight scenes (the boot films and title, the first battle, the
@@ -342,7 +345,7 @@ From the command line: `--warp MAP[@FRAME]` (a region such as `"helms deep"`, a 
 The same scripts run in an MSYS2 **UCRT64** shell, with MSYS2's GCC (MSVC is not supported for this port).
 
 ```bash
-pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,ffmpeg,libarchive,python} git
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,libarchive,python} make git
 ```
 
 ## Sharing the machine with other ports
@@ -359,3 +362,6 @@ scripts/bench_run.sh --alone 30 "full rebuild" scripts/build_runtime.sh
 
 This project contains no code or data from the game. You must own the game to use it. *The Lord of the Rings: The
 Third Age* is a trademark of its respective owners; this project is not affiliated with or endorsed by them.
+
+The executables link FFmpeg (LGPL-2.1-or-later), built from its unmodified source by `scripts/build_ffmpeg.sh`; its
+licence is copied to `build/ffmpeg/COPYING.LGPLv2.1`.
