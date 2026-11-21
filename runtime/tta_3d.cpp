@@ -108,6 +108,7 @@ namespace tta
             mutable float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
             // Texture coordinates wholly within [0, 1] on that axis (found with the bounds): no wrap needed there.
             mutable bool insideU = false, insideV = false;
+            mutable bool uvKnown = false; // insideU / V found (skins: skinEdgeClamp)
             // Its texture, looked up once (textureById goes through two maps keyed by strings).
             mutable bool textureKnown = false;
             mutable std::shared_ptr<const bozo::render::Texture> textureCache;
@@ -1287,6 +1288,28 @@ namespace tta
         void flushShadows(const uint8_t *rdram);
         float g_shadowScreen[16];
 
+        // The skins' textures wrap as the static batches' do (drawFor): the GS samples them nearest, the GPU bilinear,
+        // which mixes a texture's last texel with its first through REPEAT; an axis whose coordinates stay within [0, 1]
+        // is clamped instead.
+        void skinEdgeClamp(const Batch &batch, bozo::render::Material &material)
+        {
+            static const bool off = env("TTA_NO_EDGE_CLAMP") != nullptr;
+            if (off)
+                return;
+            if (!batch.uvKnown)
+            {
+                batch.insideU = batch.insideV = true;
+                for (const auto &p : batch.vertices)
+                {
+                    batch.insideU = batch.insideU && p.u >= 0.0f && p.u <= 1.0f;
+                    batch.insideV = batch.insideV && p.v >= 0.0f && p.v <= 1.0f;
+                }
+                batch.uvKnown = true;
+            }
+            material.clampU = batch.insideU;
+            material.clampV = batch.insideV;
+        }
+
         void drawSkin(const uint8_t *rdram, uint32_t node)
         {
             if (reporting(rdram))
@@ -1616,6 +1639,7 @@ namespace tta
                     material.textured = texture != nullptr;
                     if (texture)
                         material.tex0 = texture->key;
+                    skinEdgeClamp(batch, material);
                     const uint32_t mode = read32(rdram, g + 0x2b0);
                     DrawQueue &q = drawQueue();
                     const auto job = [&](const bozo::render::Material &m, std::shared_ptr<const bozo::render::Texture> tex) -> Deferred &
@@ -1788,6 +1812,7 @@ namespace tta
                 material.blend = fade < 0x80 ? bozo::render::Material::Blend::Alpha : bozo::render::Material::Blend::Opaque;
                 std::shared_ptr<const bozo::render::Texture> texture = batch.texture ? textureById(batch.texture) : nullptr;
                 material.textured = texture != nullptr;
+                skinEdgeClamp(batch, material);
                 if (g_flatDebug)
                 {
                     material.textured = false;

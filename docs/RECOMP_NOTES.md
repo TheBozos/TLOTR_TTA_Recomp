@@ -705,6 +705,10 @@ the game's behaviour); its code is in the history before `8ade037`.
   TTA_NO_EDGE_CLAMP=1 for the old way. The line is gone; elsewhere a few pixels at texture edges (at most 44 in
   Helm's Deep's 19800, by up to 14 levels); rohan's scene now also captures 16590. Tried first, kept, no capture
   changed: clipToDepthRange cuts each edge from its inside vertex, so two triangles sharing an edge get the same point.
+  The skins follow the same rule (skinEdgeClamp: a few single pixels in the forest, Idrial's film, Moria, Minas
+  Tirith and the outpost, by up to 7 levels). The 2D needs nothing: the overlay's textures are always clamped
+  (BozoEngine's overlayTexture), and EA Apt's text sets CLAMP_1 to clamp anyway (DS+0x170 = 5; TEX1_1, DS+0x180, = 1:
+  nearest, as the 3D's).
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
