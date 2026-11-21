@@ -158,6 +158,7 @@ namespace tta
     }
 
     void setRealTime(bool on) { g_realTime = on; }
+    bool realTime() { return g_realTime; }
 
     void install(Runtime &, bozo::port::Registry &registry)
     {

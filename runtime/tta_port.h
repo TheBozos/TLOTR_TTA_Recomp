@@ -46,6 +46,7 @@ namespace tta
     void requestFrameReport();
     // The game on the host's clock (the window build playing): the frame's time step held to the host's (tta_port.cpp).
     void setRealTime(bool on);
+    bool realTime(); // the window build on the PC's clock (not headless, not TTA_DETERMINISTIC)
     // The 3D draws queued so far (their vertex work run on the draw workers) given to the renderer in order (tta_3d.cpp).
     // Called before any other use of the renderer: the 2D, the screen filters, the frame's begin and end.
     void flushDraws();

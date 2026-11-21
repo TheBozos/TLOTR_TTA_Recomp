@@ -507,6 +507,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   not the explorer; it was taken out. The party list is 0x3a6e50 (0x3a5bd0 + 0x1280, as GetPartyMemberByName's
   0x1941f8): count at +8, member k's actor at +0xba4 + k * 0x20 (gonj, fewj, rofk, duwj, mdwj, eadj).
   TTA_DEBUG_OBJDUMP=1 prints the encounter's, group's and placement's words.
+- **Visual regression check** (2026-11-21): scripts/regress.sh runs the window build (TTA_DETERMINISTIC=1) on five
+  scenes from the local states (the first battle 5900 / 6300 / 6800 with tools/pads/pad_attack.txt, the outpost 4500 /
+  5451, the forest 14940 / 14971, Rohan's debug battle 1172 at 16750 and Helm's Deep's 1126 at 19800 / 20400 with
+  tools/pads/pad_warp_battle.txt) and compares each capture with build/regress/baseline (tools/tta_regress.py: mean
+  difference and share of pixels moved by more than 8 levels; a sheet of the failing pairs). --update makes the
+  baseline; scene names limit a run. ~1.5 minutes for all five. Two things made runs differ: (1) unpaced, the window
+  presented whenever it came round, so a capture landed a frame or two late by chance (frame_005452 for 5451, the
+  outpost's pulse 10 levels off): the game thread now holds at the end of each capture frame until the window has
+  captured it (WindowOptions::onCaptured), and every capture lands on its frame; (2) the flare occlusion read the depth
+  of whichever frame the window had presented last (BozoEngine reads depth back asynchronously, by wall-clock tile
+  requests): off the PC's clock (headless, TTA_DETERMINISTIC) every pixel of the flare's block now counts as clear, as
+  headless already did. Two runs then match to 0.2 levels at most (the Scream at 6300, Rohan), the rest exactly.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by

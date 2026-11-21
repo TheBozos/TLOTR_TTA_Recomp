@@ -12,6 +12,7 @@
 #include "tta_port.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <cstdio>
@@ -162,9 +163,29 @@ int main(int argc, char **argv)
     }
     bozo::app::FramePacer pacer;
     pacer.setPaced(window && !deterministic);
+    // Exact captures (TTA_DETERMINISTIC with --capture-frame): the game thread holds at the end of each capture frame
+    // until the window has captured that picture. Unpaced, the window otherwise presented whenever it came round, and
+    // a capture landed a frame or two late, by chance (frame_005452 for 5451): no two runs captured the same frame.
+    std::atomic<uint64_t> captured{0};
+    std::vector<uint64_t> holdAt;
+#ifdef TTA_WITH_WINDOW
+    if (window && deterministic)
+    {
+        holdAt = windowOptions.captureFrames;
+        std::sort(holdAt.begin(), holdAt.end());
+        windowOptions.onCaptured = [&captured](uint64_t frames) { captured.store(frames, std::memory_order_release); };
+    }
+#endif
     host.onFrame = [&](uint64_t f, const R5900Context *ctx)
     {
         pacer.frameEnd();
+        // f is the frame that just ended, counted from 0: the window's frame count is now f + 1.
+        if (std::binary_search(holdAt.begin(), holdAt.end(), f + 1))
+        {
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (captured.load(std::memory_order_acquire) < f + 1 && std::chrono::steady_clock::now() < until)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         // TTA_RAM_DUMP=<game frame>[,<game frame>...]: the EE's 32 MB at the end of those game frames, to
         // build/ram_<frame>.bin (compared with a PCSX2 save state's eeMemory.bin).
         if (static const char *dumps = std::getenv("TTA_RAM_DUMP"); dumps && *dumps)

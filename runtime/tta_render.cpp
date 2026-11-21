@@ -213,8 +213,10 @@ namespace tta
         // R +0..+0x9f, rows of 8 words. Next frame 0x228040 sums the weights (0x397c78, by pixel) of the pixels whose
         // Z & 0xffffff < the light's Z + 16 (nothing in front of it): the flare's visibility. Natively the block is the
         // window's depth (BozoEngine's depthAt: GS Z of the frame presented last; TTA's GS Z is the matrices' z / w); a
-        // pixel not read back yet (headless, the first frames) counts as clear, as before. TTA_FLARE_NO_DEPTH=1 leaves
-        // the block alone (always visible).
+        // pixel not read back yet (headless, the first frames) counts as clear, as before. Off the PC's clock (headless,
+        // TTA_DETERMINISTIC) every pixel counts as clear: the engine reads depth back asynchronously, from whichever frame
+        // the window presented last, so the flare's strength depended on timing and no two captures of the Scream were
+        // alike. TTA_FLARE_NO_DEPTH=1 leaves the block alone (always visible).
         void readBack(uint8_t *rdram, R5900Context *ctx, Runtime *)
         {
             ctx->pc = ctx->r[31].uw[0];
@@ -239,14 +241,16 @@ namespace tta
             x0 += static_cast<int>(readFloat(rdram, vp) * readFloat(rdram, dims + 8));
             y0 += static_cast<int>(readFloat(rdram, vp + 4) * readFloat(rdram, dims + 12));
             auto &renderer = bozo::render::Renderer::instance();
-            renderer.wantDepth();
+            const bool live = realTime();
+            if (live)
+                renderer.wantDepth();
             const bozo::render::Screen s = screen();
             uint32_t seen = 0, front = 0;
             for (int r = 0; r < 5; ++r)
                 for (int c = 0; c < 8; ++c)
                 {
                     uint32_t z = 0;
-                    if (renderer.depthAt(s.originX + static_cast<float>(x0 + c) + 0.5f, s.originY + static_cast<float>(y0 + r) + 0.5f, z))
+                    if (live && renderer.depthAt(s.originX + static_cast<float>(x0 + c) + 0.5f, s.originY + static_cast<float>(y0 + r) + 0.5f, z))
                         ++seen;
                     else
                         z = 0;
