@@ -545,6 +545,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   thread holds after each frame until it is presented (vsync off; TTA_NO_LOCKSTEP=1 for the old way). Every capture
   is now pixel-identical run to run (tta_regress.py prints "identical"); the baseline was remade, the Scream's frame
   changing (its ghosting now over every frame). A full check takes ~3 minutes.
+  Three more scenes (same day): boot (no state: the films at 1500 and 2000, the title at 2380), pause (forest_14900,
+  tools/pads/pad_pause.txt: START, the Menu tab at 15050, DOWN to Equip at 15140, CROSS to the party at 15260) and
+  idrial (forest_9094: the in-engine film where Idrial heals Berethor, 9450 / 9750, her glow). The forest scene now
+  runs with tools/pads/pad_none.txt like them: without a pad script a run is not "scripted", so its window showed and
+  its sound opened. 18 captures in ~3.2 minutes, each pixel-identical over three runs. user_battle.state (the sunny
+  battle) is from before the sound section of the save states and no longer loads (the loader puts the game back and
+  it boots to the title): that battle needs saving again before it can be a scene.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by
