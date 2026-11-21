@@ -507,6 +507,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   not the explorer; it was taken out. The party list is 0x3a6e50 (0x3a5bd0 + 0x1280, as GetPartyMemberByName's
   0x1941f8): count at +8, member k's actor at +0xba4 + k * 0x20 (gonj, fewj, rofk, duwj, mdwj, eadj).
   TTA_DEBUG_OBJDUMP=1 prints the encounter's, group's and placement's words.
+- **Starting without the disc, starting from Explorer** (2026-11-21). With no disc image at the --iso path (default:
+  the repository root's No-Intro name, -DTTA_ISO) the game booted and stalled at its first read: a black window, no
+  message. tta / tta-headless now check the ISO and the executable first and stop with where they looked and what to
+  pass (code 2; a played window build also shows it in a message box, as it does host.setUp's errors). And tta.exe
+  did not start at all without MSYS2 on the PATH (exit 127): everything is linked static except FFmpeg (avcodec-63,
+  avutil-61), whose MSYS2 build pulls ~80 DLLs. A post-link step (cmake/copy_runtime_dlls.cmake, MinGW only:
+  file(GET_RUNTIME_DEPENDENCIES) against the compiler's bin folder) copies them next to the executables, only when
+  missing or changed; both run with a PATH without MSYS2.
 - **Frame times in the later regions** (2026-11-21). PS2X_FRAME_STATS=1 (BozoEngine's pacer: the work of each frame,
   the wait for the cap left out), window build on the PC's clock, after a warp from forest_14900 with
   tools/pads/pad_warp_battle.txt (note: --frames counts from the boot, not from the state): Minas Tirith, Osgiliath
@@ -1111,3 +1119,6 @@ BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback l
 - Helm's Deep's battle start still dips to ~56 frames a second for two seconds (above, "Frame times in the later
   regions"; was ~10 s at 49-57 before BozoEngine#112).
 - The Linux and macOS builds (WSL here has no compiler; installing one needs the user's sudo).
+- A lean FFmpeg for Windows: the movies need only libavcodec's mpeg2video decoder, but MSYS2's FFmpeg brings ~80
+  DLLs (121 MB: x264, x265, aom, cairo, glib...), copied next to the executables after each link
+  (cmake/copy_runtime_dlls.cmake). An FFmpeg configured with that one decoder, static, would leave none.

@@ -305,8 +305,16 @@ scripts/build_runtime.sh                       # recompile + sound driver + runt
 scripts/run.sh --frames 600                    # tta-headless: runs and reports what is not native yet
 ```
 
-`build/bozo/tta.exe` is the playable window build. Its saves (the two memory cards) live in
-`%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them elsewhere.
+`build/bozo/tta.exe` is the playable window build. It reads the disc image at the repository's root under its
+No-Intro name (`Lord of the Rings, The - The Third Age (USA).iso`); give another place with `--iso FILE` or configure
+with `-DTTA_ISO=FILE`. Without it the game stops at once and says where it looked. On Windows the build copies the
+DLLs it still needs (FFmpeg's) next to the executables, so `tta.exe` also starts from Explorer, without MSYS2 on the
+PATH. Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
+elsewhere.
+
+`scripts/regress.sh` is the visual regression check: eight scenes (the boot films and title, the first battle, the
+outpost, the forest, the pause menu, Idrial's film, a Rohan and a Helm's Deep battle) captured from local save states
+and compared with a local baseline (`--update` makes it), ~3 minutes. Its runs are reproducible to the pixel.
 
 Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 window has a Save states tab. From the
 command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a
@@ -321,7 +329,8 @@ Debug tools (the F2 window's **Debug** tab, built on the game's own level-script
 - **Enemy groups**: any enemy group of the current map in a battle: the random battles' groups (`Rnd_Easy / Med /
   Hard`, each with its 1-, 2- or 3-enemy layout) or a story battle's (the Watcher as an ordinary fight).
 
-Start them while walking freely, not during a film or another battle. Enemies of another region: warp there first.
+Start them while walking freely, not during another battle; a battle asked for during a film or a prompt waits for it
+to end (two minutes at most). Enemies of another region: warp there first.
 
 From the command line: `--warp MAP[@FRAME]` (a region such as `"helms deep"`, a path such as `e02c05`, or an index)
 `--encounter ID[@FRAME]` and `--group ID[@FRAME]` (frames are the game's), for example from a saved state:

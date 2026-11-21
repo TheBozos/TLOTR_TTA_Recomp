@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +32,7 @@
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_messagebox.h>
 #endif
 
 int main(int argc, char **argv)
@@ -114,6 +116,30 @@ int main(int argc, char **argv)
     if (const char *profile = std::getenv("TTA_HOST_PROFILE"); profile && *profile)
         tta::startHostProfile(profile);
 
+    // What stops the game before it starts, on stderr and, for a played game, in a message box (started from the
+    // desktop there is no console to read).
+    const auto fail = [&](const std::string &message)
+    {
+        std::fprintf(stderr, "%s\n", message.c_str());
+#ifdef TTA_WITH_WINDOW
+        if (window && options.padScript.empty())
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "The Third Age", message.c_str(), nullptr);
+#endif
+        return 2;
+    };
+    // The disc and its executable, checked first: without the disc image the game started and stalled at its first
+    // read, a black window and no word of why.
+    {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(options.iso, ec))
+            return fail("The disc image was not found:\n  " + options.iso +
+                        "\n\nGive the path of your own copy of the game (SLUS-21027) with --iso FILE, or configure the "
+                        "build with -DTTA_ISO=FILE.");
+        if (!std::filesystem::is_regular_file(options.elf, ec))
+            return fail("The game's executable was not found:\n  " + options.elf +
+                        "\n\nExtract the disc first (scripts/extract_iso.sh <iso>), or give it with --elf FILE.");
+    }
+
     // TTA_DETERMINISTIC=1: the window build on the game's clock as tta-headless (reproducible captures, not paced).
     const bool deterministic = std::getenv("TTA_DETERMINISTIC") != nullptr;
     options.realTime = window && !deterministic;
@@ -158,10 +184,7 @@ int main(int argc, char **argv)
                                [] { return tta::audioUnsaveable(); }});
     std::string error;
     if (!host.setUp(d, tta_external_table, tta_external_count, &registry, error))
-    {
-        std::fprintf(stderr, "%s\n", error.c_str());
-        return 2;
-    }
+        return fail(error);
     bozo::app::FramePacer pacer;
     pacer.setPaced(window && !deterministic);
     // Exact captures (TTA_DETERMINISTIC with --capture-frame): the game thread holds at the end of each capture frame

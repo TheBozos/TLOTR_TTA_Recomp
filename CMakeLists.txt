@@ -132,3 +132,17 @@ if(TTA_WINDOW)
     target_link_options(tta PRIVATE -static)
   endif()
 endif()
+
+# MinGW: the DLLs the executables still need (FFmpeg's, and what MSYS2 built FFmpeg with: everything else is linked
+# static) copied next to them after each link, so tta.exe starts from Explorer without MSYS2 on the PATH.
+if(MINGW)
+  get_filename_component(tta_toolchain_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  foreach(exe tta-headless tta)
+    if(TARGET ${exe})
+      add_custom_command(TARGET ${exe} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:${exe}> -DSEARCH=${tta_toolchain_bin}
+                -P ${CMAKE_SOURCE_DIR}/cmake/copy_runtime_dlls.cmake
+        VERBATIM)
+    endif()
+  endforeach()
+endif()
