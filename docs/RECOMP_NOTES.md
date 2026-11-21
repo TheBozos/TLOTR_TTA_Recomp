@@ -545,6 +545,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   headless stretch to 20600: 15.35 s against 15.53 s, about 1%. The copy is bound by memory bandwidth, and the space
   must first be filled (std::vector::resize writes Vertex's defaults), which costs about what the copy did. Only
   jobs writing straight into the frame would save it, which needs each batch's vertex count before its clipping.
+- **The attack cameras' black bars over the HUD** (2026-11-21, checked, left as is). In a battle's attack camera the
+  letterbox (two opaque black sprites from 0x1c68a8 / 0x1c68c0, through the immediate primitive 0x218910) covers the
+  top of the attack's name and portrait and the bottom of the HUD's box (Rohan 1172 at 16590). The game builds one
+  linear chain at 0x3b5be8 (write pointer +4, appended by 0x2163c8): a temporary probe at Rohan's game frame 16400
+  shows the frame's clear (0x211de4), then EA Apt's HUD (0x305330), then the screen filters (0x1cbafc, 0x1c1d34,
+  0x1cde84, 0x1cd9dc ..) and the bars last, so the console draws the bars over the HUD too. Natively the HUD is the
+  overlay, composited after the frame; the bars come through the same overlay after it, as on the console. The
+  overlay does differ in one way: the screen filters, which the console sends after the HUD, are drawn into the
+  frame under it, so the console's HUD may take their glow and tint where the native one does not. No console
+  capture to compare with yet.
 - **Visual regression check** (2026-11-21): scripts/regress.sh runs the window build (TTA_DETERMINISTIC=1) on five
   scenes from the local states (the first battle 5900 / 6300 / 6800 with tools/pads/pad_attack.txt, the outpost 4500 /
   5451, the forest 14940 / 14971, Rohan's debug battle 1172 at 16750 and Helm's Deep's 1126 at 19800 / 20400 with
