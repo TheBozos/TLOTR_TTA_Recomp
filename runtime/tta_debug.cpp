@@ -7,8 +7,8 @@
 // is the map's record table ("manC", count at +0xc, records of 0x20 bytes from +0x10: the id, then the name). Its
 // encounters are the records named Enc<n>[a-z]_<Name> (Enc01_Nazgul = 2109, Enc11_WargCamp01 = 2118 in Eregion);
 // the random battles' _EP (placements) and _ET (enemy groups) records alone start an empty battle (not listed).
-// A battle whose place is far from the party (Helm's Deep's, fought near x 2700) is preceded by a move of the party
-// there, so the map streams in its ground first (moveToBattle).
+// A battle asked for while the game plays one of its in-engine films (game state 0x3a5294 == 5) waits for the film to
+// end (two minutes at most): started inside Helm's Deep's opening films it kept the film's riders, cameras and zones.
 //
 // Maps. The map index (0x35bd0c, 0..13) chooses among the paths at 0x35bc88 (e98c/e98c03 ... e03c/e03c04); 0x190130(i)
 // sets it, and the chapter message 0 (category 0x7d0, handler 0x18f420: {0x7d0, 0, number, arguments}) loads the map
@@ -32,7 +32,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -61,7 +60,6 @@ namespace tta
         }
         void write32(uint8_t *rdram, uint32_t address, uint32_t v) { std::memcpy(rdram + (address & 0x1ffffffu), &v, 4); }
         uint32_t gameFrame(const uint8_t *rdram) { return read32(rdram, 0x3b5720); }
-
         // ---- The maps ----
 
         struct MapInfo
@@ -123,6 +121,7 @@ namespace tta
             int32_t link;     // an encounter's group, a group's placement
         };
         constexpr uint32_t kRecordTable = 0x3dff84u, kEncounterType = 0x1775u, kGroupType = 0x1770u;
+        constexpr uint32_t kGameState = 0x3a5294u, kStateFilm = 5u; // the game's state: 5 a film, 6 exploring, 3 a battle
 
         // The current map's records by id (*(0x3dff84): "manC", count at +0xc, {id, name[28]} from +0x10).
         std::vector<std::pair<int32_t, std::string>> readRecords(const uint8_t *rdram)
@@ -210,7 +209,6 @@ namespace tta
             } kind;
             int32_t value;
             uint32_t atFrame;
-            bool moved = false; // an encounter whose party was already taken to the battle's place
         };
         std::mutex g_mutex;
         std::deque<Request> g_requests;
@@ -316,9 +314,7 @@ namespace tta
             std::fflush(stdout);
         }
 
-        bool moveToBattle(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id);
-
-        void startEncounter(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id, bool moved = false)
+        void startEncounter(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id)
         {
             // Only one of the current map's encounters: StartEncounter with an id the map does not have never comes back
             // (the game's frame stops; seen with an Eregion id right after a warp to Rohan, its list still empty).
@@ -335,98 +331,35 @@ namespace tta
                 note("no encounter " + std::to_string(id) + " on this map (" + std::to_string(count) + " listed): not started");
                 return;
             }
-            if (!moved && moveToBattle(rdram, ctx, rt, id))
-                return;
-            if (moved)
+            // Not inside one of the game's in-engine films (0x3a5294: 5 in a film, 6 exploring, 3 in battle): Helm's
+            // Deep's opening films (the ride to the gate, Theoden) run until about frame 19500 after the warp, and a
+            // battle started in them was fought with the film still in place: its five riders on their horses, its
+            // camera for half the shots, and only the zones round the film's valley, so the battle (near x 2700) had
+            // no ground. The request waits a second and asks again, for two minutes at most: state 5 is also the
+            // game's own prompts and movies (the Gullies' "Epic Scene, view it now?" and the scene it plays), where a
+            // battle starts well, and a scripted run must not wait for ever.
+            static int32_t waitingFor = 0;
+            static uint32_t waitingSince = 0;
+            const uint32_t now = gameFrame(rdram);
+            if (read32(rdram, kGameState) == kStateFilm && !(waitingFor == id && now - waitingSince >= 7200u))
             {
-                uint32_t actor = 0;
-                if (callGame(rdram, ctx, rt, func_0x15c030, {}, 0, &actor) && actor && actor < 0x2000000u)
+                if (waitingFor != id)
                 {
-                    float now[3];
-                    std::memcpy(now, rdram + actor + 0x40u, 12);
-                    char text[160];
-                    std::snprintf(text, sizeof text, "party at (%.1f, %.1f, %.1f)", now[0], now[1], now[2]);
-                    note(text);
+                    note("encounter " + std::to_string(id) + " waits for the film to end");
+                    waitingFor = id;
+                    waitingSince = now;
                 }
+                std::lock_guard lock(g_mutex);
+                g_requests.push_back({Request::kEncounter, id, now + 60u});
+                return;
             }
+            if (waitingFor == id && read32(rdram, kGameState) == kStateFilm)
+                note("encounter " + std::to_string(id) + ": still in a film or prompt after two minutes, started anyway");
+            waitingFor = 0;
             note("StartEncounter(" + std::to_string(id) + ") at game frame " + std::to_string(gameFrame(rdram)));
             if (std::getenv("TTA_DEBUG_OBJDUMP"))
                 dumpEncounterObjects(rdram, id);
             callStartEncounter(ctx, id);
-        }
-
-        // Where a battle is fought: its placement object's place (type 0x1773, the group's +0x24, where the enemies stand:
-        // Helm's Deep's Deeping Wall at (2689, 10.5, 37), the breach at (2706, 3.9, 60)), else the encounter's own
-        // (+8..+0x10; a random encounter's placement has none: the court's 1133 at (2699, 10.5, 122)). The map streams
-        // its zones in around the party (Helm's Deep has 40, zone_e02c05_zone1..40 in its .scp), so a battle started from
-        // the valley's start, 2500 units away, was fought with no ground: riders over black. When the battle's place is
-        // more than 1000 units away (the scripted battles' arena near x 2700, Helm's Deep's and Osgiliath's), the party is first taken there with the game's own teleport (0x11a880(actor, position,
-        // 1), as Lua's TeleportToPos; the party's actor from 0x15c030), and the battle started 3 seconds later, once the
-        // zones are in. The party comes as it was (mounted, from Helm's Deep's valley). Nearer battles start where the
-        // party is: Minas Tirith's court (1448, 400 units off) broke when moved (the party taken from its tier at y -198 to
-        // the encounter's y 0) and is right in place, as are Eregion's, Rohan's and Western Moria's. TTA_BATTLE_MOVE=off never moves it, =always always does.
-        bool moveToBattle(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id)
-        {
-            const char *how = std::getenv("TTA_BATTLE_MOVE");
-            const std::string mode = how ? how : "";
-            if (mode == "off")
-                return false;
-            uint32_t encounter = 0;
-            int32_t placementId = 0;
-            {
-                std::lock_guard lock(g_mutex);
-                for (const Encounter &e : g_encounters)
-                    if (e.id == id)
-                    {
-                        encounter = e.address;
-                        for (const Encounter &g : g_groups)
-                            if (g.id == e.link)
-                                placementId = g.link;
-                    }
-            }
-            const auto placeAt = [&](uint32_t object, float *out)
-            {
-                if (!object)
-                    return false;
-                std::memcpy(out, rdram + ((object + 8u) & 0x1ffffffu), 12);
-                for (int k = 0; k < 3; ++k)
-                    if (!(std::fabs(out[k]) < 1e5f))
-                        return false;
-                return std::fabs(out[0]) + std::fabs(out[2]) > 1.0f;
-            };
-            // The map holds more than one object with a placement's id (some with other data).
-            uint32_t placement = 0;
-            float place[3];
-            if (placementId)
-                for (uint32_t a = 0x100000u; a + 0x30u < 0x2000000u && !placement; a += 4u)
-                    if (static_cast<int32_t>(read32(rdram, a)) == placementId && read32(rdram, a + 4u) == 0x1773u &&
-                        placeAt(a, place))
-                        placement = a;
-            if (!placement && !placeAt(encounter, place))
-                return false;
-            uint32_t actor = 0;
-            if (!callGame(rdram, ctx, rt, func_0x15c030, {}, 0, &actor) || !actor || actor >= 0x2000000u)
-                return false;
-            float was[3];
-            std::memcpy(was, rdram + actor + 0x40u, 12);
-            const float dx = place[0] - was[0], dz = place[2] - was[2];
-            if (mode != "always" && dx * dx + dz * dz < 1000.0f * 1000.0f)
-                return false;
-            const uint32_t at = (ctx->r[29].uw[0] - 0x200u) & ~0xfu;
-            std::memcpy(rdram + at, place, 12);
-            const float one = 1.0f;
-            std::memcpy(rdram + at + 12u, &one, 4);
-            if (!callGame(rdram, ctx, rt, func_0x11a880, {actor, at, 1u}, at - 0x100u))
-                return false;
-            char text[200];
-            std::snprintf(text, sizeof text, "party moved from (%.1f, %.1f, %.1f) to battle %d's %s (%.1f, %.1f, %.1f)",
-                          was[0], was[1], was[2], id, placement ? "placement" : "encounter", place[0], place[1], place[2]);
-            note(text);
-            Request r{Request::kEncounter, id, gameFrame(rdram) + 180u};
-            r.moved = true;
-            std::lock_guard lock(g_mutex);
-            g_requests.push_back(r);
-            return true;
         }
 
         void warp(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t index)
@@ -525,7 +458,7 @@ namespace tta
                     continue;
                 }
                 if (r.kind == Request::kEncounter)
-                    startEncounter(rdram, ctx, rt, r.value, r.moved);
+                    startEncounter(rdram, ctx, rt, r.value);
                 else if (r.kind == Request::kGroup)
                     startGroup(rdram, ctx, rt, r.value);
                 else

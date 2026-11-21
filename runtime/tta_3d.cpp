@@ -976,8 +976,12 @@ namespace tta
                     }
                     drawNode(rdram, *m, it->second, screen);
                     count(rdram, g_drawn);
-                    // TTA_3D_DUMP_FRAME=<n>: every node drawn in frame n, with its screen bounds (GS pixels, 2048 centre).
-                    if (const char *d = env("TTA_3D_DUMP_FRAME"); d && frame(rdram) == static_cast<uint32_t>(std::atoi(d)))
+                    // TTA_3D_DUMP_FRAME=<n>: every node drawn in frame n, with its screen bounds (GS pixels, 2048 centre)
+                    // and the camera's place; =%<n> every n-th frame.
+                    const char *d = env("TTA_3D_DUMP_FRAME");
+                    const uint32_t f = frame(rdram);
+                    if (d && (d[0] == '%' ? f % static_cast<uint32_t>(std::max(1, std::atoi(d + 1))) == 0
+                                          : f == static_cast<uint32_t>(std::atoi(d))))
                     {
                         const Node &n = it->second.kind == 1 ? m->byOffset.at(m->offsetByNumber.at(it->second.master)) : it->second;
                         float mat[16];
@@ -1025,6 +1029,29 @@ namespace tta
                         std::printf("[tta:dump]   RC %x object translation %.1f %.1f %.1f, diag %.3f %.3f %.3f; RC+0x2e0 vs "
                                     "viewport x clip x object: %.3g\n",
                                     rc, obj[12], obj[13], obj[14], obj[0], obj[5], obj[10], diff);
+                        // The camera's world place: where the clip matrix's x, y and w rows are all zero.
+                        {
+                            const float *c = clipM;
+                            const double a[3][3] = {{c[0], c[4], c[8]}, {c[1], c[5], c[9]}, {c[3], c[7], c[11]}};
+                            const double b[3] = {-c[12], -c[13], -c[15]};
+                            const auto det3 = [](const double m[3][3])
+                            {
+                                return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+                                       m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+                                       m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+                            };
+                            const double det = det3(a);
+                            double p[3] = {};
+                            for (int k = 0; det != 0.0 && k < 3; ++k)
+                            {
+                                double t[3][3];
+                                for (int r = 0; r < 3; ++r)
+                                    for (int q = 0; q < 3; ++q)
+                                        t[r][q] = q == k ? b[r] : a[r][q];
+                                p[k] = det3(t) / det;
+                            }
+                            std::printf("[tta:dump]   frame %u camera at %.1f %.1f %.1f\n", frame(rdram), p[0], p[1], p[2]);
+                        }
                     }
                 }
             }

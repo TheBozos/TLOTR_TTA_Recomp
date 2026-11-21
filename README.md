@@ -56,12 +56,13 @@ what remains open.
 
 ## Screenshots
 
-**2026-11-21.** Helm's Deep's Deeping Wall battle, started from the debug tool: the wall's stakes and stones under the
-night sky. A battle fought far from the party (Helm's Deep's scripted battles, near x 2700) used to have no ground,
-because the map streams in its zones around the party; the debug tool now takes the party there first.
+**2026-11-21.** Helm's Deep's Deeping Wall battle, started from the debug tool: Berethor, Legolas, Idrial and Morwen
+on foot on the wall's walkway, among the stakes. Asked for during the map's opening films, these battles used to start
+inside them: the film's riders on their horses, its camera and its valley in half the shots, no ground under the
+rest. The debug tool now waits for the films to end.
 
 <p align="center">
-  <img src="docs/screenshots/2026-11-21-bozo-deeping-wall.png" width="400" alt="A battle on the Deeping Wall at night on BozoEngine, Uruk-hai facing the party on the stone walkway">
+  <img src="docs/screenshots/2026-11-21-bozo-deeping-wall.png" width="400" alt="A battle on the Deeping Wall at night on BozoEngine, the party facing Uruk-hai berserkers on the stone walkway">
 </p>
 
 **2026-11-20.** The first battle's Nazgul Scream with its lens flare: the discs strung from the light on the

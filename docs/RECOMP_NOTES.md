@@ -488,20 +488,25 @@ the game's behaviour); its code is in the history before `8ade037`.
   loop asks the hook again when it returns): one battle a tick, the game's own flow. And an id that is not one of the
   current map's encounters is refused instead of started. Checked: Rohan encounter 1172 from forest_14900 (warp at
   15000, --encounter 1172@16200): four orcs, Rage of Saruman, the party's loss, back to the forest.
-- **Helm's Deep's debug battles had no ground** (2026-11-21). The map streams its zones in around the party
-  (Helm's Deep's .scp holds zone_e02c05_zone1 .. zone40; the code is ZoneManager2.c, 0x1d9238 .. 0x1db100, its state at
-  0x3a9c50), and a scripted battle is fought at its own place: the placement object (type 0x1773, the group's +0x24;
-  +8 .. +0x10 the place, +0x1c an angle in degrees) where it has one (Deeping Wall 1126 at (2689, 10.5, 37), the
-  breach 1129 at (2706, 3.9, 60)), else the encounter's own +8 .. +0x10 (the court's random 1133 at (2699, 10.5,
-  122)). The valley's start is at (237, 18.5, 156), 2500 units away, so started from there the battle had none of its
-  zones: riders over black. The debug tool now takes the party there first with the game's own teleport,
-  0x11a880(actor, position, 1) (what Lua's TeleportToPos calls through 0x119888; the actor from 0x15c030, its place
-  at +0x40), and starts the battle 3 seconds later. All three battles then have their ground (the wall, the breach,
-  the court). Only for places more than 1000 units away: Osgiliath's Gothmog (1269, also near x 2700) moves and is
-  right either way, while Minas Tirith's court (1448, 400 units) went black when moved (the party taken from its tier
-  at y -198 to the encounter's y 0) and is right where the party stands, as are Eregion's, Rohan's and Western
-  Moria's. The party comes as it was (mounted from Helm's Deep's valley, where the story has it on foot).
-  TTA_BATTLE_MOVE=off / always; TTA_DEBUG_OBJDUMP=1 prints the encounter's, group's and placement's words.
+- **Helm's Deep's debug battles: no ground, mounted party** (2026-11-21). Not a rendering fault: the battles were
+  started inside the map's opening films. After the warp (forest_14900, warp at 15000, the START / CROSS script of the
+  earlier audit) Helm's Deep plays in-engine films (the ride to the gate, Theoden) until about game frame 19140, and a
+  battle asked for at 16200 began inside them. The battle itself was right (fought at its placement near x 2700:
+  the placement object, type 0x1773, the group's +0x24, +8 .. +0x10 the place, +0x1c an angle; Deeping Wall 1126 at
+  (2689, 10.5, 37), the breach 1129 at (2706, 3.9, 60)), but the film's five riders (Berethor, Idrial, Morwen, Elegost,
+  Hadhod on the map's Horse_SG02_01..05, parked at (230, 18.7, 155)) and its camera stayed: about half the shots
+  (TTA_3D_DUMP_FRAME=%20 now prints the camera's world place, solved from the clip matrix) were taken at (184, 21,
+  134), the valley, where during the battle only four terrain pieces were drawn: mounted riders over black. Only the
+  zones round the film's valley were in, so the battle had no ground either. The game's state word 0x3a5294 is 5 in
+  a film (both films), 6 exploring (the forest, the Hornburg) and 3 in battle; the debug tool now holds a battle
+  while it is 5, asking again every second, for two minutes at most (state 5 is also the game's prompts and the
+  movies they play: the Gullies' "Epic Scene, view it now?", where a battle started well before). Started at 19140,
+  1126, 1129 and 1133 are on foot on the wall, the breach and the court, with every shot at the battle. A first try
+  (moving the party with the game's teleport 0x11a880(actor, position, 1), as Lua's TeleportToPos does through
+  0x119888) brought the ground but not the film's shots, and Helm's Deep's 0x15c030 actor is the film's Berethor,
+  not the explorer; it was taken out. The party list is 0x3a6e50 (0x3a5bd0 + 0x1280, as GetPartyMemberByName's
+  0x1941f8): count at +8, member k's actor at +0xba4 + k * 0x20 (gonj, fewj, rofk, duwj, mdwj, eadj).
+  TTA_DEBUG_OBJDUMP=1 prints the encounter's, group's and placement's words.
 - **Scene drawing overhead** (2026-11-20). TTA_HOST_PROFILE on the first battle (battle1_5800 to 7500, the window
   build on the game's clock): the main thread spent ~20% in drawFor / drawNode (a copy of every batch's vertices into a
   new vector each frame, a texture lookup by id then by file name through two string maps per batch, the mesh lookup by
@@ -634,7 +639,8 @@ the game's behaviour); its code is in the history before `8ade037`.
   debug start: the game itself draws only four type-0 nodes there (ter 104 pieces, its chain shows no terrain render),
   placed by RC+0x2e0 = viewport x RC+0x260 x the identity object matrix (TTA_3D_DUMP_FRAME now prints that check),
   mostly off-screen: the battle's ground is not among the nodes the game renders, as if the area the encounter places
-  the battle in were not streamed in. It was not (below, "Helm's Deep's debug battles had no ground").
+  the battle in were not streamed in. The battle was started inside the map's opening films (below, "Helm's Deep's
+  debug battles: no ground, mounted party").
 - **Test runs show nothing** (2026-11-18): a scripted window run (--pad-script) now opens no window: BozoEngine's
   WindowOptions::hidden / captureScene present into an offscreen picture and capture from it (a covered or hidden
   window's back buffer read back black: captures depended on what was on top of the desktop). Same pixels as a
