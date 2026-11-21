@@ -88,11 +88,14 @@ namespace tta
         {
             uint64_t texture = 0;
             uint16_t prim = 0;
-            uint8_t colourMode = 0; // 0 RGBA, 1 index into the node's colour table
+            uint8_t colourMode = 0; // 0 RGBA, 1 index into the node's colour table, 2 RGBA animated (shader type 4)
             std::vector<std::pair<uint8_t, uint64_t>> registers;
             std::vector<bozo::render::Vertex> vertices;
             std::vector<uint8_t> adc;
             std::vector<uint32_t> colours; // as stored (RGBA or an index)
+            // Colour mode 2 (shader type 4, the flames): per vertex the colour's delta and its weight's index (VU 4..7).
+            std::vector<std::array<int16_t, 4>> deltas;
+            std::vector<uint8_t> weightIndex;
             // Skinned (kind 3): the batch's section (its bit in the visibility mask G+0x280), per vertex the normal and
             // four skeleton bones with their weights; positions in the model space the bones blend.
             uint32_t section = 0;
@@ -238,6 +241,18 @@ namespace tta
                         out.v = xyzst[4];
                         batch.colours[v] = colour;
                         batch.adc[v] = adc;
+                    }
+                    if (ok && batch.colourMode == 2)
+                    {
+                        batch.deltas.resize(count);
+                        batch.weightIndex.resize(count);
+                        for (uint32_t v = 0; ok && v < count; ++v)
+                        {
+                            uint8_t pad[3];
+                            ok = std::fread(batch.deltas[v].data(), 2, 4, f) == 4 && get(f, batch.weightIndex[v]) &&
+                                 std::fread(pad, 1, 3, f) == 3;
+                            batch.weightIndex[v] &= 3u;
+                        }
                     }
                     node.batches.push_back(std::move(batch));
                 }
@@ -431,6 +446,10 @@ namespace tta
             bool fogged = false, clip = false;
             // Set 1's texture animation (shader type 5): added to every vertex's s / t.
             float stShift[2] = {0.0f, 0.0f};
+            // Shader type 4's colour animation: VU 4..7's w (DS+0x5cc + 0x10 i, the set-up 0x2201a8's doubled
+            // instance values) and VU 130.y less 8388608 (DS+0x534: 128).
+            float colourWeights[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float colourBias = 128.0f;
             // A skinned batch (drawSkin): the batch, its draw's inputs (SkinInputs, by index), and for the silhouette
             // pass the fog colour its vertices take.
             const Batch *skin = nullptr;
@@ -543,6 +562,20 @@ namespace tta
                 v[i].u += d.stShift[0];
                 v[i].v += d.stShift[1];
                 v[i].rgba = batch.colourMode == 1 ? (node.colours.empty() ? 0x80808080u : node.colours[c & 0xffu]) : c;
+                // Set 0's program 0x3b38 (type 4): RGBA = colour + (delta - bias) x weight, FTOI0 (truncated), the GS
+                // keeping each field's low byte.
+                if (batch.colourMode == 2)
+                {
+                    const float w = d.colourWeights[batch.weightIndex[i]];
+                    uint32_t rgba = 0;
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        const float base = static_cast<float>((c >> (k * 8)) & 0xffu);
+                        const float value = base + (static_cast<float>(batch.deltas[i][k]) - d.colourBias) * w;
+                        rgba |= (static_cast<uint32_t>(static_cast<int32_t>(value)) & 0xffu) << (k * 8);
+                    }
+                    v[i].rgba = rgba;
+                }
                 // The VU programs' fog (fog_spec 1): F = min(K / clip.w, 255), K = DS+0x54c; GS F 255 = no fog.
                 if (d.fogged)
                 {
@@ -907,8 +940,14 @@ namespace tta
                 d.fogK = fogK;
                 d.fogged = fogged;
                 d.clip = !boxInsideDepthRange(batch.lo, batch.hi, matrix);
-                if (node.shader == 5)
+                if (node.shader == 5 || node.shader == 4)
                     textureAnimation(rdram, batch, d.stShift);
+                if (batch.colourMode == 2)
+                {
+                    for (int k = 0; k < 4; ++k)
+                        d.colourWeights[k] = readFloat(rdram, ds + 0x5cc + 0x10 * k);
+                    d.colourBias = readFloat(rdram, ds + 0x534) - 8388608.0f;
+                }
             }
         }
 
@@ -1157,7 +1196,11 @@ namespace tta
             Original(rdram, ctx, rt);
             // Type 5 (0x221760: set 1, the instance's packet at inst+8 like type 0): drawn after the game's render,
             // which sets its draw state (DS mode 5) first.
-            static const bool noType5 = env("TTA_NO_TYPE5") != nullptr;
+            static const bool noType5 = env("TTA_NO_TYPE5") != nullptr, noType4 = env("TTA_NO_TYPE4") != nullptr;
+            // Type 4 (0x220330: set 0's program 0x3b38, the flames, Cobj 19-21): likewise after the game's render, which
+            // sets its additive ALPHA (0x48) and the colour animation's weights.
+            if (Address == 0x220330 && !noType4)
+                drawFor(rdram, a0 - 0x28);
             if (Address == 0x221760 && !noType5)
             {
                 if (traceLevel() >= 2)

@@ -649,9 +649,27 @@ the game's behaviour); its code is in the history before `8ade037`.
   tools/tta_meshes.py keeps P as two pseudo-registers (0xf0 = x, y; 0xf1 = z, w) and the runtime shifts the
   texture coordinates (Rohan's river: P = (29, 0, 10000, 1e-4), a slow drift in s). TTA_NO_TYPE5=1 and
   TTA_NO_TEXTURE_ANIMATION=1 turn them off. 0x2201a8, many calls a frame in the Pelennor, draws nothing: it is a
-  set-up of the same kind (a doubled vector, the wind's likely, into DS+0x5cc..0x5fc, and the time). The pause
+  set-up of the same kind (a doubled vector into DS+0x5cc..0x5fc, and the time: type 4's colour weights, below). The pause
   menu's black is the game's own: its Apt movie opens each frame with an opaque full-screen black quad, and the
   screen filters then blur that frame.
+- **Shader type 4: the fire** (2026-11-21). The chain audit (TTA_CHAIN_AUDIT=1) run while exploring, not only in
+  battles (a warp to each region from forest_14900, the films skipped, to 18000; build/chain/walk, local), found
+  three callers no battle audit had seen, all in Eastern Moria: 0x22038c (set 0's MPG, 1004 qwords from 0x3492e0),
+  0x2203f8 (MSCAL 0x767: program 0x3b38) and 0x220478 (the mesh), from shader type 4's render 0x220330 (type table
+  0x35f690: set-up 0x2201a8 at +8, render at +0x2c). Type 4 is Cobj 19, 20 and 21 in every level: sheets of flame,
+  drawn additively (ALPHA 0x48, Cs As + Cd) with Z GEQUAL. The native side only traced it. Program 0x3b38
+  transforms as type 0 and shifts s / t as type 5 (the parameter qword after the PRIM tag, VU 130.x = DS+0x530 =
+  the instance's time / 29970). It also reads a fourth vertex array (V4-8 through STROW 8388608.0): RGBA = colour +
+  (delta - VU 130.y) x VU (4 + i).w, where VU 130.y = DS+0x534 = 0x4b000080 (8388608 + 128), i = the position's w
+  (MTIR; 0 on the disc), and VU 4..7's w = DS+0x5cc + 0x10 k, which the set-up 0x2201a8 writes as twice the
+  instance's four floats each frame (1.3-1.8 in the film, flickering). The meshes' own colour has alpha 0 (a
+  neutral grey in the first batch, orange 0x43 0x16 0 with alpha 0x80 in the next, whose deltas lower it), so drawn
+  as type 0 they added nothing. tools/tta_meshes.py now keeps the fourth array for these batches (colour mode 2:
+  after the vertices, per vertex i16 delta[4] = the float less 8388608, u8 i, 3 pad). The runtime draws type 4
+  after the game's render (which sets its ALPHA and the weights) with that colour (FTOI0, each field's low byte).
+  In Eastern Moria's film (warp e01c04, frames ~16980-17400) the Balrog now arrives in fire: flames behind it, on
+  its crown and over the screen in its blast. TTA_NO_TYPE4=1 turns it off. Other scenes unchanged (scripts/regress.sh,
+  now with the film's frame 17250 as a twelfth scene, balrog).
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

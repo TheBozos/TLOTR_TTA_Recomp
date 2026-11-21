@@ -56,6 +56,15 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-21.** The Balrog in Eastern Moria's in-engine film, its fire drawn at last: shader type 4, a sheet of flames
+(Cobj 19-21) whose colour the game animates through a fourth vertex array and a flickering weight per frame. The
+port drew it with no alpha before, so the Balrog arrived without fire. Found by surveying what the game puts in its GS
+chain while exploring each region.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-21-bozo-balrog-fire.png" width="400" alt="The Balrog bursting out of the rock in Eastern Moria on BozoEngine, flames behind it">
+</p>
+
 **2026-11-21.** Helm's Deep's Deeping Wall battle, started from the debug tool: Berethor, Legolas, Idrial and Morwen
 on foot on the wall's walkway, among the stakes. Asked for during the map's opening films, these battles used to start
 inside them: the film's riders on their horses, its camera and its valley in half the shots, no ground under the
@@ -315,9 +324,9 @@ need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM
 through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
-`scripts/regress.sh` is the visual regression check: eleven scenes (the boot films and title, the first battle, the
-outpost, the forest, the pause menu, Idrial's film, and battles in Western Moria, Rohan, Helm's Deep, Osgiliath and
-Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
+`scripts/regress.sh` is the visual regression check: twelve scenes (the boot films and title, the first battle, the
+outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in Western Moria, Rohan, Helm's
+Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 
 Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 window has a Save states tab. From the
 command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a

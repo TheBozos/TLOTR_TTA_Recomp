@@ -75,9 +75,10 @@ Output: one file per resource <type>_<index>[_v<n>].mesh and index.txt. File lay
              template at VU 40 from that packet), no registers.
     batch  : u64 texture id (TEX0 of the A+D block in force, 0 = none), u16 GS PRIM (effective: type
              | IIP<<3 | TME<<4 | FGE<<5 | ABE<<6 | AA1<<7 | FST<<8 | CTXT<<9 | FIX<<10), u8 colour
-             mode (0 RGBA, 1 index into the node's colour table), u8 register count, u32 vertex count,
-             registers {u8 GS register, 7 pad, u64 value} (this batch's own A+D writes), vertices
-             {f32 x, y, z, f32 s, t, u32 colour, u8 adc, 3 pad} (28 bytes)
+             mode (0 RGBA, 1 index into the node's colour table, 2 RGBA animated: shader type 4), u8
+             register count, u32 vertex count, registers {u8 GS register, 7 pad, u64 value} (this batch's own
+             A+D writes), vertices {f32 x, y, z, f32 s, t, u32 colour, u8 adc, 3 pad} (28 bytes); colour mode 2
+             then per vertex {i16 delta[4], u8 weight index, 3 pad} (static_batches: type 4's fourth array)
 """
 import argparse
 import hashlib
@@ -385,7 +386,7 @@ def static_batches(b, gs, warn):
         if n > 0 and tag_writer is not None and b.writer.get(start) is tag_writer:
             q = b.mem[start]
             param = [(0xf0, q[0] | q[1] << 32), (0xf1, q[2] | q[3] << 32)]
-        pos = st = colour = None
+        pos = st = colour = delta = None
         for u, base in arrays:
             if pos is None and u.vt in (8, 12):
                 pos = (u, base)
@@ -393,6 +394,8 @@ def static_batches(b, gs, warn):
                 st = (u, base)
             elif colour is None and u.vt == 14:
                 colour = (u, base)
+            elif delta is None and colour is not None and u.vt == 14:
+                delta = (u, base)
         if pos is None:
             warn('batch without positions (%s)' % ','.join(UNPACK_NAME[u.vt] for u, _ in arrays))
             break
@@ -415,8 +418,24 @@ def static_batches(b, gs, warn):
                 rgba = (c[0] & 0xff) | (c[1] & 0xff) << 8 | (c[2] & 0xff) << 16 | (c[3] & 0xff) << 24
                 adc = c[0] & 1
             verts.append((x, y, z, s, t, rgba, adc))
-        res.append(dict(tex=gs.tex0, prim=effective_prim(prim, gs), cmode=0, regs=ad + param, verts=verts,
-                        layout=' '.join(UNPACK_NAME[u.vt] for u, _ in arrays)))
+        # Shader type 4 (set 0's program 0x3b38: the flames, Cobj 19-21): a fourth array, unpacked through STROW
+        # 8388608.0 (offset mode), animates the colour: RGBA = colour + (delta - VU 130.y) x VU (4 + i).w, VU 130.y =
+        # 8388608 + 128 (DS+0x534) and i = the position's w (MTIR). Kept per vertex: the delta as the float's
+        # integer part over 8388608 (the byte, signed or not as unpacked), and i.
+        extra = []
+        if delta is not None:
+            for i in range(n):
+                d = b.mem[delta[1] + i]
+                q = b.mem[pos[1] + i]
+                ds = [int(f32(w) - 8388608.0) for w in d]
+                if os.environ.get('TTA_MESH_DEBUG4') and i < 4:
+                    print('type4', [hex(w) for w in b.mem[colour[1] + i]], [hex(w) for w in d], hex(q[3]), ds)
+                index = q[3] & 0xffff if pos[0].vt == 12 else 0
+                if index > 3:
+                    warn('type-4 weight index %d' % index)
+                extra.append((*ds, min(index, 3)))
+        res.append(dict(tex=gs.tex0, prim=effective_prim(prim, gs), cmode=2 if extra else 0, regs=ad + param,
+                        verts=verts, extra=extra, layout=' '.join(UNPACK_NAME[u.vt] for u, _ in arrays)))
         if eop:
             break
         at = end
@@ -883,6 +902,8 @@ def pack_batch(out, bt):
     else:
         for v in bt['verts']:
             out += struct.pack('<5fIB3x', *v)
+        for e in bt.get('extra', []):  # colour mode 2 (type 4): i16 delta[4], u8 weight index, 3 pad
+            out += struct.pack('<4hB3x', *e)
 
 
 # ----------------------------------------------------------------------------------------
