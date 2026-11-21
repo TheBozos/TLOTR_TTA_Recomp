@@ -539,8 +539,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   field is a normal operation or a zero rule (a zero factor: the signed zero; a zero addend: the other operand), else
   field by field as before; bit-exact with the flags (ctest vu0_simd, 2 million random cases). The stretch from 18896
   to 19700 unpaced: 7.7-8.6 s instead of 10.2-10.6 s; in real time 56-60 frames a second instead of 49-58 (the
-  battle's own load is the 56). Captures pixel-identical. Left: the vertex copies into Renderer::draw at the flush
-  (the skin jobs could write straight into the renderer's frame).
+  battle's own load is the 56). Captures pixel-identical. The vertex copies into Renderer::draw at the flush (~420K
+  vertices, 13 MB, a frame there; ~12-15% of the game thread's busy samples) were tried in parallel (2026-11-21, not
+  kept): a Renderer::drawSpace handing out each batch's place, the draw workers copying their outputs into it. The
+  headless stretch to 20600: 15.35 s against 15.53 s, about 1%. The copy is bound by memory bandwidth, and the space
+  must first be filled (std::vector::resize writes Vertex's defaults), which costs about what the copy did. Only
+  jobs writing straight into the frame would save it, which needs each batch's vertex count before its clipping.
 - **Visual regression check** (2026-11-21): scripts/regress.sh runs the window build (TTA_DETERMINISTIC=1) on five
   scenes from the local states (the first battle 5900 / 6300 / 6800 with tools/pads/pad_attack.txt, the outpost 4500 /
   5451, the forest 14940 / 14971, Rohan's debug battle 1172 at 16750 and Helm's Deep's 1126 at 19800 / 20400 with
