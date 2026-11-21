@@ -662,6 +662,10 @@ namespace tta
                 {
                     Deferred &d = m_entries[i];
                     const auto &vertices = d.copyFrom >= 0 ? m_entries[static_cast<size_t>(d.copyFrom)].vertices : d.vertices;
+                    // Widescreen: x' = 2048 + (x - 2048) 3/4 after the projection, i.e. row 0 = 3/4 row 0 + 512 row 3.
+                    if (widescreen())
+                        for (int c = 0; c < 4; ++c)
+                            d.matrix[4 * c] = kWideSqueeze * d.matrix[4 * c] + 2048.0f * (1.0f - kWideSqueeze) * d.matrix[4 * c + 3];
                     if (!vertices.empty())
                         renderer.draw(d.material, d.matrix, vertices.data(), static_cast<uint32_t>(vertices.size()), d.texture);
                     d.texture.reset();

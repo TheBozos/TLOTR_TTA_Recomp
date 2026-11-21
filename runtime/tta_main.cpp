@@ -102,12 +102,14 @@ int main(int argc, char **argv)
             windowOptions.captureFrames.push_back(std::stoull(argv[++i]));
         else if (a == "--fullscreen")
             windowOptions.fullscreen = true;
+        else if (a == "--widescreen")
+            tta::setWidescreen(true);
 #endif
         else
         {
             std::fprintf(stderr, "Usage: tta [--frames N] [--headless] [--elf FILE] [--iso FILE] [--symbols FILE]\n"
                                  "           [--card-dir DIR] [--pad-script FILE] [--capture-dir DIR] [--capture-frame N]\n"
-                                 "           [--fullscreen] [--dump-ram FILE]\n"
+                                 "           [--fullscreen] [--widescreen] [--dump-ram FILE]\n"
                                  "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
                                  "           [--warp MAP[@FRAME]] [--encounter ID[@FRAME]] [--group ID[@FRAME]] [--game-option NAME[=VALUE]]\n");
             return a == "--help" ? 0 : 2;
@@ -115,6 +117,18 @@ int main(int argc, char **argv)
     }
     if (const char *profile = std::getenv("TTA_HOST_PROFILE"); profile && *profile)
         tta::startHostProfile(profile);
+#ifdef TTA_WITH_WINDOW
+    // Widescreen (tta_port.h): a 16:9 picture, the game's 4:3 view a third wider; the window build only.
+    if (const char *wide = std::getenv("TTA_WIDESCREEN"); wide && *wide && *wide != '0')
+        tta::setWidescreen(true);
+    if (!window)
+        tta::setWidescreen(false);
+    if (tta::widescreen())
+    {
+        windowOptions.aspect = 16.0f / 9.0f;
+        windowOptions.width = 1280;
+    }
+#endif
 
     // What stops the game before it starts, on stderr and, for a played game, in a message box (started from the
     // desktop there is no console to read).

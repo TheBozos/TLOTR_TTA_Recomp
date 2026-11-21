@@ -87,6 +87,7 @@ namespace tta
         // deterministic runs keep the console's count. 0x1c4240 itself is called directly (not overridable); 0x1dd4f8
         // only through the table (33 callers).
         bool g_realTime = false;
+        bool g_widescreen = false;
         float g_timeFactor = 1.0f;
         uint32_t g_timeFrame = ~0u;
 
@@ -159,6 +160,8 @@ namespace tta
 
     void setRealTime(bool on) { g_realTime = on; }
     bool realTime() { return g_realTime; }
+    void setWidescreen(bool on) { g_widescreen = on; }
+    bool widescreen() { return g_widescreen; }
 
     void install(Runtime &, bozo::port::Registry &registry)
     {

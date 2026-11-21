@@ -49,6 +49,15 @@ namespace tta
     // The game on the host's clock (the window build playing): the frame's time step held to the host's (tta_port.cpp).
     void setRealTime(bool on);
     bool realTime(); // the window build on the PC's clock (not headless, not TTA_DETERMINISTIC)
+    // Widescreen (--widescreen / TTA_WIDESCREEN=1, the window build): the picture is 16:9 and the GS frame's 512 columns
+    // are spread over it, so what keeps its shape is squeezed by 3/4 around the screen's centre (x = 2048): the 3D draws
+    // (their matrices: the game's 4:3 view, a third wider on screen; the game does not cull at its 4:3 edges), the 2D
+    // overlay (the HUD and menus, pillarboxed in the middle) and the movies. Full-screen passes (the screen filters,
+    // the frame's clear) keep the whole width. Set before the game runs (tta_main.cpp).
+    void setWidescreen(bool on);
+    bool widescreen();
+    constexpr float kWideSqueeze = 0.75f;
+    inline float wideX(float x) { return widescreen() ? 2048.0f + (x - 2048.0f) * kWideSqueeze : x; }
     // The 3D draws queued so far (their vertex work run on the draw workers) given to the renderer in order (tta_3d.cpp).
     // Called before any other use of the renderer: the 2D, the screen filters, the frame's begin and end.
     void flushDraws();

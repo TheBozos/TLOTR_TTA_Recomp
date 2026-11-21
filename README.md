@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-21.** Widescreen (`--widescreen`): the forest after the first battle at 16:9, the trees and the path a
+third wider on each side than the console shows, the minimap keeping its shape. The game's own matrices are squeezed
+after their projection, so nothing of the game is patched; the game draws what lies just outside its 4:3 view.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-21-bozo-widescreen-forest.png" width="560" alt="Berethor in the forest in 16:9 widescreen on BozoEngine, trees on both sides and the minimap at the top right">
+</p>
+
 **2026-11-21.** The Balrog in Eastern Moria's in-engine film, its fire drawn at last: shader type 4, a sheet of flames
 (Cobj 19-21) whose colour the game animates through a fourth vertex array and a flickering weight per frame. The
 port drew it with no alpha before, so the Balrog arrived without fire. Found by surveying what the game puts in its GS
@@ -324,9 +332,13 @@ need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM
 through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
-`scripts/regress.sh` is the visual regression check: twelve scenes (the boot films and title, the first battle, the
-outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in Western Moria, Rohan, Helm's
-Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
+**Widescreen:** `tta.exe --widescreen` (or `TTA_WIDESCREEN=1`) shows a 16:9 picture: the 3D scene a third wider than
+the console's 4:3 view, the HUD, the menus and the movies keeping their shape in the middle, and full-screen effects
+(tints, fades) across the whole width.
+
+`scripts/regress.sh` is the visual regression check: thirteen scenes (the boot films and title, the first battle and
+the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
+Western Moria, Rohan, Helm's Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 
 Save states: F5 saves, F7 loads, F6 / Shift+F6 pick the slot (0-9), and the F2 window has a Save states tab. From the
 command line: `--save-state FILE --save-state-at N` and `--load-state FILE [--load-state-at N]`. A save waits while a

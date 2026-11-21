@@ -124,7 +124,8 @@ namespace tta
                         picture = g_moviePicture;
                     }
                     if (picture)
-                        r.setBackdrop(picture, screen(), 2048.0f - 256.0f, 2048.0f - 224.0f, 512.0f, 448.0f);
+                        r.setBackdrop(picture, screen(), wideX(2048.0f - 256.0f), 2048.0f - 224.0f,
+                                      widescreen() ? 512.0f * kWideSqueeze : 512.0f, 448.0f); // widescreen: pillarboxed
                 }
                 else
                     r.clearBackdrop();
@@ -250,7 +251,8 @@ namespace tta
                 for (int c = 0; c < 8; ++c)
                 {
                     uint32_t z = 0;
-                    if (live && renderer.depthAt(s.originX + static_cast<float>(x0 + c) + 0.5f, s.originY + static_cast<float>(y0 + r) + 0.5f, z))
+                    if (live && renderer.depthAt(wideX(s.originX + static_cast<float>(x0 + c) + 0.5f), // where the 3D is drawn
+                                                 s.originY + static_cast<float>(y0 + r) + 0.5f, z))
                         ++seen;
                     else
                         z = 0;

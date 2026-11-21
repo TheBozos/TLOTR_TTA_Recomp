@@ -678,6 +678,22 @@ the game's behaviour); its code is in the history before `8ade037`.
   no static node without a mesh, none not converted (besides the skins, which the skin path draws), no off-screen
   pass skipped. With the type-4 fire drawn, the chain audit's callers while exploring and in battle all have a
   native counterpart; what is left open needs a console reference (below, "Open").
+- **Widescreen** (2026-11-21; `tta --widescreen` or TTA_WIDESCREEN=1, the window build). The camera set-up 0x2111f8
+  (RC in a0) writes the focal length RC+0x524 (443.4), tan of the half field of view RC+0x578 / 0x57c (0.577 /
+  1.732: 60 degrees), the slopes RC+0x540 / 0x544 (0.577, 0.433) and keeps RC+0x5e0 / 0x5e4 (1, 7/6). Scaling
+  0x540 or 0x544 (even to 0.2) changed no pixel in the forest or the first battle; scaling 0x5e0 by 3/4 broke the
+  picture (it feeds more than the projection). So the game is left alone. The native side squeezes after the
+  projection instead: each queued 3D draw's matrix gets row 0 = 3/4 row 0 + 512 row 3 (x' = 2048 + (x - 2048) 3/4)
+  at the flush, and the window's picture is 16:9 (WindowOptions::aspect, 1280 x 720), so the game's 4:3 view shows a
+  third wider. The game draws what lies past its 4:3 edges (the forest's trees and path, the first battle's woods:
+  no hole or pop-in at the sides in the captures), as the PS2's guard band let it. The 2D overlay (EA Apt's HUD and
+  menus, the effects' strips through 0x218910) is squeezed the same way after being cut to the 4:3 screen (the
+  battle menu parks its panels just left of it, which the squeeze would have brought into view); a draw spanning
+  the whole width (the Scream's green tint, fades, the attack cameras' bars) keeps spanning it. The movies are
+  pillarboxed (the backdrop 384 wide), the lens flare reads the depth where its block is drawn (wideX). The 2D into
+  the frame and the targets (the screen filters) is full-screen and unchanged. Without the option every capture is
+  as before; scripts/regress.sh gains widescreen (the first battle at 5900 / 6300). A thin light vertical line in
+  Rohan's sky (debug battle 1172, 16590) is there in 4:3 too, at the right edge.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

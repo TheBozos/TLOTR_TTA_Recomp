@@ -955,6 +955,24 @@ namespace tta
             }
             if (triangles.empty())
                 return count(rdram, false);
+            // Widescreen: the HUD and menus keep their shape, in the picture's middle; what spans the whole width (a
+            // tint, a fade, the attack cameras' bars) keeps spanning it.
+            if (widescreen())
+            {
+                const auto [lo, hi] = std::minmax_element(triangles.begin(), triangles.end(),
+                                                          [](const auto &a, const auto &b) { return a.x < b.x; });
+                if (!(lo->x <= 1793.0f && hi->x >= 2303.0f))
+                {
+                    // Cut to the 4:3 screen first: what the game parks just off it (the battle menu's panels slid
+                    // out to the left) stays hidden instead of showing in the side bands.
+                    if (lo->x < 1792.0f || hi->x > 2304.0f)
+                        triangles = clipTriangles(triangles, 1792.0f, 1824.0f, 2304.0f, 2272.0f);
+                    for (auto &q : triangles)
+                        q.x = wideX(q.x);
+                }
+                if (triangles.empty())
+                    return count(rdram, false);
+            }
             (flushDraws(), bozo::render::Renderer::instance()).drawOverlay(material, triangles.data(),
                                                            static_cast<uint32_t>(triangles.size()), picture);
             if (traceLevel() >= 2)
