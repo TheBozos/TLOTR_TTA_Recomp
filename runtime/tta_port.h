@@ -16,9 +16,11 @@ namespace tta
 {
     // An environment switch, read once (the draw paths ask per vertex; getenv takes a lock on Windows). Keyed by the
     // name's address: the callers pass string literals, so no string is built per call (that showed in a profile).
+    // One cache a thread: the draw workers (tta_3d.cpp's DrawQueue) ask too, and a shared map inserted into from two
+    // threads at once is a data race. The environment is not changed while the game runs, so every copy agrees.
     inline const char *env(const char *name)
     {
-        static std::unordered_map<const char *, const char *> cache;
+        thread_local std::unordered_map<const char *, const char *> cache;
         auto [at, added] = cache.try_emplace(name, nullptr);
         if (added)
             at->second = std::getenv(name);

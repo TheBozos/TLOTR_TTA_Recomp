@@ -6,6 +6,7 @@
 #include "bozo/ee/dispatcher.h"
 #include "bozo/host/free_host.h"
 #include "bozo/port.h"
+#include "bozo/render/renderer.h"
 #include "tta_audio.h"
 #include "tta_functions.h"
 #include "tta_host_profile.h"
@@ -166,26 +167,39 @@ int main(int argc, char **argv)
     // Exact captures (TTA_DETERMINISTIC with --capture-frame): the game thread holds at the end of each capture frame
     // until the window has captured that picture. Unpaced, the window otherwise presented whenever it came round, and
     // a capture landed a frame or two late, by chance (frame_005452 for 5451): no two runs captured the same frame.
-    std::atomic<uint64_t> captured{0};
+    // And every frame in lockstep (BozoEngine's WindowOptions::lockstep): the game thread holds after each frame until
+    // the window has presented what it published, and the window presents each frame once. The Nazgul Scream's
+    // ghosting keeps the previous picture: with frames skipped or shown twice by the window's timing, runs differed by
+    // up to 0.9 levels at its capture. Vsync off: the presents follow the game, not the monitor.
+    std::atomic<uint64_t> captured{0}, presented{0};
     std::vector<uint64_t> holdAt;
+    bool lockstep = false;
 #ifdef TTA_WITH_WINDOW
     if (window && deterministic)
     {
         holdAt = windowOptions.captureFrames;
         std::sort(holdAt.begin(), holdAt.end());
         windowOptions.onCaptured = [&captured](uint64_t frames) { captured.store(frames, std::memory_order_release); };
+        lockstep = !std::getenv("TTA_NO_LOCKSTEP");
+        windowOptions.lockstep = lockstep;
+        windowOptions.vsync = !lockstep;
+        windowOptions.onPresented = [&presented](uint64_t publishes) { presented.store(publishes, std::memory_order_release); };
     }
 #endif
     host.onFrame = [&](uint64_t f, const R5900Context *ctx)
     {
         pacer.frameEnd();
+        const auto hold = [](const std::atomic<uint64_t> &counter, uint64_t until)
+        {
+            const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (counter.load(std::memory_order_acquire) < until && std::chrono::steady_clock::now() < limit)
+                std::this_thread::yield();
+        };
+        if (lockstep)
+            hold(presented, bozo::render::Renderer::instance().publishes());
         // f is the frame that just ended, counted from 0: the window's frame count is now f + 1.
         if (std::binary_search(holdAt.begin(), holdAt.end(), f + 1))
-        {
-            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-            while (captured.load(std::memory_order_acquire) < f + 1 && std::chrono::steady_clock::now() < until)
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+            hold(captured, f + 1);
         // TTA_RAM_DUMP=<game frame>[,<game frame>...]: the EE's 32 MB at the end of those game frames, to
         // build/ram_<frame>.bin (compared with a PCSX2 save state's eeMemory.bin).
         if (static const char *dumps = std::getenv("TTA_RAM_DUMP"); dumps && *dumps)

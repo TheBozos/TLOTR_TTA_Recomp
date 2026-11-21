@@ -56,6 +56,9 @@ def main():
             mean, moved, diff = compare(a, b)
             bad = mean > args.mean or moved > args.share
             failed |= bad
+            if diff.getbbox() is None:
+                print(f"{scene} {n}: identical")
+                continue
             print(f"{scene} {n}: mean {mean:.2f}, moved {moved * 100:.2f}%{'  FAIL' if bad else ''}")
             if bad:
                 sheet.append((a.convert("RGB"), b.convert("RGB"), diff.point(lambda v: min(255, v * 4))))

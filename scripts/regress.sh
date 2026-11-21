@@ -4,7 +4,7 @@
 #   scripts/regress.sh            capture into build/regress/new and compare with build/regress/baseline
 #   scripts/regress.sh --update   capture straight into build/regress/baseline
 #   scripts/regress.sh [--update] <scene>...   only those scenes (battle1 outpost forest rohan helmsdeep)
-# Runs are deterministic (TTA_DETERMINISTIC=1): the game holds at each capture frame until the window has captured
+# Runs are deterministic (TTA_DETERMINISTIC=1, the window in lockstep): the game holds at each capture frame until the window has captured
 # it, so the same build gives the same pixels. Build first (ninja -C build/bozo tta).
 # Python with PIL, run without MSYS2 on the PATH (common.sh puts it first; its DLLs break this PIL).
 HOST_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v msys64 | paste -sd ':')"
