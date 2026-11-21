@@ -7,6 +7,8 @@
 // is the map's record table ("manC", count at +0xc, records of 0x20 bytes from +0x10: the id, then the name). Its
 // encounters are the records named Enc<n>[a-z]_<Name> (Enc01_Nazgul = 2109, Enc11_WargCamp01 = 2118 in Eregion);
 // the random battles' _EP (placements) and _ET (enemy groups) records alone start an empty battle (not listed).
+// A battle whose place is far from the party (Helm's Deep's, fought near x 2700) is preceded by a move of the party
+// there, so the map streams in its ground first (moveToBattle).
 //
 // Maps. The map index (0x35bd0c, 0..13) chooses among the paths at 0x35bc88 (e98c/e98c03 ... e03c/e03c04); 0x190130(i)
 // sets it, and the chapter message 0 (category 0x7d0, handler 0x18f420: {0x7d0, 0, number, arguments}) loads the map
@@ -30,6 +32,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -207,6 +210,7 @@ namespace tta
             } kind;
             int32_t value;
             uint32_t atFrame;
+            bool moved = false; // an encounter whose party was already taken to the battle's place
         };
         std::mutex g_mutex;
         std::deque<Request> g_requests;
@@ -265,7 +269,56 @@ namespace tta
 
         bool objectIs(const uint8_t *rdram, const Encounter &e, uint32_t type);
 
-        void startEncounter(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id)
+        // TTA_DEBUG_OBJDUMP=1: an encounter's object, its group's and every object carrying its placement's id, as words
+        // and floats (what the battle reads to place itself).
+        void dumpWords(const uint8_t *rdram, const char *what, uint32_t address, uint32_t words)
+        {
+            std::printf("[tta:debug] %s at %06x:\n", what, address);
+            for (uint32_t k = 0; k < words; k += 4)
+            {
+                std::printf("[tta:debug]   +%03x", k * 4);
+                for (uint32_t j = 0; j < 4; ++j)
+                {
+                    const uint32_t v = read32(rdram, address + (k + j) * 4u);
+                    float f;
+                    std::memcpy(&f, &v, 4);
+                    std::printf("  %08x (%g)", v, f);
+                }
+                std::printf("\n");
+            }
+        }
+        void dumpEncounterObjects(const uint8_t *rdram, int32_t id)
+        {
+            std::vector<Encounter> encounters, groups;
+            {
+                std::lock_guard lock(g_mutex);
+                encounters = g_encounters;
+                groups = g_groups;
+            }
+            for (const Encounter &e : encounters)
+            {
+                if (e.id != id)
+                    continue;
+                dumpWords(rdram, ("encounter " + e.name).c_str(), e.address, 0x20);
+                for (const Encounter &g : groups)
+                {
+                    if (g.id != e.link)
+                        continue;
+                    dumpWords(rdram, ("group " + g.name).c_str(), g.address, 0x20);
+                    for (uint32_t a = 0x100000u; a + 0x100u < 0x2000000u; a += 4u)
+                        if (static_cast<int32_t>(read32(rdram, a)) == g.link && read32(rdram, a + 4u) >= 0x1000u &&
+                            read32(rdram, a + 4u) < 0x2000u)
+                            dumpWords(rdram, ("placement " + std::to_string(g.link) + " type " +
+                                              std::to_string(read32(rdram, a + 4u))).c_str(),
+                                      a, 0x30);
+                }
+            }
+            std::fflush(stdout);
+        }
+
+        bool moveToBattle(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id);
+
+        void startEncounter(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id, bool moved = false)
         {
             // Only one of the current map's encounters: StartEncounter with an id the map does not have never comes back
             // (the game's frame stops; seen with an Eregion id right after a warp to Rohan, its list still empty).
@@ -282,8 +335,98 @@ namespace tta
                 note("no encounter " + std::to_string(id) + " on this map (" + std::to_string(count) + " listed): not started");
                 return;
             }
+            if (!moved && moveToBattle(rdram, ctx, rt, id))
+                return;
+            if (moved)
+            {
+                uint32_t actor = 0;
+                if (callGame(rdram, ctx, rt, func_0x15c030, {}, 0, &actor) && actor && actor < 0x2000000u)
+                {
+                    float now[3];
+                    std::memcpy(now, rdram + actor + 0x40u, 12);
+                    char text[160];
+                    std::snprintf(text, sizeof text, "party at (%.1f, %.1f, %.1f)", now[0], now[1], now[2]);
+                    note(text);
+                }
+            }
             note("StartEncounter(" + std::to_string(id) + ") at game frame " + std::to_string(gameFrame(rdram)));
+            if (std::getenv("TTA_DEBUG_OBJDUMP"))
+                dumpEncounterObjects(rdram, id);
             callStartEncounter(ctx, id);
+        }
+
+        // Where a battle is fought: its placement object's place (type 0x1773, the group's +0x24, where the enemies stand:
+        // Helm's Deep's Deeping Wall at (2689, 10.5, 37), the breach at (2706, 3.9, 60)), else the encounter's own
+        // (+8..+0x10; a random encounter's placement has none: the court's 1133 at (2699, 10.5, 122)). The map streams
+        // its zones in around the party (Helm's Deep has 40, zone_e02c05_zone1..40 in its .scp), so a battle started from
+        // the valley's start, 2500 units away, was fought with no ground: riders over black. When the battle's place is
+        // more than 1000 units away (the scripted battles' arena near x 2700, Helm's Deep's and Osgiliath's), the party is first taken there with the game's own teleport (0x11a880(actor, position,
+        // 1), as Lua's TeleportToPos; the party's actor from 0x15c030), and the battle started 3 seconds later, once the
+        // zones are in. The party comes as it was (mounted, from Helm's Deep's valley). Nearer battles start where the
+        // party is: Minas Tirith's court (1448, 400 units off) broke when moved (the party taken from its tier at y -198 to
+        // the encounter's y 0) and is right in place, as are Eregion's, Rohan's and Western Moria's. TTA_BATTLE_MOVE=off never moves it, =always always does.
+        bool moveToBattle(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t id)
+        {
+            const char *how = std::getenv("TTA_BATTLE_MOVE");
+            const std::string mode = how ? how : "";
+            if (mode == "off")
+                return false;
+            uint32_t encounter = 0;
+            int32_t placementId = 0;
+            {
+                std::lock_guard lock(g_mutex);
+                for (const Encounter &e : g_encounters)
+                    if (e.id == id)
+                    {
+                        encounter = e.address;
+                        for (const Encounter &g : g_groups)
+                            if (g.id == e.link)
+                                placementId = g.link;
+                    }
+            }
+            const auto placeAt = [&](uint32_t object, float *out)
+            {
+                if (!object)
+                    return false;
+                std::memcpy(out, rdram + ((object + 8u) & 0x1ffffffu), 12);
+                for (int k = 0; k < 3; ++k)
+                    if (!(std::fabs(out[k]) < 1e5f))
+                        return false;
+                return std::fabs(out[0]) + std::fabs(out[2]) > 1.0f;
+            };
+            // The map holds more than one object with a placement's id (some with other data).
+            uint32_t placement = 0;
+            float place[3];
+            if (placementId)
+                for (uint32_t a = 0x100000u; a + 0x30u < 0x2000000u && !placement; a += 4u)
+                    if (static_cast<int32_t>(read32(rdram, a)) == placementId && read32(rdram, a + 4u) == 0x1773u &&
+                        placeAt(a, place))
+                        placement = a;
+            if (!placement && !placeAt(encounter, place))
+                return false;
+            uint32_t actor = 0;
+            if (!callGame(rdram, ctx, rt, func_0x15c030, {}, 0, &actor) || !actor || actor >= 0x2000000u)
+                return false;
+            float was[3];
+            std::memcpy(was, rdram + actor + 0x40u, 12);
+            const float dx = place[0] - was[0], dz = place[2] - was[2];
+            if (mode != "always" && dx * dx + dz * dz < 1000.0f * 1000.0f)
+                return false;
+            const uint32_t at = (ctx->r[29].uw[0] - 0x200u) & ~0xfu;
+            std::memcpy(rdram + at, place, 12);
+            const float one = 1.0f;
+            std::memcpy(rdram + at + 12u, &one, 4);
+            if (!callGame(rdram, ctx, rt, func_0x11a880, {actor, at, 1u}, at - 0x100u))
+                return false;
+            char text[200];
+            std::snprintf(text, sizeof text, "party moved from (%.1f, %.1f, %.1f) to battle %d's %s (%.1f, %.1f, %.1f)",
+                          was[0], was[1], was[2], id, placement ? "placement" : "encounter", place[0], place[1], place[2]);
+            note(text);
+            Request r{Request::kEncounter, id, gameFrame(rdram) + 180u};
+            r.moved = true;
+            std::lock_guard lock(g_mutex);
+            g_requests.push_back(r);
+            return true;
         }
 
         void warp(uint8_t *rdram, R5900Context *ctx, Runtime *rt, int32_t index)
@@ -382,7 +525,7 @@ namespace tta
                     continue;
                 }
                 if (r.kind == Request::kEncounter)
-                    startEncounter(rdram, ctx, rt, r.value);
+                    startEncounter(rdram, ctx, rt, r.value, r.moved);
                 else if (r.kind == Request::kGroup)
                     startGroup(rdram, ctx, rt, r.value);
                 else

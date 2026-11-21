@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-21.** Helm's Deep's Deeping Wall battle, started from the debug tool: the wall's stakes and stones under the
+night sky. A battle fought far from the party (Helm's Deep's scripted battles, near x 2700) used to have no ground,
+because the map streams in its zones around the party; the debug tool now takes the party there first.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-21-bozo-deeping-wall.png" width="400" alt="A battle on the Deeping Wall at night on BozoEngine, Uruk-hai facing the party on the stone walkway">
+</p>
+
 **2026-11-20.** The first battle's Nazgul Scream with its lens flare: the discs strung from the light on the
 Ringwraith's blade through the middle of the screen (shader type 11, an effect render found missing by a survey of what
 the game puts in its GS chain), built from the same unit-circle strips as set 2's VU1 program.
