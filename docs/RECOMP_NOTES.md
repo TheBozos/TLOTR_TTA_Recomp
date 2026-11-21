@@ -519,9 +519,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   ps2f::addNearest / mulf, from game functions 0x1d5118 and 0x1d52c8, already on the host-float fast path for normal
   numbers), ~17% the vertex copies into Renderer::draw at the flush, ~10% drawShadowVolume's face sweep, then drawSkin's
   recording. The sweep now projects each of a prism's six corners once instead of once per face (it was each corner up
-  to six times): its share halved, pixels unchanged (scripts/regress.sh), the frame time not measurably. What is left
-  is a SIMD VU0 macro path in BozoEngine (all four fields at once, the exact path only for fields that leave the
-  normal range) or fewer vertex copies (the skin jobs writing straight into the renderer's frame).
+  to six times): its share halved, pixels unchanged (scripts/regress.sh), the frame time not measurably. Then
+  BozoEngine#112: VU0 macro add / sub / mul / madd / msub take four fields at once through SSE when every enabled
+  field is a normal operation or a zero rule (a zero factor: the signed zero; a zero addend: the other operand), else
+  field by field as before; bit-exact with the flags (ctest vu0_simd, 2 million random cases). The stretch from 18896
+  to 19700 unpaced: 7.7-8.6 s instead of 10.2-10.6 s; in real time 56-60 frames a second instead of 49-58 (the
+  battle's own load is the 56). Captures pixel-identical. Left: the vertex copies into Renderer::draw at the flush
+  (the skin jobs could write straight into the renderer's frame).
 - **Visual regression check** (2026-11-21): scripts/regress.sh runs the window build (TTA_DETERMINISTIC=1) on five
   scenes from the local states (the first battle 5900 / 6300 / 6800 with tools/pads/pad_attack.txt, the outpost 4500 /
   5451, the forest 14940 / 14971, Rohan's debug battle 1172 at 16750 and Helm's Deep's 1126 at 19800 / 20400 with
@@ -1090,5 +1094,6 @@ BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback l
   the highlight pass writes it alone; natively every draw writes alpha, so the coloured glow around highlighted and
   buffed characters is missing. No console capture of it yet.
 - The shine layer "02" (above, "The shine layer and F7"): no case seen to check it against.
-- Helm's Deep's ~10 s at 49-57 frames a second as its battle starts (above, "Frame times in the later regions").
+- Helm's Deep's battle start still dips to ~56 frames a second for two seconds (above, "Frame times in the later
+  regions"; was ~10 s at 49-57 before BozoEngine#112).
 - The Linux and macOS builds (WSL here has no compiler; installing one needs the user's sudo).
