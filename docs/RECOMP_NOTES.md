@@ -767,6 +767,10 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **Volume** (2026-11-22). No volume of its own (the console left it to the TV; BozoEngine's AudioDevice has
   none): the Game tab's slider (tta.ini volume, TTA_VOLUME) scales the mixed frames in host.onAudio before
   AudioDevice::push, by the slider squared (50 % is about -12 dB). Scripted runs make no sound: nothing to compare.
+- **Screenshots** (2026-11-22, BozoEngine#118). F12 saves the game's picture (without F2's window or the notices)
+  as a compressed PNG (SDL_SavePNG) in the user folder's screenshots, named by date and time; F8 / F9 stay the
+  debug captures (uncompressed, the window as shown). PS2X_SCREENSHOT_AT=<s>,... presses it from a script: three in
+  one second of a hidden battle run gave three opaque files (_2, _3).
 - **Rumble** (2026-11-22, BozoEngine#117). EA's pad update (0x214cd8) sends the motors through sceVibSetActParam
   (BozoEngine#81 to SDL_RumbleGamepad) only on alternating frames while a change is pending (P+0x29, P+0x2c), the
   setters 0x2159a0 (small motor) / 0x215aa8 (large) need the port's switch P+0x39 (set to 1 for port 0 at init

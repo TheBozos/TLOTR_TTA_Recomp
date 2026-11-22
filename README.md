@@ -310,6 +310,7 @@ gamepad). The mouse pointer hides over the game after two seconds without moving
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9) |
+| F12 | A screenshot (PNG in `%APPDATA%\TLOTR_TTA_Recomp\screenshots`) |
 | F8 | Capture a sequence of pictures |
 | F10 | A bug report of this moment (the RAM and one frame of draw state) |
 
