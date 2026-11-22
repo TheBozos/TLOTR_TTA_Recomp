@@ -140,6 +140,15 @@ int main(int argc, char **argv)
             bozo::app::video::edited().mode = bozo::app::video::WindowMode::Borderless;
         windowOptions.videoSettings = true;
     }
+    // TTA_FRAME_RATE=<n> (or monitor): the window's frame rate in any window run, scripted ones included (the video
+    // settings' frame rate otherwise); above the game's 60 the frames between are drawn interpolated (tta_3d.cpp keys
+    // the 3D draws). Not with TTA_DETERMINISTIC's lockstep.
+    if (const char *rate = std::getenv("TTA_FRAME_RATE"); rate && *rate && window)
+    {
+        int parsed = 0;
+        if (bozo::app::video::parseFrameRate(rate, parsed))
+            bozo::render::Renderer::instance().setFrameRate(parsed);
+    }
 #endif
 
     // What stops the game before it starts, on stderr and, for a played game, in a message box (started from the

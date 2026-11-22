@@ -466,6 +466,9 @@ namespace tta
             uint32_t silhouetteColour = 0;
             // A second pass over the same vertices (the skins' alpha split): the entry whose vertices it draws.
             long copyFrom = -1;
+            // The object it belongs to, stable from one game frame to the next (Renderer::setKey: a window frame rate
+            // above the game's draws it between its two frames' matrices); 0 none (drawn as the newest frame has it).
+            uint64_t key = 0, base = 0; // base: what alike instances share (Renderer::setKey's)
         };
 
         // A skinned draw's inputs, copied out of RAM when it is recorded: the bones it uses, W, the lighting, the fade.
@@ -645,8 +648,16 @@ namespace tta
                 d.skin = nullptr;
                 d.silhouette = false;
                 d.copyFrom = -1;
+                d.key = m_key;
+                d.base = m_base;
                 m_jobs += job ? 1 : 0;
                 return d;
+            }
+            // The key push() gives the entries that follow (0: none), and what alike instances share (0: the key).
+            void setKey(uint64_t key, uint64_t base = 0)
+            {
+                m_key = key;
+                m_base = base;
             }
             long index(const Deferred &d) const { return static_cast<long>(&d - m_entries.data()); }
 
@@ -666,6 +677,8 @@ namespace tta
                 if (m_jobs > 0)
                     runJobs();
                 auto &renderer = bozo::render::Renderer::instance();
+                uint64_t lastKey = 0;
+                renderer.setKey(0);
                 for (size_t i = 0; i < m_count; ++i)
                 {
                     Deferred &d = m_entries[i];
@@ -675,9 +688,14 @@ namespace tta
                         for (int c = 0; c < 4; ++c)
                             d.matrix[4 * c] = kWideSqueeze * d.matrix[4 * c] + 2048.0f * (1.0f - kWideSqueeze) * d.matrix[4 * c + 3];
                     if (!vertices.empty())
+                    {
+                        if (d.key != lastKey)
+                            renderer.setKey(lastKey = d.key, d.base);
                         renderer.draw(d.material, d.matrix, vertices.data(), static_cast<uint32_t>(vertices.size()), d.texture);
+                    }
                     d.texture.reset();
                 }
+                renderer.setKey(0); // the 2D and the screen filters that follow: not interpolated
                 m_count = 0;
                 m_jobs = 0;
                 m_skinCount = 0;
@@ -753,6 +771,7 @@ namespace tta
             std::condition_variable m_wake, m_finished;
             uint64_t m_generation = 0;
             bool m_stop = false;
+            uint64_t m_key = 0, m_base = 0;
             std::atomic<size_t> m_next{0}, m_done{0}, m_total{0};
         };
 
@@ -816,6 +835,21 @@ namespace tta
                     std::printf("[tta:3d] texture animation frame %u: T %g P (%g %g %g %g) shift (%g %g)\n", frame(rdram), time,
                                 p[0], p[1], p[2], p[3], shift[0], shift[1]);
             }
+        }
+
+        // A key told apart from the same `base` drawn earlier in this game frame (its n-th draw: base ^ n x a large odd
+        // constant; the first keeps the base), so each draw of an object drawn several times has its own key.
+        uint64_t instanceKey(const uint8_t *rdram, uint64_t base)
+        {
+            static std::unordered_map<uint64_t, uint32_t> seen;
+            static uint32_t seenFrame = ~0u;
+            if (frame(rdram) != seenFrame)
+            {
+                seen.clear();
+                seenFrame = frame(rdram);
+            }
+            const uint32_t n = seen[base]++;
+            return n == 0 ? base : base ^ (static_cast<uint64_t>(n) * 0xc2b2ae3d27d4eb4full);
         }
 
         void drawNode(const uint8_t *rdram, const Mesh &mesh, const Node &node, const float screen[16])
@@ -1038,7 +1072,13 @@ namespace tta
                         if (!listed)
                             return;
                     }
+                    // Its key for frames between the game's: the node in RAM (a placed instance), and its draws so far
+                    // this frame (a node drawn more than once: the selection ring under each character), the node as
+                    // what the alike draws share.
+                    const uint64_t base = (1ull << 40) | node;
+                    drawQueue().setKey(instanceKey(rdram, base), base);
                     drawNode(rdram, *m, it->second, screen);
+                    drawQueue().setKey(0);
                     count(rdram, g_drawn);
                     // TTA_3D_DUMP_FRAME=<n>: every node drawn in frame n, with its screen bounds (GS pixels, 2048 centre)
                     // and the camera's place; =%<n> every n-th frame.
@@ -1351,6 +1391,14 @@ namespace tta
             if (it == mesh->byOffset.end() || it->second.kind != 3)
                 return;
             const uint32_t g = read32(rdram, 0x403a60);
+            // Its key for frames between the game's: the node, and the layer's mode (G+0x2b0: one node is drawn in
+            // several passes a frame), for everything it queues until it returns.
+            struct KeyScope
+            {
+                explicit KeyScope(uint64_t key) { drawQueue().setKey(key); }
+                ~KeyScope() { drawQueue().setKey(0); }
+            } keyScope(instanceKey(rdram, ((2ull << 40) | node | (static_cast<uint64_t>(read32(rdram, g + 0x2b0) % 65521u) << 48)) ^
+                                              (static_cast<uint64_t>(g) * 0x9e3779b97f4a7c15ull)));
             const uint32_t bones = read32(rdram, g + 0x290), placement = read32(rdram, g + 0x294);
             const uint32_t fade = rdram[(g + 0x2bc) & kMask]; // a byte (0x226458: lbu)
             // TTA_SKIN_LAYERS=<mask>: draw only these layer passes (1 normal "01", 2 0x20000 "02", 4 0x200 "03",

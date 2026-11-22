@@ -714,8 +714,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   1280 x 720 in widescreen): the Video tab of F2 (size, windowed / full screen / borderless, render scale, texture
   upscaling, frame rate), F11 / Alt+Enter, saved in %APPDATA%\TLOTR_TTA_Recomp\video.ini (the identity's folder; the
   memory cards stay in TheBozos\The Third Age). --fullscreen asks borderless for the run; TTA_NO_VIDEO_SETTINGS=1 the
-  fixed window. A frame rate above the game's 60 interpolates only keyed draws (Renderer::setKey), which TTA does not
-  key yet: those frames show the newest game frame. Scripted runs keep the fixed window (captures unchanged).
+  fixed window. Scripted runs keep the fixed window (captures unchanged).
+- **Frames between the game's** (2026-11-22). Above 60 (the Video tab's frame rate, or TTA_FRAME_RATE=<n> for any
+  run) the renderer draws the keyed batches between their two game frames' matrices (Renderer::setKey; TTA sets
+  presentsAlone). The draw queue now keys its entries (Deferred::key / base, given at the flush): a static node by its
+  RAM address (a placed instance; the n-th draw of the same node in a frame gets base ^ n x a constant, the node as
+  the base: the engine matches alike ones through the camera's move), a skin by the character object G (0x403a60),
+  the node and the layer's mode G+0x2b0, everything a drawSkin call queues. Keyed by the node alone at first, the two
+  Nazgul of the first battle (one skin node, two characters) were matched to one and drawn pulled together in the
+  frames between. Unkeyed (the 2D, the screen filters, shadows, glows, rings) shows the newest frame. At 120 (the
+  first battle, a sequence of the window: PS2X_CAPTURE_SEQUENCE / _AT): 120 presents a second, ~2030 of ~2045 keyed
+  batches interpolated, the attack camera's pictures in between consistent. Captures at 60 unchanged.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

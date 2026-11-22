@@ -337,9 +337,11 @@ the console's 4:3 view, the HUD, the menus and the movies keeping their shape in
 (tints, fades) across the whole width.
 
 **Video settings:** the Video tab of the settings window (F2) sets the window's size, windowed / full screen /
-borderless (F11 or Alt+Enter switch), the 3D's render scale and texture upscaling, saved in
+borderless (F11 or Alt+Enter switch), the 3D's render scale, texture upscaling and the frame rate, saved in
 `%APPDATA%\TLOTR_TTA_Recomp\video.ini`. `--fullscreen` starts borderless full screen. Scripted and `TTA_DETERMINISTIC`
-runs ignore the file, so their captures stay the same.
+runs ignore the file, so their captures stay the same. Above the game's 60 frames a second (120, 144, the monitor's
+refresh), the pictures between the game's frames are drawn interpolated: the scenery and the characters move between
+their two frames' places, the HUD and effects show the newest frame. `TTA_FRAME_RATE=<n>` sets it for any run.
 
 `scripts/regress.sh` is the visual regression check: thirteen scenes (the boot films and title, the first battle and
 the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
