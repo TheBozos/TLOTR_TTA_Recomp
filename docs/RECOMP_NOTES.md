@@ -764,6 +764,10 @@ the game's behaviour); its code is in the history before `8ade037`.
   kept in tta.ini in the user folder (widescreen = on / off), read by played games unless --widescreen or
   TTA_WIDESCREEN asked; scripted and TTA_DETERMINISTIC runs do not read it. Checked: tta.ini's on opens a played
   game at 16:9 (1280 x 720, the wider view); the checkbox itself only by hand.
+- **The idle cursor** (2026-11-22, BozoEngine#116). The mouse pointer stayed drawn over the picture, full screen
+  included (input.ini's mouse capture off, the default). The window's loop now hides it after two seconds without
+  motion, buttons or wheel while it is over the window and F2's settings are closed; PS2X_KEEP_CURSOR=1 keeps it.
+  Hidden (scripted) windows skip it: captures unchanged.
 - **Pause in the background** (2026-11-22, BozoEngine#115, an opt-in video setting). Alt-tabbed or minimised, the
   game ran on (a battle's turn timer, the music). video.ini pause_in_background (PS2X_PAUSE_IN_BACKGROUND, the Video
   tab's checkbox): the window's loop sets FramePacer::backgroundHold while it has no input focus or is minimised,
