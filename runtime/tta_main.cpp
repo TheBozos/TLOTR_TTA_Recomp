@@ -41,6 +41,13 @@
 #endif
 #endif
 
+namespace
+{
+    // The sound's volume, 0 to 100 % (the Game tab, tta.ini volume, TTA_VOLUME): set on the window's thread, read by
+    // the game's as it hands each frame's sound to the device.
+    std::atomic<int> g_volume{100};
+}
+
 int main(int argc, char **argv)
 {
     bozo::host::FreeOptions options;
@@ -149,8 +156,12 @@ int main(int argc, char **argv)
                 tta::setWidescreen(true);
             if (on("skip_logos"))
                 tta::setSkippableLogos(true);
+            if (line.rfind("volume", 0) == 0 && line.find('=') != std::string::npos)
+                g_volume = std::clamp(std::atoi(line.c_str() + line.find('=') + 1), 0, 100);
         }
     }
+    if (const char *volume = std::getenv("TTA_VOLUME"); volume && *volume)
+        g_volume = std::clamp(std::atoi(volume), 0, 100);
     [[maybe_unused]] const auto savePortSettings = [portSettings, played]
     {
         if (!played)
@@ -160,8 +171,10 @@ int main(int argc, char **argv)
                 "# widescreen: on (16:9, the 3D a third wider) or off (4:3, as the console; --widescreen and "
                 "TTA_WIDESCREEN=1 also turn it on).\n"
                 "# skip_logos: on (START ends the EA, THX and New Line logos at boot) or off (as the console).\n"
+                "# volume: the sound's volume, 0 to 100 (%; TTA_VOLUME for one run).\n"
              << "widescreen = " << (tta::widescreen() ? "on" : "off") << "\n"
-             << "skip_logos = " << (tta::skippableLogos() ? "on" : "off") << "\n";
+             << "skip_logos = " << (tta::skippableLogos() ? "on" : "off") << "\n"
+             << "volume = " << g_volume.load() << "\n";
     };
     if (tta::widescreen())
     {
@@ -212,6 +225,14 @@ int main(int argc, char **argv)
                                    }
                                    ImGui::TextDisabled("START ends the EA, THX and New Line logos at boot (unskippable on");
                                    ImGui::TextDisabled("the console). From the next start.");
+                                   ImGui::Spacing();
+                                   int volume = g_volume.load();
+                                   ImGui::SetNextItemWidth(240.0f);
+                                   if (ImGui::SliderInt("Volume", &volume, 0, 100, "%d %%"))
+                                       g_volume = volume;
+                                   if (ImGui::IsItemDeactivatedAfterEdit())
+                                       savePortSettings();
+                                   ImGui::TextDisabled("The music, voices and effects together. Applies at once.");
                                });
 #endif
     // PS2X_TEXTURE_SMOOTHING (off, trilinear, 2x .. 16x) for the runs without the video settings too (scripted ones).
@@ -455,8 +476,20 @@ int main(int argc, char **argv)
                 start = std::chrono::steady_clock::now();
             }
         }
-        if (sound)
-            audio.push(pcm, count);
+        if (!sound)
+            return;
+        // The player's volume: a gain on the mixed frames (interleaved stereo) on their way to the device.
+        if (const int volume = g_volume.load(std::memory_order_relaxed); volume < 100)
+        {
+            static std::vector<int16_t> scaled;
+            scaled.resize(count * 2);
+            const int gain = volume * volume * 65536 / 10000; // squared: the slider's halfway is about -12 dB
+            for (size_t i = 0; i < count * 2; ++i)
+                scaled[i] = static_cast<int16_t>((pcm[i] * gain) >> 16);
+            audio.push(scaled.data(), count);
+            return;
+        }
+        audio.push(pcm, count);
     };
 #endif
 

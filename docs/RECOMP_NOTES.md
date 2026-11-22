@@ -764,6 +764,9 @@ the game's behaviour); its code is in the history before `8ade037`.
   kept in tta.ini in the user folder (widescreen = on / off), read by played games unless --widescreen or
   TTA_WIDESCREEN asked; scripted and TTA_DETERMINISTIC runs do not read it. Checked: tta.ini's on opens a played
   game at 16:9 (1280 x 720, the wider view); the checkbox itself only by hand.
+- **Volume** (2026-11-22). No volume of its own (the console left it to the TV; BozoEngine's AudioDevice has
+  none): the Game tab's slider (tta.ini volume, TTA_VOLUME) scales the mixed frames in host.onAudio before
+  AudioDevice::push, by the slider squared (50 % is about -12 dB). Scripted runs make no sound: nothing to compare.
 - **The idle cursor** (2026-11-22, BozoEngine#116). The mouse pointer stayed drawn over the picture, full screen
   included (input.ini's mouse capture off, the default). The window's loop now hides it after two seconds without
   motion, buttons or wheel while it is over the window and F2's settings are closed; PS2X_KEEP_CURSOR=1 keeps it.

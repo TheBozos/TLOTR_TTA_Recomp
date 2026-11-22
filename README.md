@@ -305,7 +305,7 @@ Controls tab of the settings window. The mouse pointer hides over the game after
 
 | Key | |
 |---|---|
-| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos), Controls, Save states, Debug (warps and battles) |
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles) |
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9) |
@@ -380,6 +380,9 @@ the console's 4:3 view, the HUD, the menus and the movies keeping their shape in
 **Skippable logos:** the EA, THX and New Line logos at boot (one movie, about 28 seconds) cannot be skipped on
 the console; the Game tab's "Skippable logos" (kept in `tta.ini`, or `TTA_SKIP_LOGOS=1` for one run) lets START end
 them, as the developers' own option `skipallmovies` did.
+
+**Volume:** the Game tab's slider (kept in `tta.ini`, or `TTA_VOLUME=0..100` for one run) sets the sound's volume,
+music, voices and effects together; the console left it to the TV.
 
 **Video settings:** the Video tab of the settings window (F2) sets the window's size, windowed / full screen /
 borderless (F11 or Alt+Enter switch), the 3D's render scale, texture upscaling, texture smoothing (off as the console,
