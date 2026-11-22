@@ -283,6 +283,37 @@ build.
 The ring of the loading screen turned, but its text was garbled and the game never read the disc.
 </details>
 
+## Playing
+
+`build/bozo/tta.exe` (after the build below; it needs your disc image, see "Build and run").
+
+| PS2 pad | Keyboard (default) |
+|---|---|
+| D-pad / left stick | Arrow keys or W A S D |
+| Right stick | I J K L |
+| ✕ (confirm) | X or Space |
+| ○ (back) | C or Escape |
+| □ / △ | Z / V |
+| L1 / R1 | Q / E |
+| L2 / R2 | Left Shift / Right Shift |
+| L3 / R3 | F / G |
+| START / SELECT | Enter / Tab |
+
+A gamepad (Xbox, PlayStation, Switch Pro ...) works as a PS2 pad when plugged in. Keys and buttons are changed in the
+Controls tab of the settings window.
+
+| Key | |
+|---|---|
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Display (widescreen), Controls, Save states, Debug (warps and battles) |
+| F3 | Frame rate counter |
+| F11 or Alt+Enter | Window / full screen |
+| F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9) |
+| F8 | Capture a sequence of pictures |
+| F10 | A bug report of this moment (the RAM and one frame of draw state) |
+
+The game's own saves (its two memory cards) are in `%APPDATA%\TheBozos\The Third Age\cards`; the settings
+(`video.ini`, `input.ini`, `tta.ini`) in `%APPDATA%\TLOTR_TTA_Recomp`.
+
 ## Goal
 
 A fully playable *The Third Age* as a native executable on Windows, Linux and macOS, from the intro to the end of the
