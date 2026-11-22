@@ -767,6 +767,13 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **Volume** (2026-11-22). No volume of its own (the console left it to the TV; BozoEngine's AudioDevice has
   none): the Game tab's slider (tta.ini volume, TTA_VOLUME) scales the mixed frames in host.onAudio before
   AudioDevice::push, by the slider squared (50 % is about -12 dB). Scripted runs make no sound: nothing to compare.
+- **Rumble** (2026-11-22, BozoEngine#117). EA's pad update (0x214cd8) sends the motors through sceVibSetActParam
+  (BozoEngine#81 to SDL_RumbleGamepad) only on alternating frames while a change is pending (P+0x29, P+0x2c), the
+  setters 0x2159a0 (small motor) / 0x215aa8 (large) need the port's switch P+0x39 (set to 1 for port 0 at init
+  0x215500, the options' toggle 0x215d20) and are called from scripted events ("player rumble on / off", 0x1366xx)
+  and 0x232600: a probe saw no request in the first battle, the Balrog or Helm's Deep, only the stops at a warp.
+  The Controls tab now has a strength per player (input.ini rumble, 0-100, 0 off) and a Test button; not felt here
+  (no gamepad on the test machine).
 - **The idle cursor** (2026-11-22, BozoEngine#116). The mouse pointer stayed drawn over the picture, full screen
   included (input.ini's mouse capture off, the default). The window's loop now hides it after two seconds without
   motion, buttons or wheel while it is over the window and F2's settings are closed; PS2X_KEEP_CURSOR=1 keeps it.
