@@ -149,6 +149,13 @@ int main(int argc, char **argv)
         if (bozo::app::video::parseFrameRate(rate, parsed))
             bozo::render::Renderer::instance().setFrameRate(parsed);
     }
+    // PS2X_TEXTURE_SMOOTHING (off, trilinear, 2x .. 16x) for the runs without the video settings too (scripted ones).
+    if (const char *smoothing = std::getenv("PS2X_TEXTURE_SMOOTHING"); smoothing && *smoothing && window && !windowOptions.videoSettings)
+    {
+        int level = 0;
+        if (bozo::app::video::parseTextureSmoothing(smoothing, level))
+            bozo::render::Renderer::instance().setTextureSmoothing(level);
+    }
 #endif
 
     // What stops the game before it starts, on stderr and, for a played game, in a message box (started from the

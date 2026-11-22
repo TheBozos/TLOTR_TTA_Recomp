@@ -751,6 +751,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   its corners lie behind the camera (w <= 0) and project to huge coordinates (x down to -2e8), drawn as triangles
   across the screen as before. Whether the console's GS shows those (wrapped 12.4 coordinates) or the game's code
   drops them is not known without a console reference; left as is.
+- **Texture smoothing** (2026-11-22, BozoEngine#114, an opt-in video setting). TTA's textures have no mip levels
+  (TEX1 0 / 1: level 0 only, as the console samples), so at the PC's resolutions the far ground aliases into grain
+  that crawls as the camera moves. Renderer::setTextureSmoothing (video.ini texture_smoothing: off, trilinear, 2x ..
+  16x; PS2X_TEXTURE_SMOOTHING, which tta.exe also applies to scripted runs; the Video tab's "Texture smoothing")
+  samples levels generated from each texture for draws without levels of their own, with anisotropic filtering past
+  1. Rohan's battle 1172 at 16590, the far ground band's edge energy: 27.8 off, 9.3 trilinear (blurred), 15.1 at 16x
+  (detail kept, the grain gone); the grass cut-outs keep their shape. Off by default: captures unchanged.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
