@@ -387,8 +387,10 @@ trilinear, or anisotropic up to 16x: distant ground without the shimmer) and the
 runs ignore the file, so their captures stay the same. Above the game's 60 frames a second (120, 144, the monitor's
 refresh), the pictures between the game's frames are drawn interpolated: the scenery and the characters move between
 their two frames' places, the HUD and effects show the newest frame. `TTA_FRAME_RATE=<n>` sets it for any run.
+"Pause in the background" (off by default; `pause_in_background` in `video.ini`, `PS2X_PAUSE_IN_BACKGROUND=on`) holds
+the game while another window has the focus or this one is minimised.
 
-`scripts/regress.sh` is the visual regression check: thirteen scenes (the boot films and title, the first battle and
+`scripts/regress.sh` is the visual regression check: fourteen scenes (the boot films and title, the first battle and
 the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
 Western Moria, Rohan, Helm's Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 

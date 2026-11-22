@@ -764,6 +764,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   kept in tta.ini in the user folder (widescreen = on / off), read by played games unless --widescreen or
   TTA_WIDESCREEN asked; scripted and TTA_DETERMINISTIC runs do not read it. Checked: tta.ini's on opens a played
   game at 16:9 (1280 x 720, the wider view); the checkbox itself only by hand.
+- **Pause in the background** (2026-11-22, BozoEngine#115, an opt-in video setting). Alt-tabbed or minimised, the
+  game ran on (a battle's turn timer, the music). video.ini pause_in_background (PS2X_PAUSE_IN_BACKGROUND, the Video
+  tab's checkbox): the window's loop sets FramePacer::backgroundHold while it has no input focus or is minimised,
+  and the game thread holds in pacer.frameEnd (host.onFrame); the frame after counts one period, so the game's clock
+  and the real-time step scaling (tta_port.cpp's elapsedTime) see no gap. The sound drains to silence (the game's
+  thread pushes it). Only runs with the video settings (played ones) hold. Checked with a hidden window (never
+  focused) and the setting forced on: held before the first frame; off, the run as before.
 - **Skippable logos** (2026-11-22). The boot's logos (EA, THX, New Line: DATA/MOVIES/LOGO/LOGO.PS2, one movie,
   game frames ~450-2150) ignore START. The movie start 0x20d668 asks 0x20d528(name) for the movie's skip rule: the
   table at 0x36f2d8 ({name, type}: LOGO 0, E1C1IDRI 3; a movie not in it gets 1); 0 clears the movie's skip flag
