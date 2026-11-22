@@ -336,6 +336,11 @@ elsewhere.
 the console's 4:3 view, the HUD, the menus and the movies keeping their shape in the middle, and full-screen effects
 (tints, fades) across the whole width.
 
+**Video settings:** the Video tab of the settings window (F2) sets the window's size, windowed / full screen /
+borderless (F11 or Alt+Enter switch), the 3D's render scale and texture upscaling, saved in
+`%APPDATA%\TLOTR_TTA_Recomp\video.ini`. `--fullscreen` starts borderless full screen. Scripted and `TTA_DETERMINISTIC`
+runs ignore the file, so their captures stay the same.
+
 `scripts/regress.sh` is the visual regression check: thirteen scenes (the boot films and title, the first battle and
 the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
 Western Moria, Rohan, Helm's Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.

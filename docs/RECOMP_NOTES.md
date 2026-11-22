@@ -709,6 +709,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   Tirith and the outpost, by up to 7 levels). The 2D needs nothing: the overlay's textures are always clamped
   (BozoEngine's overlayTexture), and EA Apt's text sets CLAMP_1 to clamp anyway (DS+0x170 = 5; TEX1_1, DS+0x180, = 1:
   nearest, as the 3D's).
+- **The player's video settings** (2026-11-22). A played tta.exe (no pad script, not TTA_DETERMINISTIC) now uses
+  BozoEngine's video settings (WindowOptions::videoSettings, video::loadAtStartup with the port's 960 x 720, or
+  1280 x 720 in widescreen): the Video tab of F2 (size, windowed / full screen / borderless, render scale, texture
+  upscaling, frame rate), F11 / Alt+Enter, saved in %APPDATA%\TLOTR_TTA_Recompideo.ini (the identity's folder; the
+  memory cards stay in TheBozos\The Third Age). --fullscreen asks borderless for the run; TTA_NO_VIDEO_SETTINGS=1 the
+  fixed window. A frame rate above the game's 60 interpolates only keyed draws (Renderer::setKey), which TTA does not
+  key yet: those frames show the newest game frame. Scripted runs keep the fixed window (captures unchanged).
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

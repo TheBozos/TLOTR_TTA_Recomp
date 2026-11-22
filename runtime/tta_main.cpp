@@ -28,6 +28,7 @@
 #include "bozo/app/app.h"
 #include "bozo/app/audio_device.h"
 #include "bozo/app/device_pad.h"
+#include "bozo/app/video_settings.h"
 #include "bozo/app/window.h"
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_hints.h>
@@ -127,6 +128,17 @@ int main(int argc, char **argv)
     {
         windowOptions.aspect = 16.0f / 9.0f;
         windowOptions.width = 1280;
+    }
+    // A played game (not scripted, not TTA_DETERMINISTIC: their captures stay reproducible) takes the player's video
+    // settings: BozoEngine's video.ini in the user folder, edited in the Video tab of the settings window (F2): the
+    // window's size, windowed / full screen / borderless (F11 or Alt+Enter), the render scale, texture upscaling.
+    // --fullscreen asks borderless full screen for this run. TTA_NO_VIDEO_SETTINGS=1: the fixed window as before.
+    if (window && options.padScript.empty() && !std::getenv("TTA_DETERMINISTIC") && !std::getenv("TTA_NO_VIDEO_SETTINGS"))
+    {
+        bozo::app::video::loadAtStartup(windowOptions.width, windowOptions.height);
+        if (windowOptions.fullscreen)
+            bozo::app::video::edited().mode = bozo::app::video::WindowMode::Borderless;
+        windowOptions.videoSettings = true;
     }
 #endif
 
