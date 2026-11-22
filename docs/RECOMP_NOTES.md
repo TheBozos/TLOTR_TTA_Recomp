@@ -773,7 +773,9 @@ the game's behaviour); its code is in the history before `8ade037`.
   (realTimeClock), so the music keeps its pace: a 3x battle1 (TTA_SCRIPTED_SOUND, SDL_AUDIO_DRIVER=dummy,
   TTA_AUDIO_STATS) had no underrun and no dropped frame. Measured (PS2X_FAST_FORWARD_AT=<from>-<to>, PS2X_FRAME_STATS):
   the forest 180 frames a second at 3x, battle1 ~165 (each frame's ~6 ms of work the limit, unlimited too).
-  Deterministic runs are unpaced: the regression scenes are unchanged.
+  Deterministic runs are unpaced: the regression scenes are unchanged. Then BozoEngine#121: fast forward is a binding
+  like a PS2 button (input.ini fast_forward, the Controls tab's last row), ` and every player's touchpad click by
+  default.
 - **Save state pictures** (2026-11-22, BozoEngine#119). A save (F5 or F2's Save states tab) also writes the game's
   picture as states/slotN.png (320 wide); the tab shows it beside the slot, full size under the pointer. Checked with
   PS2X_USER_DIR in a temp folder, PS2X_STATE_SAVE_AT and a capture of the open tab.
