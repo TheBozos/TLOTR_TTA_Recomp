@@ -712,7 +712,7 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **The player's video settings** (2026-11-22). A played tta.exe (no pad script, not TTA_DETERMINISTIC) now uses
   BozoEngine's video settings (WindowOptions::videoSettings, video::loadAtStartup with the port's 960 x 720, or
   1280 x 720 in widescreen): the Video tab of F2 (size, windowed / full screen / borderless, render scale, texture
-  upscaling, frame rate), F11 / Alt+Enter, saved in %APPDATA%\TLOTR_TTA_Recompideo.ini (the identity's folder; the
+  upscaling, frame rate), F11 / Alt+Enter, saved in %APPDATA%\TLOTR_TTA_Recompvideo.ini (the identity's folder; the
   memory cards stay in TheBozos\The Third Age). --fullscreen asks borderless for the run; TTA_NO_VIDEO_SETTINGS=1 the
   fixed window. A frame rate above the game's 60 interpolates only keyed draws (Renderer::setKey), which TTA does not
   key yet: those frames show the newest game frame. Scripted runs keep the fixed window (captures unchanged).
