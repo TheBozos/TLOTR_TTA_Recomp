@@ -767,6 +767,9 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **Volume** (2026-11-22). No volume of its own (the console left it to the TV; BozoEngine's AudioDevice has
   none): the Game tab's slider (tta.ini volume, TTA_VOLUME) scales the mixed frames in host.onAudio before
   AudioDevice::push, by the slider squared (50 % is about -12 dB). Scripted runs make no sound: nothing to compare.
+- **Save state pictures** (2026-11-22, BozoEngine#119). A save (F5 or F2's Save states tab) also writes the game's
+  picture as states/slotN.png (320 wide); the tab shows it beside the slot, full size under the pointer. Checked with
+  PS2X_USER_DIR in a temp folder, PS2X_STATE_SAVE_AT and a capture of the open tab.
 - **Screenshots** (2026-11-22, BozoEngine#118). F12 saves the game's picture (without F2's window or the notices)
   as a compressed PNG (SDL_SavePNG) in the user folder's screenshots, named by date and time; F8 / F9 stay the
   debug captures (uncompressed, the window as shown). PS2X_SCREENSHOT_AT=<s>,... presses it from a script: three in
