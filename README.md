@@ -304,7 +304,7 @@ Controls tab of the settings window.
 
 | Key | |
 |---|---|
-| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Display (widescreen), Controls, Save states, Debug (warps and battles) |
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos), Controls, Save states, Debug (warps and battles) |
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9) |
@@ -371,10 +371,14 @@ need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM
 through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
-**Widescreen:** the Display tab of the settings window (F2), kept for the next game (`tta.ini` in the same folder as
+**Widescreen:** the Game tab of the settings window (F2), kept for the next game (`tta.ini` in the same folder as
 `video.ini`), or `tta.exe --widescreen` (or `TTA_WIDESCREEN=1`) for one run, shows a 16:9 picture: the 3D scene a third wider than
 the console's 4:3 view, the HUD, the menus and the movies keeping their shape in the middle, and full-screen effects
 (tints, fades) across the whole width.
+
+**Skippable logos:** the EA, THX and New Line logos at boot (one movie, about 28 seconds) cannot be skipped on
+the console; the Game tab's "Skippable logos" (kept in `tta.ini`, or `TTA_SKIP_LOGOS=1` for one run) lets START end
+them, as the developers' own option `skipallmovies` did.
 
 **Video settings:** the Video tab of the settings window (F2) sets the window's size, windowed / full screen /
 borderless (F11 or Alt+Enter switch), the 3D's render scale, texture upscaling, texture smoothing (off as the console,

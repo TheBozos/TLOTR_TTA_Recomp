@@ -56,6 +56,10 @@ namespace tta
     // the frame's clear) keep the whole width. Set before the game runs (tta_main.cpp).
     void setWidescreen(bool on);
     bool widescreen();
+    // The opening logos (EA, THX, New Line: one movie, unskippable on the console) ended by START, as the developers'
+    // option skipallmovies does (tta_port.cpp, 0x20d528). Read by the game thread at each movie's start.
+    void setSkippableLogos(bool on);
+    bool skippableLogos();
     constexpr float kWideSqueeze = 0.75f;
     inline float wideX(float x) { return widescreen() ? 2048.0f + (x - 2048.0f) * kWideSqueeze : x; }
     // The 3D draws queued so far (their vertex work run on the draw workers) given to the renderer in order (tta_3d.cpp).

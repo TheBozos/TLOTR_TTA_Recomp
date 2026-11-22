@@ -758,12 +758,20 @@ the game's behaviour); its code is in the history before `8ade037`.
   samples levels generated from each texture for draws without levels of their own, with anisotropic filtering past
   1. Rohan's battle 1172 at 16590, the far ground band's edge energy: 27.8 off, 9.3 trilinear (blurred), 15.1 at 16x
   (detail kept, the grain gone); the grass cut-outs keep their shape. Off by default: captures unchanged.
-- **Widescreen in the settings window** (2026-11-22). A Display tab in F2 (tta_main.cpp, BOZO_SETTINGS_UI) turns
+- **Widescreen in the settings window** (2026-11-22). A Display tab (now Game) in F2 (tta_main.cpp, BOZO_SETTINGS_UI) turns
   widescreen on and off live: tta::widescreen is now atomic (set on the window thread, read by the game and draw
   threads) and the window presents with the WindowOptions::aspect the tab sets (read each present). The choice is
   kept in tta.ini in the user folder (widescreen = on / off), read by played games unless --widescreen or
   TTA_WIDESCREEN asked; scripted and TTA_DETERMINISTIC runs do not read it. Checked: tta.ini's on opens a played
   game at 16:9 (1280 x 720, the wider view); the checkbox itself only by hand.
+- **Skippable logos** (2026-11-22). The boot's logos (EA, THX, New Line: DATA/MOVIES/LOGO/LOGO.PS2, one movie,
+  game frames ~450-2150) ignore START. The movie start 0x20d668 asks 0x20d528(name) for the movie's skip rule: the
+  table at 0x36f2d8 ({name, type}: LOGO 0, E1C1IDRI 3; a movie not in it gets 1); 0 clears the movie's skip flag
+  (+0x146a), 1 and 3 keep it, 2 keeps it once the movie was seen (+0x1460). A type other than 3 becomes 1 when the
+  developers' option "skipallmovies" is set (0x1a0758, the argv table: `--game-option skipallmovies=1` works). The
+  player's setting (the F2 Game tab's "Skippable logos", tta.ini skip_logos, TTA_SKIP_LOGOS=1) overrides 0x20d528
+  to turn a 0 into a 1 (tta_port.cpp). Checked: START at game frame 550 shows the title menu by 700 (the logos play
+  to ~2150 without it); off by default, captures unchanged.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

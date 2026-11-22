@@ -151,6 +151,21 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // A movie's skip rule, 0x20d528(name) from the movie start 0x20d668: the table at 0x36f2d8 gives "LOGO" (the EA,
+        // THX and New Line reel, one movie) type 0 and "E1C1IDRI" (the opening film) type 3; a movie not in it gives 1.
+        // 0 leaves the movie unskippable (0x20d668 clears its skip flag, +0x146a), 1 and 3 let START end it, 2 only
+        // once seen. The developers' option "skipallmovies" turns a 0 into a 1; the player's setting does the same.
+        std::atomic<bool> g_skippableLogos{false};
+
+        void movieSkipRule(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0];
+            func_0x20d528(rdram, ctx, rt);
+            if (g_skippableLogos && ctx->r[2].uw[0] == 0)
+                ctx->r[2].ud[0] = 1;
+            ctx->pc = ra;
+        }
+
         void resetVu1State(uint8_t *rdram, R5900Context *ctx, Runtime *)
         {
             const uint32_t base = read32(rdram, 0x3779b4);
@@ -163,6 +178,8 @@ namespace tta
     bool realTime() { return g_realTime; }
     void setWidescreen(bool on) { g_widescreen = on; }
     bool widescreen() { return g_widescreen; }
+    void setSkippableLogos(bool on) { g_skippableLogos = on; }
+    bool skippableLogos() { return g_skippableLogos; }
 
     void install(Runtime &, bozo::port::Registry &registry)
     {
@@ -176,6 +193,7 @@ namespace tta
         registry.registerFunction(0x21b348, resetVu1State);
         registry.registerFunction(0x277b58, ipuInit);
         registry.registerFunction(0x320428, newlibRand);
+        registry.registerFunction(0x20d528, movieSkipRule);
         registry.registerFunction(0x1dd4f8, elapsedTime); // held to the host's time in real time; TTA_TIME_TRACE
         if (std::getenv("TTA_RNG_TRACE"))
             registry.registerFunction(0x1ba9c8, rngTrace);

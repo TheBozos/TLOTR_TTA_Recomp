@@ -123,24 +123,46 @@ int main(int argc, char **argv)
     }
     if (const char *profile = std::getenv("TTA_HOST_PROFILE"); profile && *profile)
         tta::startHostProfile(profile);
+    // TTA_SKIP_LOGOS=1: the opening logos skippable in any run (the Game tab's setting, read from tta.ini when played).
+    if (const char *logos = std::getenv("TTA_SKIP_LOGOS"); logos && *logos && *logos != '0')
+        tta::setSkippableLogos(true);
 #ifdef TTA_WITH_WINDOW
     // Widescreen (tta_port.h): a 16:9 picture, the game's 4:3 view a third wider; the window build only.
     if (const char *wide = std::getenv("TTA_WIDESCREEN"); wide && *wide && *wide != '0')
         tta::setWidescreen(true);
     if (!window)
         tta::setWidescreen(false);
-    // A played game takes the player's choice from tta.ini in the user folder (the F2 window's Display tab writes it),
-    // unless --widescreen or TTA_WIDESCREEN asked already. Scripted and TTA_DETERMINISTIC runs do not read it.
+    // A played game takes the player's choices from tta.ini in the user folder (the F2 window's Game tab writes it):
+    // widescreen (unless --widescreen or TTA_WIDESCREEN asked already) and the skippable logos. Scripted and
+    // TTA_DETERMINISTIC runs do not read it.
     const std::filesystem::path portSettings = bozo::app::userDirectory() / "tta.ini";
     const bool played = window && options.padScript.empty() && !std::getenv("TTA_DETERMINISTIC");
-    if (played && !tta::widescreen() && !std::getenv("TTA_WIDESCREEN"))
+    if (played)
     {
         std::ifstream file(portSettings);
         std::string line;
+        const auto on = [&line](const char *key)
+        { return line.rfind(key, 0) == 0 && line.find("on", std::strlen(key)) != std::string::npos; };
         while (std::getline(file, line))
-            if (line.rfind("widescreen", 0) == 0 && line.find("on") != std::string::npos)
+        {
+            if (on("widescreen") && !std::getenv("TTA_WIDESCREEN"))
                 tta::setWidescreen(true);
+            if (on("skip_logos"))
+                tta::setSkippableLogos(true);
+        }
     }
+    [[maybe_unused]] const auto savePortSettings = [portSettings, played]
+    {
+        if (!played)
+            return;
+        std::ofstream file(portSettings, std::ios::trunc);
+        file << "# The Third Age's own settings (the F2 window's Game tab writes this file).\n"
+                "# widescreen: on (16:9, the 3D a third wider) or off (4:3, as the console; --widescreen and "
+                "TTA_WIDESCREEN=1 also turn it on).\n"
+                "# skip_logos: on (START ends the EA, THX and New Line logos at boot) or off (as the console).\n"
+             << "widescreen = " << (tta::widescreen() ? "on" : "off") << "\n"
+             << "skip_logos = " << (tta::skippableLogos() ? "on" : "off") << "\n";
+    };
     if (tta::widescreen())
     {
         windowOptions.aspect = 16.0f / 9.0f;
@@ -167,27 +189,29 @@ int main(int argc, char **argv)
             bozo::render::Renderer::instance().setFrameRate(parsed);
     }
 #ifdef BOZO_SETTINGS_UI
-    // The F2 window's Display tab: widescreen, live (the window thread presents with the aspect it sets; the draws read
-    // tta::widescreen each frame) and kept in tta.ini for the next played game.
-    bozo::app::ui::registerTab("Display",
-                               [&windowOptions, portSettings, played]
+    // The F2 window's Game tab, kept in tta.ini for the next played game. Widescreen, live (the window thread presents
+    // with the aspect it sets; the draws read tta::widescreen each frame); the skippable logos (read at a movie's start).
+    bozo::app::ui::registerTab("Game",
+                               [&windowOptions, savePortSettings]
                                {
                                    bool wide = tta::widescreen();
                                    if (ImGui::Checkbox("Widescreen (16:9)", &wide))
                                    {
                                        tta::setWidescreen(wide);
                                        windowOptions.aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
-                                       if (played)
-                                       {
-                                           std::ofstream file(portSettings, std::ios::trunc);
-                                           file << "# The Third Age's own settings (the F2 window's Display tab writes this "
-                                                   "file).\n# widescreen: on (16:9, the 3D a third wider) or off (4:3, as the "
-                                                   "console; --widescreen and TTA_WIDESCREEN=1 also turn it on).\n"
-                                                << "widescreen = " << (wide ? "on" : "off") << "\n";
-                                       }
+                                       savePortSettings();
                                    }
                                    ImGui::TextDisabled("The 3D a third wider than the console's view; the HUD, menus and");
                                    ImGui::TextDisabled("movies keep their shape in the middle. Applies at once.");
+                                   ImGui::Spacing();
+                                   bool logos = tta::skippableLogos();
+                                   if (ImGui::Checkbox("Skippable logos", &logos))
+                                   {
+                                       tta::setSkippableLogos(logos);
+                                       savePortSettings();
+                                   }
+                                   ImGui::TextDisabled("START ends the EA, THX and New Line logos at boot (unskippable on");
+                                   ImGui::TextDisabled("the console). From the next start.");
                                });
 #endif
     // PS2X_TEXTURE_SMOOTHING (off, trilinear, 2x .. 16x) for the runs without the video settings too (scripted ones).
