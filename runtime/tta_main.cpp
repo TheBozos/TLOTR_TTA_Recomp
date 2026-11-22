@@ -34,6 +34,11 @@
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_messagebox.h>
+#include <fstream>
+#ifdef BOZO_SETTINGS_UI
+#include "bozo/app/settings_tabs.h"
+#include <imgui.h>
+#endif
 #endif
 
 int main(int argc, char **argv)
@@ -124,6 +129,18 @@ int main(int argc, char **argv)
         tta::setWidescreen(true);
     if (!window)
         tta::setWidescreen(false);
+    // A played game takes the player's choice from tta.ini in the user folder (the F2 window's Display tab writes it),
+    // unless --widescreen or TTA_WIDESCREEN asked already. Scripted and TTA_DETERMINISTIC runs do not read it.
+    const std::filesystem::path portSettings = bozo::app::userDirectory() / "tta.ini";
+    const bool played = window && options.padScript.empty() && !std::getenv("TTA_DETERMINISTIC");
+    if (played && !tta::widescreen() && !std::getenv("TTA_WIDESCREEN"))
+    {
+        std::ifstream file(portSettings);
+        std::string line;
+        while (std::getline(file, line))
+            if (line.rfind("widescreen", 0) == 0 && line.find("on") != std::string::npos)
+                tta::setWidescreen(true);
+    }
     if (tta::widescreen())
     {
         windowOptions.aspect = 16.0f / 9.0f;
@@ -149,6 +166,30 @@ int main(int argc, char **argv)
         if (bozo::app::video::parseFrameRate(rate, parsed))
             bozo::render::Renderer::instance().setFrameRate(parsed);
     }
+#ifdef BOZO_SETTINGS_UI
+    // The F2 window's Display tab: widescreen, live (the window thread presents with the aspect it sets; the draws read
+    // tta::widescreen each frame) and kept in tta.ini for the next played game.
+    bozo::app::ui::registerTab("Display",
+                               [&windowOptions, portSettings, played]
+                               {
+                                   bool wide = tta::widescreen();
+                                   if (ImGui::Checkbox("Widescreen (16:9)", &wide))
+                                   {
+                                       tta::setWidescreen(wide);
+                                       windowOptions.aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+                                       if (played)
+                                       {
+                                           std::ofstream file(portSettings, std::ios::trunc);
+                                           file << "# The Third Age's own settings (the F2 window's Display tab writes this "
+                                                   "file).\n# widescreen: on (16:9, the 3D a third wider) or off (4:3, as the "
+                                                   "console; --widescreen and TTA_WIDESCREEN=1 also turn it on).\n"
+                                                << "widescreen = " << (wide ? "on" : "off") << "\n";
+                                       }
+                                   }
+                                   ImGui::TextDisabled("The 3D a third wider than the console's view; the HUD, menus and");
+                                   ImGui::TextDisabled("movies keep their shape in the middle. Applies at once.");
+                               });
+#endif
     // PS2X_TEXTURE_SMOOTHING (off, trilinear, 2x .. 16x) for the runs without the video settings too (scripted ones).
     if (const char *smoothing = std::getenv("PS2X_TEXTURE_SMOOTHING"); smoothing && *smoothing && window && !windowOptions.videoSettings)
     {

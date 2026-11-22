@@ -5,6 +5,7 @@
 #include "tta_functions.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -87,7 +88,7 @@ namespace tta
         // deterministic runs keep the console's count. 0x1c4240 itself is called directly (not overridable); 0x1dd4f8
         // only through the table (33 callers).
         bool g_realTime = false;
-        bool g_widescreen = false;
+        std::atomic<bool> g_widescreen{false}; // set by the window thread (the Display tab), read by the game and draw threads
         float g_timeFactor = 1.0f;
         uint32_t g_timeFrame = ~0u;
 

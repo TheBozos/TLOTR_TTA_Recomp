@@ -758,6 +758,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   samples levels generated from each texture for draws without levels of their own, with anisotropic filtering past
   1. Rohan's battle 1172 at 16590, the far ground band's edge energy: 27.8 off, 9.3 trilinear (blurred), 15.1 at 16x
   (detail kept, the grain gone); the grass cut-outs keep their shape. Off by default: captures unchanged.
+- **Widescreen in the settings window** (2026-11-22). A Display tab in F2 (tta_main.cpp, BOZO_SETTINGS_UI) turns
+  widescreen on and off live: tta::widescreen is now atomic (set on the window thread, read by the game and draw
+  threads) and the window presents with the WindowOptions::aspect the tab sets (read each present). The choice is
+  kept in tta.ini in the user folder (widescreen = on / off), read by played games unless --widescreen or
+  TTA_WIDESCREEN asked; scripted and TTA_DETERMINISTIC runs do not read it. Checked: tta.ini's on opens a played
+  game at 16:9 (1280 x 720, the wider view); the checkbox itself only by hand.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

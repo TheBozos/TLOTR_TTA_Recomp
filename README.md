@@ -340,7 +340,8 @@ need no DLL beyond Windows' own, and `tta.exe` starts from Explorer. `TTA_SYSTEM
 through pkg-config instead (on Windows its DLLs are then copied next to the executables). Its saves (the two memory cards) live in `%APPDATA%\TheBozos\The Third Age\cards`; `--card-dir DIR` puts them
 elsewhere.
 
-**Widescreen:** `tta.exe --widescreen` (or `TTA_WIDESCREEN=1`) shows a 16:9 picture: the 3D scene a third wider than
+**Widescreen:** the Display tab of the settings window (F2), kept for the next game (`tta.ini` in the same folder as
+`video.ini`), or `tta.exe --widescreen` (or `TTA_WIDESCREEN=1`) for one run, shows a 16:9 picture: the 3D scene a third wider than
 the console's 4:3 view, the HUD, the menus and the movies keeping their shape in the middle, and full-screen effects
 (tints, fades) across the whole width.
 
