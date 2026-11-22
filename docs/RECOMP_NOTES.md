@@ -725,6 +725,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   frames between. Unkeyed (the 2D, the screen filters, shadows, glows, rings) shows the newest frame. At 120 (the
   first battle, a sequence of the window: PS2X_CAPTURE_SEQUENCE / _AT): 120 presents a second, ~2030 of ~2045 keyed
   batches interpolated, the attack camera's pictures in between consistent. Captures at 60 unchanged.
+  Then the rest of the 3D: the shadow volumes keyed by their character object (QueuedShadow::key), the lens flare's
+  world-space strips by their list and layer, the mist banks by their geometry; the glows, projected on the CPU
+  (identity matrix), are tracked instead (Renderer::drawTracked, Deferred::ids): each particle's two triangles by
+  the system, its block's place among the glow's blocks and its slot, so the engine moves their corners between the
+  frames (a newborn particle in a reused slot slides for half a frame; jumps over 30% of the width are not drawn
+  between). With widescreen the tracked vertices take the squeeze themselves (drawTracked has no matrix). In the
+  first battle at 120: 376 of 378 tracked triangles moved, ~2038 of 2050 keyed batches. Captures unchanged. Left
+  unkeyed: the 2D overlay (the HUD; the effects' strips through 0x218910) and the screen filters.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

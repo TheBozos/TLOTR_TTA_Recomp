@@ -469,6 +469,9 @@ namespace tta
             // The object it belongs to, stable from one game frame to the next (Renderer::setKey: a window frame rate
             // above the game's draws it between its two frames' matrices); 0 none (drawn as the newest frame has it).
             uint64_t key = 0, base = 0; // base: what alike instances share (Renderer::setKey's)
+            // Screen-space triangles tracked from one game frame to the next (Renderer::drawTracked): one id per
+            // triangle (0: none); empty for an ordinary draw.
+            std::vector<uint64_t> ids;
         };
 
         // A skinned draw's inputs, copied out of RAM when it is recorded: the bones it uses, W, the lighting, the fade.
@@ -650,6 +653,7 @@ namespace tta
                 d.copyFrom = -1;
                 d.key = m_key;
                 d.base = m_base;
+                d.ids.clear();
                 m_jobs += job ? 1 : 0;
                 return d;
             }
@@ -660,6 +664,7 @@ namespace tta
                 m_base = base;
             }
             long index(const Deferred &d) const { return static_cast<long>(&d - m_entries.data()); }
+            Deferred &lastEntry() { return m_entries[m_count - 1]; }
 
             // A skinned draw's inputs, kept until the flush (by index: the pool grows).
             size_t pushSkinInputs()
@@ -691,7 +696,22 @@ namespace tta
                     {
                         if (d.key != lastKey)
                             renderer.setKey(lastKey = d.key, d.base);
-                        renderer.draw(d.material, d.matrix, vertices.data(), static_cast<uint32_t>(vertices.size()), d.texture);
+                        if (!d.ids.empty() && d.ids.size() * 3 == vertices.size())
+                        {
+                            // Tracked draws are in screen space (no matrix): widescreen's squeeze on the vertices.
+                            const bozo::render::Vertex *v = vertices.data();
+                            static std::vector<bozo::render::Vertex> wide;
+                            if (widescreen())
+                            {
+                                wide.assign(vertices.begin(), vertices.end());
+                                for (auto &q : wide)
+                                    q.x = wideX(q.x);
+                                v = wide.data();
+                            }
+                            renderer.drawTracked(d.material, v, static_cast<uint32_t>(vertices.size()), d.texture, d.ids.data());
+                        }
+                        else
+                            renderer.draw(d.material, d.matrix, vertices.data(), static_cast<uint32_t>(vertices.size()), d.texture);
                     }
                     d.texture.reset();
                 }
@@ -1322,6 +1342,7 @@ namespace tta
             float matrix[16];
             std::vector<bozo::render::Vertex> up, down;
             uint32_t strength = 0;
+            uint64_t key = 0; // the character's volume (frames between the game's)
         };
         std::vector<QueuedShadow> g_shadowQueue; // this frame's volumes, drawn at the shadow layer (flushShadows)
         uint32_t g_shadowQueueFrame = 0;
@@ -2311,6 +2332,7 @@ namespace tta
             q.up = up;
             q.down = down;
             q.strength = strength;
+            q.key = instanceKey(rdram, (3ull << 40) ^ (static_cast<uint64_t>(g) * 0x9e3779b97f4a7c15ull));
             if (env("TTA_SHADOW_IMMEDIATE"))
                 flushShadows(rdram);
         }
@@ -2379,6 +2401,7 @@ namespace tta
             volume.stencilDepthFail = zFail;
             for (const QueuedShadow &q : g_shadowQueue)
             {
+                drawQueue().setKey(q.key);
                 volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
                 if (!q.up.empty())
                     queueDraw(volume, q.matrix, q.up.data(), static_cast<uint32_t>(q.up.size()));
@@ -2386,6 +2409,7 @@ namespace tta
                 if (!q.down.empty() && !env("TTA_SHADOW_UP_ONLY"))
                     queueDraw(volume, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
             }
+            drawQueue().setKey(0);
             bozo::render::Material darken;
             darken.textured = false;
             darken.blend = bozo::render::Material::Blend::Alpha;
@@ -2599,7 +2623,9 @@ namespace tta
             material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
             material.depthTest = ((test >> 16) & 1u) && ((test >> 17) & 3u) >= 2u;
             material.depthWrite = ((zbuf >> 32) & 1u) == 0;
+            drawQueue().setKey(instanceKey(rdram, (4ull << 40) | (static_cast<uint64_t>(layer) << 32) | list)); // world-space strips
             queueDraw(material, screen, triangles.data(), static_cast<uint32_t>(triangles.size()));
+            drawQueue().setKey(0);
             if (probe)
             {
                 double sum = 0;
@@ -2683,9 +2709,13 @@ namespace tta
                             static_cast<unsigned long long>(record ? read64(rdram, record) : 0), record ? read16(rdram, record + 0x10) : 0u,
                             static_cast<unsigned long long>(tex0 & 0x3fffu), texture ? "texture" : "none");
             static std::vector<bozo::render::Vertex> triangles;
+            static std::vector<uint64_t> ids; // per triangle: the system, the block's place among its blocks, the slot
             triangles.clear();
+            ids.clear();
+            uint64_t blockOrdinal = 0;
             for (const uint32_t block : g_glowBlocks)
             {
+                ++blockOrdinal;
                 const int first = static_cast<int8_t>(rdram[(block + 4) & kMask]), end = static_cast<int8_t>(rdram[(block + 5) & kMask]);
                 for (int i = std::max(first, 0); i < std::min(end, 16); ++i)
                 {
@@ -2777,6 +2807,9 @@ namespace tta
                     if (!inside)
                         continue;
                     triangles.insert(triangles.end(), {corner[0], corner[1], corner[2], corner[1], corner[3], corner[2]});
+                    const uint64_t particle = (static_cast<uint64_t>(s) * 0x9e3779b97f4a7c15ull) ^ (blockOrdinal << 12) ^
+                                              (static_cast<uint64_t>(i) << 4);
+                    ids.insert(ids.end(), {particle | 1u, particle | 2u});
                     ++g_glowParticles;
                 }
             }
@@ -2806,6 +2839,9 @@ namespace tta
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             queueDraw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);
+            // Frames between the game's: each particle's two triangles tracked (drawTracked moves their corners).
+            if (ids.size() * 3 == triangles.size())
+                drawQueue().lastEntry().ids = ids;
             if (reporting(rdram))
             {
                 double rgb[4] = {};
@@ -3255,8 +3291,12 @@ namespace tta
             }
             clipToDepthRange(triangles, matrix);
             if (!triangles.empty())
+            {
+                drawQueue().setKey(instanceKey(rdram, (5ull << 40) | geometry)); // the bank's geometry (frames between)
                 queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()),
-                                                        material.textured ? texture : nullptr);
+                          material.textured ? texture : nullptr);
+                drawQueue().setKey(0);
+            }
             if (traceLevel() >= 2)
             {
                 static uint32_t last = 0;
