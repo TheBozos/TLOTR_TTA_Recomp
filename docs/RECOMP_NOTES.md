@@ -733,6 +733,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   between). With widescreen the tracked vertices take the squeeze themselves (drawTracked has no matrix). In the
   first battle at 120: 376 of 378 tracked triangles moved, ~2038 of 2050 keyed batches. Captures unchanged. Left
   unkeyed: the 2D overlay (the HUD; the effects' strips through 0x218910) and the screen filters.
+- **The effects' strips in the 3D scene** (2026-11-22). The immediate primitive 0x218910 put everything that was
+  neither into nor from a target in the overlay, composited over the finished frame without depth: the HUD, and also
+  the effects' strips (Visual Object 0x23c114 / 0x23c1b0 / 0x23c1d8: the sword slash; the Particle System's mode-4
+  strips 0x231d44). Told apart by the game's own TEST_1: the HUD draws with Z ALWAYS (0x3080a, 0x3001b), the effects
+  with the scene's GEQUAL (0x5000a, 0x5080a). A depth-tested primitive now goes into the 3D frame at its projected Z
+  (the matrix's z / w), ZBUF_1's ZMSK for its Z writes, squeezed in widescreen; EA Apt (0x2c0000 .. 0x310000), seen
+  with 0x5080a still set in a battle, stays the overlay. TTA_EFFECTS_IN_OVERLAY=1 for the old way. The first battle's
+  slash (host 6047-6050) now takes the screen filters' glow, as on the console (they run after it in the chain):
+  brighter, a soft cyan wash. The 0x231d44 strips use matrix mode 1 (RC+0x60, view -> screen) with view-space input
+  at z = 0 (w = 0): degenerate, off the screen either way, and nothing on the console can show them either.
+  scripts/regress.sh's battle1 now also captures 6048; the pause scene moved by a few pixels.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

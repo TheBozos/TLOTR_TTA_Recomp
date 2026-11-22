@@ -622,6 +622,16 @@ namespace tta
             const bool alphaOnly = ((frameReg >> 32) & 0xffffffu) == 0xffffffu;
 
             std::vector<bozo::render::Vertex> points(n);
+            // A depth-tested primitive (TEST_1: ZTE with ZTST GEQUAL / GREATER) is part of the 3D scene: the effects'
+            // strips (sword trails 0x23b988, light beams 0x236218, the particles' 0x2311f8 ..), sent with the scene's
+            // TEST 0x5000a / 0x5080a; EA Apt's HUD and menus draw with Z ALWAYS (0x3080a, 0x3001b). Those go into the
+            // 3D frame, depth-tested at their projected Z, instead of the overlay (over everything, past the screen
+            // filters). EA Apt (its code at 0x2c0000 .. 0x310000: 0x2ca698, 0x2ca3ec, 0x305330) sometimes draws with the
+            // scene's TEST still set (0x5080a in a battle), its Z no depth of the scene: it stays the overlay.
+            // TTA_EFFECTS_IN_OVERLAY=1 for the old way.
+            const uint32_t zTest = (test >> 17) & 3u;
+            const bool apt = ra >= 0x2c0000u && ra < 0x310000u;
+            const bool sceneEffect = ((test >> 16) & 1u) && zTest >= 2u && !apt && !env("TTA_EFFECTS_IN_OVERLAY");
             for (uint32_t i = 0; i < n; ++i)
             {
                 const uint32_t a = xyz + i * 16;
@@ -636,7 +646,7 @@ namespace tta
                 bozo::render::Vertex &out = points[i];
                 out.x = r[0];
                 out.y = r[1];
-                out.z = 0.0f;
+                out.z = sceneEffect ? r[2] : 0.0f; // GS Z (the projection's z / w)
                 if (st)
                 {
                     out.u = readFloat(rdram, st + i * 16);
@@ -935,6 +945,26 @@ namespace tta
                                 static_cast<unsigned long long>(tex0),
                                 points[0].rgba, x0, y0, x1, y1, u0, v0, u1, v1);
                 }
+                return count(rdram, true);
+            }
+            if (sceneEffect)
+            {
+                material.depthTest = true;
+                material.depthGreater = zTest == 3u;
+                material.depthWrite = ((read64(rdram, ds + 0x120) >> 32) & 1u) == 0; // ZBUF_1.ZMSK
+                material.frameWidth = 512u;
+                material.frameHeight = 448u;
+                if (widescreen())
+                    for (auto &q : triangles)
+                        q.x = wideX(q.x);
+                static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(),
+                                                                       static_cast<uint32_t>(triangles.size()), picture);
+                if (traceLevel() >= 2)
+                    std::printf("[tta:2d] frame %u: scene effect from %x: %zu triangles, TEST %llx, first at %.0f,%.0f Z %.0f "
+                                "rgba %08x, matrix mode %u\n",
+                                frame(rdram), ra, triangles.size() / 3, static_cast<unsigned long long>(test), triangles[0].x,
+                                triangles[0].y, triangles[0].z, triangles[0].rgba, rdram[(p + 0x90) & kMask]);
                 return count(rdram, true);
             }
             // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):

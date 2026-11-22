@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-22.** Berethor's sword slash in the first battle, now drawn in the 3D scene: depth-tested at its place and
+taken by the screen filters' glow, as the console sends it, where it used to lie flat over the finished picture with
+the HUD.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-22-bozo-sword-slash.png" width="400" alt="Berethor's sword slash, a bright blue streak across the screen, beside a Nazgul in the first battle on BozoEngine">
+</p>
+
 **2026-11-21.** Widescreen (`--widescreen`): the forest after the first battle at 16:9, the trees and the path a
 third wider on each side than the console shows, the minimap keeping its shape. The game's own matrices are squeezed
 after their projection, so nothing of the game is patched; the game draws what lies just outside its 4:3 view.

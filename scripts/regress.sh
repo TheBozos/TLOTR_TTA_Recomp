@@ -21,7 +21,7 @@ NONE="--pad-script $PADS/pad_none.txt" # scripted: the window hidden, no sound
 
 # name | arguments | frames
 SCENES=(
-    "battle1|--load-state $STATES/battle1_5800.state --pad-script $PADS/pad_attack.txt|5900 6300 6800"
+    "battle1|--load-state $STATES/battle1_5800.state --pad-script $PADS/pad_attack.txt|5900 6048 6300 6800"
     "outpost|--load-state $STATES/outpost_3900.state --pad-script $PADS/pad_outpost.txt|4500 5451"
     "forest|$FOREST $NONE|14940 14971"
     "rohan|$FOREST --warp Rohan@15000 --encounter 1172@16200 --pad-script $PADS/pad_warp_battle.txt|16590 16750"
