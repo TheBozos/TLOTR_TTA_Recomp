@@ -767,6 +767,13 @@ the game's behaviour); its code is in the history before `8ade037`.
 - **Volume** (2026-11-22). No volume of its own (the console left it to the TV; BozoEngine's AudioDevice has
   none): the Game tab's slider (tta.ini volume, TTA_VOLUME) scales the mixed frames in host.onAudio before
   AudioDevice::push, by the slider squared (50 % is about -12 dB). Scripted runs make no sound: nothing to compare.
+- **Fast forward** (2026-11-22, BozoEngine#120). Holding ` (the key left of 1) runs the game at the Video tab's
+  speed (2x, 3x, 4x or unlimited; video.ini fast_forward, PS2X_FAST_FORWARD, 3x by default): the frame pacer holds
+  the frames to 60 times the speed, ">> 3x" shows at the top left. The sound driver's IOP clock follows the PC's
+  (realTimeClock), so the music keeps its pace: a 3x battle1 (TTA_SCRIPTED_SOUND, SDL_AUDIO_DRIVER=dummy,
+  TTA_AUDIO_STATS) had no underrun and no dropped frame. Measured (PS2X_FAST_FORWARD_AT=<from>-<to>, PS2X_FRAME_STATS):
+  the forest 180 frames a second at 3x, battle1 ~165 (each frame's ~6 ms of work the limit, unlimited too).
+  Deterministic runs are unpaced: the regression scenes are unchanged.
 - **Save state pictures** (2026-11-22, BozoEngine#119). A save (F5 or F2's Save states tab) also writes the game's
   picture as states/slotN.png (320 wide); the tab shows it beside the slot, full size under the pointer. Checked with
   PS2X_USER_DIR in a temp folder, PS2X_STATE_SAVE_AT and a capture of the open tab.
