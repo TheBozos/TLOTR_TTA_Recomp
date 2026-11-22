@@ -744,6 +744,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   brighter, a soft cyan wash. The 0x231d44 strips use matrix mode 1 (RC+0x60, view -> screen) with view-space input
   at z = 0 (w = 0): degenerate, off the screen either way, and nothing on the console can show them either.
   scripts/regress.sh's battle1 now also captures 6048; the pause scene moved by a few pixels.
+  What still reaches the overlay in Rohan's battle 1172 (TTA_2D_TRACE=8, every primitive with its TEST): EA Apt, the
+  screen filters' sprites (0x1c..., 0x1d..., Z ALWAYS: into targets or from the frame, or full-screen fills), the
+  frame's clear (0x211de4) and the attack cameras' bars; no effect. LightBeam (0x237368, TEST 0x5080a, 1683 strips
+  of 7 vertices around game frames 16330-16372: the blue-purple wash of an attack) now draws in the scene; many of
+  its corners lie behind the camera (w <= 0) and project to huge coordinates (x down to -2e8), drawn as triangles
+  across the screen as before. Whether the console's GS shows those (wrapped 12.4 coordinates) or the game's code
+  drops them is not known without a console reference; left as is.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's
