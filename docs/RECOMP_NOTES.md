@@ -785,7 +785,8 @@ the game's behaviour); its code is in the history before `8ade037`.
   developers' option "skipallmovies" is set (0x1a0758, the argv table: `--game-option skipallmovies=1` works). The
   player's setting (the F2 Game tab's "Skippable logos", tta.ini skip_logos, TTA_SKIP_LOGOS=1) overrides 0x20d528
   to turn a 0 into a 1 (tta_port.cpp). Checked: START at game frame 550 shows the title menu by 700 (the logos play
-  to ~2150 without it); off by default, captures unchanged.
+  to ~2150 without it); off by default, captures unchanged. `--skip-logos` sets it for one run; regress.sh's
+  `logos` scene (tools/pads/pad_logo_skip.txt: START at 550) captures the EA logo at 540 and the title menu at 700.
 - **Shadow volumes swept as on the console** (2026-11-20). Set 5's microcode (the overlay at 0x355780, read with a
   throw-away VU disassembler) answers the open extrusion: each vertex is stored twice, S v (object space; S = the
   blended bones, VU rows 4-7 set to identity by the set-up at 0x40) and C S v (clip, C = VU rows 0-3); the silhouette's

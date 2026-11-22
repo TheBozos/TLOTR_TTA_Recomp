@@ -394,7 +394,7 @@ their two frames' places, the HUD and effects show the newest frame. `TTA_FRAME_
 "Pause in the background" (off by default; `pause_in_background` in `video.ini`, `PS2X_PAUSE_IN_BACKGROUND=on`) holds
 the game while another window has the focus or this one is minimised.
 
-`scripts/regress.sh` is the visual regression check: fourteen scenes (the boot films and title, the first battle and
+`scripts/regress.sh` is the visual regression check: fifteen scenes (the boot films and title, the logos skipped with START, the first battle and
 the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
 Western Moria, Rohan, Helm's Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 

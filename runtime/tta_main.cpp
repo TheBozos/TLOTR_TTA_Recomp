@@ -118,11 +118,13 @@ int main(int argc, char **argv)
         else if (a == "--widescreen")
             tta::setWidescreen(true);
 #endif
+        else if (a == "--skip-logos")
+            tta::setSkippableLogos(true);
         else
         {
             std::fprintf(stderr, "Usage: tta [--frames N] [--headless] [--elf FILE] [--iso FILE] [--symbols FILE]\n"
                                  "           [--card-dir DIR] [--pad-script FILE] [--capture-dir DIR] [--capture-frame N]\n"
-                                 "           [--fullscreen] [--widescreen] [--dump-ram FILE]\n"
+                                 "           [--fullscreen] [--widescreen] [--skip-logos] [--dump-ram FILE]\n"
                                  "           [--load-state FILE [--load-state-at FRAME]] [--save-state FILE --save-state-at FRAME]\n"
                                  "           [--warp MAP[@FRAME]] [--encounter ID[@FRAME]] [--group ID[@FRAME]] [--game-option NAME[=VALUE]]\n");
             return a == "--help" ? 0 : 2;
