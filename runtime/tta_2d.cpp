@@ -698,6 +698,19 @@ namespace tta
             }
             if (fullScreenMask)
                 g_mask.clear();
+            // 0x1c1d34 clears the frame's alpha before each highlight (tta_port.h, kHighlightMask): the mask image too.
+            if (fullScreenMask && ra == 0x1c1d34u && highlightMaskWanted())
+            {
+                bozo::render::Material clear = highlightMaskMaterial(bozo::render::Material{});
+                clear.depthTest = false;
+                const bozo::render::Vertex corner[4] = {{1792.0f, 1824.0f, 0.0f}, {2304.0f, 1824.0f, 0.0f},
+                                                        {1792.0f, 2272.0f, 0.0f}, {2304.0f, 2272.0f, 0.0f}};
+                bozo::render::Vertex quad[6] = {corner[0], corner[1], corner[2], corner[1], corner[3], corner[2]};
+                for (auto &q : quad)
+                    q.rgba = 0;
+                static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                (flushDraws(), bozo::render::Renderer::instance()).draw(clear, identity, quad, 6u);
+            }
             const uint32_t ztest = (test >> 16) & 7u; // ZTE bit 16, ZTST bits 17-18
             const bool masked = !alphaOnly && (ztest & 1u) && ((ztest >> 1) == 2u || (ztest >> 1) == 3u) && !g_mask.empty();
 
@@ -787,6 +800,16 @@ namespace tta
                 material.fromFrame = 1u;
                 material.source = static_cast<uint8_t>(source);
                 material.textureAlpha = false; // a 24-bit frame: the GS's alpha is TEXA.TA0 (0x80), i.e. the vertex's
+                // The highlight filter reads the frame as CT32 with TCC: its alpha, the highlight mask (tta_port.h). Its
+                // multiply (0x89, Cd As) and darkening (0x46, Cd (1 - As)) use only that alpha. The outpost's lone 0x89
+                // (keep89, no darkening) keeps its fallback.
+                const uint32_t op = static_cast<uint32_t>(alpha & 0xffu);
+                if (source == 0 && ((tex0 >> 20) & 0x3fu) == 0u && ((tex0 >> 34) & 1u) && blended &&
+                    (op == 0x46u || (op == 0x89u && !keep89)) && highlightMaskWanted())
+                {
+                    material.source = kHighlightMask;
+                    material.textureAlpha = true;
+                }
                 const uint32_t tfx = (tex0 >> 35) & 3u;
                 material.textureFunction = static_cast<bozo::render::Material::TextureFunction>(tfx);
                 for (auto &q : points)

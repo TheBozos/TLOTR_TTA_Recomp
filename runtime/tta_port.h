@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bozo/port.h"
+#include "bozo/render/renderer.h"
 #include "bozo/render/texture.h"
 #include "bozo/state.h"
 
@@ -78,4 +79,26 @@ namespace tta
     void twoDState(bozo::state::Archive &a);
     // True during the reported frame (the 2D passes add their [tta:report] lines then).
     bool frameReportActive(const uint8_t *rdram);
+
+    // The highlight mask (the coloured glow around a highlighted or buffed character in some battles). On the console
+    // the scene leaves the frame's alpha alone; 0x1c1d34 clears it, each character's highlight pass (skin mode 0x80000,
+    // FBMSK 0x00ffffff) writes its silhouette into it alone, and the screen filter 0x1cf1fc / 0x1cfce8 reads it back (the
+    // frame as CT32 with TCC). BozoEngine keeps the frame's alpha as coverage, so the mask is an image of its own,
+    // auxiliary image kHighlightMask: the silhouettes drawn into its alpha against the scene's depth, the filter's two
+    // reads taking their alpha from it. TTA_NO_HIGHLIGHT_MASK=1 for the old drawing (no glow).
+    constexpr uint8_t kHighlightMask = 15;
+    inline bool highlightMaskWanted() { return !env("TTA_NO_HIGHLIGHT_MASK"); }
+    inline bozo::render::Material highlightMaskMaterial(bozo::render::Material m)
+    {
+        m.target = kHighlightMask;
+        m.frameDepth = true;
+        m.frameWidth = 512u;
+        m.frameHeight = 448u;
+        m.blend = bozo::render::Material::Blend::AlphaOnly;
+        m.gsBlend = false;
+        m.colourMask = 0xfu;
+        m.textured = false;
+        m.depthWrite = false;
+        return m;
+    }
 }

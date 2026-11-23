@@ -8,6 +8,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - Cheats: a "Win this battle" button.
 
 ### Fixed
+- The soft glow around highlighted and buffed characters in some battles is drawn.
 - The palantir that shows in the top-left corner when an encounter is near is no longer hidden behind trees (#3).
 
 ## [0.1.0] - 2026-11-23

@@ -873,6 +873,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   no Z before the glows. Where the console's draw differs was not found (no console capture of a palantir scene), so
   the three palantir systems draw without the depth test (TTA_PALANTIR_DEPTH=1 keeps the packet's).
   TTA_GLOW_DUMP now prints each system's +0x84 / +0x94, its packet and its matrix beside the last mesh's.
+- **The highlight mask: the glow around highlighted characters** (2026-11-23). user_battle.state (the sunny battle,
+  2026-11-18) predated the save states' sound section; loaded once with a local, reverted engine patch that skipped a
+  missing "snd" section, it was saved again as build/states/sunny_battle_9340.state, now the regress scene "sunny"
+  (9360 / 9450). Each frame there runs, per highlighted character: 0x1c1d34 clears the frame's alpha (full screen,
+  FBMSK 0x00ffffff), the character's 0x80000 pass writes its silhouette into the alpha alone (FBMSK 0x00ffffff, fade
+  117), then the filter fills 0x6c797f, multiplies by the frame's alpha (0x1cf1fc, 0x89, the frame as CT32 with TCC),
+  blurs, darkens by it four times (0x1cfce8, 0x46) and adds the result back (0x1d0540): a soft outline outside the
+  silhouette. BozoEngine keeps the frame's alpha as coverage, so the mask is an image of its own, auxiliary 15
+  (tta_port.h kHighlightMask): 0x1c1d34 clears it, the 0x80000 passes draw into its alpha (Blend::AlphaOnly, against
+  the scene's depth through Material::frameDepth), and the filter's 0x89 / 0x46 reads of the frame take their alpha
+  from it (an auxiliary source's alpha is read raw: fade 117 is As 117/128). The outpost's lone 0x89 keeps its
+  fallback. The sunny battle now shows a teal-grey outline around Berethor and Idrial (at most 16 levels, as the
+  chain's numbers give); every other regress scene is identical and the battle's frame rate unchanged (60.6 / 64.1
+  frames a second against 61.7 / 63.5 without, window build, unpaced). TTA_NO_HIGHLIGHT_MASK=1 for the old drawing,
+  TTA_HIGHLIGHT_TRACE=1 logs the passes. No console capture to check the strength against.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
@@ -1406,9 +1421,7 @@ Boots 55-69 on the way there; boot 69 reaches the title screen with every defaul
 On BozoEngine (reviewed 2026-11-21; the PS2Recomp-era items, the GS rasterizer, the VU1 AOT, the fork branches,
 sceGsExecLoadImage, the garbled loading text, have no counterpart there: the loading screen is drawn natively, and
 BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback leak JC2 found cannot happen):
-- The screen filter's frame alpha (above, "The glow filter"): the console's scene leaves the frame's alpha alone and
-  the highlight pass writes it alone; natively every draw writes alpha, so the coloured glow around highlighted and
-  buffed characters is missing. No console capture of it yet.
+- The highlight glow (below, "The highlight mask") has no console capture to check its strength against.
 - The shine layer "02" (above, "The shine layer and F7"): no case seen to check it against.
 - Helm's Deep's battle start still dips to ~56 frames a second for two seconds (above, "Frame times in the later
   regions"; was ~10 s at 49-57 before BozoEngine#112).

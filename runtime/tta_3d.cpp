@@ -1734,10 +1734,21 @@ namespace tta
                         for (uint32_t c = 0; c < 4; ++c)
                             if (((fbmsk >> (c * 8)) & 0xffu) != 0xffu)
                                 mask |= static_cast<uint8_t>(1u << c);
+                        if (env("TTA_HIGHLIGHT_TRACE"))
+                            std::printf("[tta:mask] frame %u highlight (deferred) FBMSK %08x fade %u%c", frame(rdram), fbmsk, fade, 10);
                         if (!env("TTA_SKIN_SILHOUETTE_NO_FBMSK"))
                         {
                             if ((mask & 7u) == 0)
+                            {
+                                // Alpha alone: the screen filter's mask, drawn into the highlight image instead.
+                                if (highlightMaskWanted())
+                                {
+                                    Deferred &d = job(highlightMaskMaterial(material), nullptr);
+                                    d.silhouette = true;
+                                    d.silhouetteColour = 0;
+                                }
                                 continue;
+                            }
                             material.colourMask = mask;
                         }
                         Deferred &d = job(material, nullptr);
@@ -1947,10 +1958,19 @@ namespace tta
                     for (uint32_t c = 0; c < 4; ++c)
                         if (((fbmsk >> (c * 8)) & 0xffu) != 0xffu)
                             mask |= static_cast<uint8_t>(1u << c);
+                    if (env("TTA_HIGHLIGHT_TRACE"))
+                        std::printf("[tta:mask] frame %u highlight FBMSK %08x fade %u, %zu triangles%c", frame(rdram), fbmsk, fade,
+                                    triangles.size() / 3, 10);
                     if (!env("TTA_SKIN_SILHOUETTE_NO_FBMSK"))
                     {
                         if ((mask & 7u) == 0)
-                            continue; // nothing of the picture written
+                        {
+                            // Nothing of the picture written: the frame's alpha alone, the screen filter's mask.
+                            if (highlightMaskWanted())
+                                queueDraw(highlightMaskMaterial(material), matrix, triangles.data(),
+                                          static_cast<uint32_t>(triangles.size()), nullptr);
+                            continue;
+                        }
                         material.colourMask = mask;
                     }
                     queueDraw(material, matrix, triangles.data(), static_cast<uint32_t>(triangles.size()), nullptr);
