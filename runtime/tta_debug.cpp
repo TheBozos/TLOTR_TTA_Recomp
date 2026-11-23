@@ -306,6 +306,35 @@ namespace tta
             }
         }
 
+        // Battle damage: 0x18bcd8(actor, change, ..) is the battle code's HP change (17 callers in it; a blow is a negative
+        // change, which the game itself zeroes when 0x17a990 says so). With infinite HP a party member's damage is zeroed
+        // here, so a blow that strikes the whole party at once (the Eye of Sauron's Wrath of Sauron, ~4450 each) cannot
+        // knock everyone down in one frame, which ends the battle before the refill or the revive can act.
+        void battleHpChange(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            if (g_infiniteHp.load(std::memory_order_relaxed) && ctx->r[5].sw[0] < 0)
+            {
+                const std::vector<uint32_t> party = partyActors(rdram);
+                if (std::find(party.begin(), party.end(), ctx->r[4].uw[0]) != party.end())
+                    ctx->r[5].ud[0] = 0;
+            }
+            if (std::getenv("TTA_DAMAGE_TRACE"))
+                std::printf("[tta:dmg] 18bcd8 actor %x change %d hp %d from %x%c", ctx->r[4].uw[0], ctx->r[5].sw[0],
+                            static_cast<int32_t>(read32(rdram, ctx->r[4].uw[0] + 0x9cu)), ctx->r[31].uw[0], 10);
+            func_0x18bcd8(rdram, ctx, rt);
+        }
+
+        // TTA_DAMAGE_TRACE=1: the HP changes by path (0x18bcd8 the battle code's, 0x11b288 the generic apply, 0x11b368
+        // TakeDamage's dispatch), with the actor, the amount and the caller.
+        template <uint32_t Address, void (*Original)(uint8_t *, R5900Context *, Runtime *)>
+        void damageTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t actor = ctx->r[4].uw[0];
+            const int32_t before = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
+            std::printf("[tta:dmg] %x actor %x amount %d hp %d from %x%c", Address, actor, ctx->r[5].sw[0], before, ctx->r[31].uw[0], 10);
+            Original(rdram, ctx, rt);
+        }
+
         // XP: 0x18c7d0(actor, amount) adds experience (+0xa54, at most 50,000,000; a float tally at +0xa80); the battles'
         // rewards call it (0x111a5c, 0x1127ec, 0x112838). The XP multiplier scales the amount, except when the game sets
         // a joining member's level (0x16ab20: the amount that member is short of it, from 0x16ab74).
@@ -946,7 +975,7 @@ namespace tta
             bool hp = g_infiniteHp.load(), ap = g_infiniteAp.load();
             if (ImGui::Checkbox("Infinite HP", &hp))
                 g_infiniteHp = hp;
-            ImGui::TextDisabled("Health back to full every frame; anyone knocked out gets up again half a second later.");
+            ImGui::TextDisabled("Battle damage to the party ignored, health kept full; anyone knocked out anyway gets up again.");
             if (ImGui::Checkbox("Infinite AP", &ap))
                 g_infiniteAp = ap;
             ImGui::TextDisabled("Skills and spells cost nothing: AP back to full every frame.");
@@ -1160,6 +1189,12 @@ namespace tta
         registry.registerFunction(0x140670, parseArguments);
         registry.registerFunction(0x216118, mainLoopTick);
         registry.registerFunction(0x18c7d0, addExperience);
+        if (std::getenv("TTA_DAMAGE_TRACE"))
+        {
+            registry.registerFunction(0x11b288, damageTrace<0x11b288u, func_0x11b288>);
+            registry.registerFunction(0x11b368, damageTrace<0x11b368u, func_0x11b368>);
+        }
+        registry.registerFunction(0x18bcd8, battleHpChange);
         if (std::getenv("TTA_ENCOUNTER_TRACE"))
             registry.registerFunction(0x15b6c8, encounterTrace);
         if (std::getenv("TTA_ZONE_TRACE"))

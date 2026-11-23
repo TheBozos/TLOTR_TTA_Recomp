@@ -801,6 +801,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   0x08000004) held at 1 HP. The game state word 0x3a5294 reads 6 through a debug-started battle and the list
   outlives its battle, so the flags and a sane HP maximum are the guard. The warg camp, lost without cheats, ended
   with the experience screen by game frame 16400 with kill alone.
+  Damage at its source (same day): 0x18bcd8(actor, change, ..) is the battle code's HP change (17 callers; a blow
+  is a negative change, which the game itself zeroes when 0x17a990 says so); with infinite HP a party member's
+  negative change is zeroed there. TTA_DAMAGE_TRACE=1 logs it and the generic paths (0x11b288, whose +0x98 bit 1
+  already makes an actor immune, and TakeDamage's 0x11b368). The Eye of Sauron (Pelennor, Inst_e3c3_27, id 1333,
+  max HP 460,496), started from the debug warp with the forest save's party: it opens with Wrath of Sauron, a
+  drain (the party's changes from 0x1112d8, the Eye healed by the same from 0x11176c); with hp,ap,kill every
+  combatant keeps its HP in RAM (party full, the Eye at 1) and the HUD still shows the party at 0, then Game Over
+  within a second. The defeat comes from something other than HP (the battle's own outcome, or the encounter's
+  script missing its story setup); not followed further. The ending is still unchecked.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

@@ -344,9 +344,9 @@ The game's own saves (its two memory cards) are in `%APPDATA%\TheBozos\The Third
 (`video.ini`, `input.ini`, `tta.ini`) in `%APPDATA%\TLOTR_TTA_Recomp`.
 
 **Cheats:** the Cheats tab of the settings window (F2):
-- **Infinite HP and AP:** the party's health and Action Points go back to full every frame. Anyone knocked out
-  anyway (a blow larger than a full bar) gets up again half a second later. Turn it off for a battle the story
-  means you to lose, such as the first one against the Nazgul.
+- **Infinite HP and AP:** battle damage to the party is ignored, and health and Action Points are kept full. Anyone
+  knocked out anyway gets up again half a second later. Turn it off for a battle the story means you to lose, such
+  as the first one against the Nazgul.
 - **One-hit kills:** enemies are held at 1 HP in battle, so any blow that lands fells them (a miss still misses).
 - **Experience:** every battle's experience multiplied by 2, 3, 5 or 10.
 - **Items:** any of the game's ~390 items (potions, weapons, armour, rings...) added to the party's bag in any amount
