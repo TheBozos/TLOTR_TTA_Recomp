@@ -854,18 +854,24 @@ the game's behaviour); its code is in the history before `8ade037`.
   tomb (e01c02 1001), the Gullies' Enc_End (1139), Helm's Deep's Keep (1132), Gothmog (1269) and the Witch-king (1561)
   were won without a map change within 10,000 frames: their regions move on by walking or scripts a debug-started
   battle does not reach, so those transitions stay unchecked. Pelennor's Eye of Sauron leads to the ending (above).
-- **Issue #3, the encounter palantir hidden by meshes** (2026-11-23, open). The blue orb the game shows near an
-  encounter is a Glow: three systems (records with ids 0x1beef3 / 0xada699fa / 0x56ea8870f / 0x4602d5f) with their
-  own TEST 0x5000a (Z GEQUAL) and ZBUF ZMSK 1 in their first DMA block, PRMODE 0x250 (context 2) and ALPHA 0x48 in
-  the second. On the console it stays in front (the user); natively Berethor's head (outpost, host 4150) and the
-  forest's foliage (build/states/palantir_14142.state, the orb ~21 units away at the top left) hide it. Tried and
+- **Issue #3, the encounter palantir hidden by meshes** (2026-11-23, worked around). The orb the game shows in the
+  screen's top-left corner when an encounter is near (the reporter's video: fixed on screen while trees pass in
+  front) is three Glow systems attached to the camera ~21 units ahead (matrix w translation 20.78, texture records
+  0x56ea8870f, 0xada699fa, 0x4602d5f), with their own TEST 0x5000a (Z GEQUAL) and ZBUF ZMSK 1 in their first DMA
+  block, PRMODE 0x250 (context 2) and ALPHA 0x48 in the second. 0x21f090 picks the test from the glow mesh's
+  (*(S+0x134))+0x4c bit 0: set, Z ALWAYS (0x3000a, the flash around a ✕ prompt), clear, GEQUAL (the palantir). On
+  the console it stays in front (the user); natively foliage and trunks nearer than 21 units hide it
+  (build/states/palantir_14142.state). (The large blue glow by the outpost gate, record 0x1beef3, w 2.28, is another
+  effect, behind Berethor at w 1.31 there.) Tried and
   dropped: the glow microcode converts Z with FTOI4 (16 z / w), but the two console GS dumps give Z x w ~1.2e6 /
   1.68e6 for the glows and the scene's draws alike (PACKED ST's Q = 1 / w), so glows, statics and skins share one
   scale, as natively; 16 z / w hazed every scene (battle1 6048 mean 19.5) and put the fog over Berethor and a
   chest's rays through the ground (build/states/chest_fog_12821.state). The matrix the microcode gets (its first
   block's UNPACK to VU 0) equals RC+0x2e0 as read; the scene's Z inversion around the shadows (two white - Cd
   passes into FBP 0x100) restores it exactly before the glows; static batches keep the scene's alpha > 0 test.
-  Open: what the console's Z holds where the orb is drawn (no console capture of a palantir scene).
+  The microcode's matrix for the palantir (its first block's UNPACK to VU 0) is RC+0x2e0 too, and the two dumps clear
+  no Z before the glows. Where the console's draw differs was not found (no console capture of a palantir scene), so
+  the three palantir systems draw without the depth test (TTA_PALANTIR_DEPTH=1 keeps the packet's).
   TTA_GLOW_DUMP now prints each system's +0x84 / +0x94, its packet and its matrix beside the last mesh's.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled

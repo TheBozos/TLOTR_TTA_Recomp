@@ -2839,6 +2839,15 @@ namespace tta
             material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
             material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
             material.depthTest = ((test >> 17) & 3u) >= 2u;
+            // The encounter palantir (issue #3): three camera-attached systems held ~21 units ahead in the screen's top
+            // left, by their texture records. Their packets ask for Z GEQUAL, which the console's GS dumps show for every
+            // glow, and natively trees and the party nearer than 21 units hide them; on the console the palantir stays
+            // in front (the user). Where the console's draw differs was not found (docs, "Issue #3"), so these three
+            // draw without the depth test. TTA_PALANTIR_DEPTH=1 keeps the packet's test.
+            if (record)
+                if (const uint64_t id = read64(rdram, record);
+                    (id == 0x56ea8870full || id == 0xada699faull || id == 0x4602d5full) && !env("TTA_PALANTIR_DEPTH"))
+                    material.depthTest = false;
             material.depthWrite = (((g_glowZbuf ? g_glowZbuf : read64(rdram, ds + 0x120)) >> 32) & 1u) == 0;
             if (test & 1u)
             {

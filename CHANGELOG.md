@@ -2,6 +2,14 @@
 
 All notable changes for players. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Cheats: a "Win this battle" button.
+
+### Fixed
+- The palantir that shows in the top-left corner when an encounter is near is no longer hidden behind trees (#3).
+
 ## [0.1.0] - 2026-11-23
 
 The first release: The Lord of the Rings: The Third Age (USA, SLUS-21027) as a native Windows game on BozoEngine, built on your PC from your own disc by the launcher.
