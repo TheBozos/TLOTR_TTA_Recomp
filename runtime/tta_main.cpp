@@ -41,8 +41,64 @@
 #endif
 #endif
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 namespace
 {
+    // The folder of this executable ("" when unknown).
+    std::filesystem::path executableFolder()
+    {
+#ifdef _WIN32
+        std::wstring buffer(32768, L'\0');
+        const DWORD n = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (n == 0 || n >= buffer.size())
+            return {};
+        buffer.resize(n);
+        return std::filesystem::path(buffer).parent_path();
+#else
+        std::error_code ec;
+        const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+        return ec ? std::filesystem::path() : self.parent_path();
+#endif
+    }
+
+    // A game folder staged by tools/tta_build.py (the release's launcher builds it on the player's machine) holds what
+    // the build's absolute paths name in a developer's tree: the ELF, disc.iso, tta_symbols.txt, textures/ and
+    // meshes/ beside the executable. Each is taken from there when present, so the folder can be moved; the command
+    // line (--elf, --iso, --symbols) and TTA_TEXTURE_DIR / TTA_MESH_DIR still come first.
+    void useStagedFolder(bozo::host::FreeOptions &options)
+    {
+        const std::filesystem::path here = executableFolder();
+        if (here.empty())
+            return;
+        std::error_code ec;
+        const auto has = [&](const char *name) { return std::filesystem::exists(here / name, ec); };
+        if (has("SLUS_210.27"))
+            options.elf = (here / "SLUS_210.27").string();
+        if (has("disc.iso"))
+            options.iso = (here / "disc.iso").string();
+        if (has("tta_symbols.txt"))
+            options.symbolMap = (here / "tta_symbols.txt").string();
+        const auto setFolder = [&](const char *variable, const char *name)
+        {
+            const char *set = std::getenv(variable);
+            if ((set && *set) || !std::filesystem::exists(here / name / "index.txt", ec))
+                return;
+            const std::string value = (here / name).string();
+#ifdef _WIN32
+            _putenv_s(variable, value.c_str());
+#else
+            setenv(variable, value.c_str(), 0);
+#endif
+        };
+        setFolder("TTA_TEXTURE_DIR", "textures");
+        setFolder("TTA_MESH_DIR", "meshes");
+    }
+
     // The sound's volume, 0 to 100 % (the Game tab, tta.ini volume, TTA_VOLUME): set on the window's thread, read by
     // the game's as it hands each frame's sound to the device.
     std::atomic<int> g_volume{100};
@@ -55,6 +111,7 @@ int main(int argc, char **argv)
     options.elf = TTA_DEFAULT_ELF;
     options.symbolMap = TTA_SYMBOL_MAP;
     options.iso = TTA_DEFAULT_ISO;
+    useStagedFolder(options);
     options.printGameOutput = true;
     // The game waits for EA's sound driver (compiled, tta_audio.cpp) to answer commands before its first frame.
     options.advanceLibrariesWhileStalled = true;

@@ -48,3 +48,6 @@ docs/c2c_exchange.md
 # The PS2Recomp checkout from before BozoEngine (no longer built; kept locally by older clones)
 PS2Recomp/
 recomp/output/
+
+# Python caches
+__pycache__/

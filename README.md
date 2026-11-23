@@ -319,7 +319,16 @@ The ring of the loading screen turned, but its text was garbled and the game nev
 
 ## Playing
 
-`build/bozo/tta.exe` (after the build below; it needs your disc image, see "Build and run").
+**The release (Windows):** `TLOTR_TTA_Recomp-<version>-bozo.zip` from the
+[releases](https://github.com/TheBozos/TLOTR_TTA_Recomp/releases), the same launcher as TMB's and Dark Cloud's. Unzip
+it anywhere but Program Files (about 15 GB free), run **TTA Launcher.exe**, select your USA disc image (SLUS-21027,
+.iso or .bin / .cue) and **Prepare the game**: the zip holds no game data, only the code, the launcher and an offline
+build kit (compiler, Python, FFmpeg), and the game is built on your PC from your disc (about half an hour, once; it
+can be stopped and resumed). Then **Play**. The launcher also sets the display, checks for updates and rebuilds after
+one. `tools/tta_build.py` is what it runs (also usable alone: `python tools/tta_build.py --disc <image> --out <dir>`);
+`tools/make_release.py` makes the zip (docs/RELEASE_CHECKLIST.md).
+
+From a checkout: `build/bozo/tta.exe` (after the build below; it needs your disc image, see "Build and run").
 
 | PS2 pad | Keyboard (default) |
 |---|---|

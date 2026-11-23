@@ -17,6 +17,7 @@ set(TTA_ISO "${CMAKE_SOURCE_DIR}/Lord of the Rings, The - The Third Age (USA).is
     "User-owned NTSC-U disc image")
 set(BOZO_ENGINE_DIR "${CMAKE_SOURCE_DIR}/BozoEngine" CACHE PATH "Pinned native engine source")
 option(TTA_WINDOW "Build the SDL3 native game window (tta) next to tta-headless" ON)
+option(TTA_GUI_SUBSYSTEM "tta.exe without a console window (the release's build, tools/tta_build.py)" OFF)
 set(BOZO_APP ${TTA_WINDOW} CACHE BOOL "" FORCE)
 set(BOZO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(BOZO_REQUIRE_FFMPEG ON CACHE BOOL "The movies need native decoding" FORCE)
@@ -133,6 +134,9 @@ if(TTA_WINDOW)
     set_source_files_properties(runtime/app/tta.rc PROPERTIES OBJECT_DEPENDS
       "${CMAKE_SOURCE_DIR}/runtime/app/tta.ico;${CMAKE_SOURCE_DIR}/runtime/app/tta.manifest")
     target_sources(tta PRIVATE runtime/app/tta.rc)
+    if(TTA_GUI_SUBSYSTEM)
+      set_target_properties(tta PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
   endif()
   target_include_directories(tta PRIVATE ${tta_audio_gen})
   target_compile_definitions(tta PRIVATE TTA_WITH_WINDOW TTA_DEFAULT_ELF="${tta_elf}" TTA_DEFAULT_ISO="${TTA_ISO}"
