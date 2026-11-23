@@ -301,7 +301,9 @@ The ring of the loading screen turned, but its text was garbled and the game nev
 
 A gamepad (Xbox, PlayStation, Switch Pro ...) works as a PS2 pad when plugged in. Keys and buttons are changed in the
 Controls tab of the settings window, where each player's rumble strength is set too (0 turns it off; Test shakes the
-gamepad). The mouse pointer hides over the game after two seconds without moving
+gamepad). On a gamepad the middle button (PS, Xbox, Home) opens and closes the settings window, steered with the D-pad
+and Cross / Circle meanwhile; save and load state can be bound to buttons in the Controls tab. The mouse pointer hides
+over the game after two seconds without moving
 (`PS2X_KEEP_CURSOR=1` keeps it).
 
 | Key | |

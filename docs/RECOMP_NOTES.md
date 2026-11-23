@@ -776,6 +776,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   Deterministic runs are unpaced: the regression scenes are unchanged. Then BozoEngine#121: fast forward is a binding
   like a PS2 button (input.ini fast_forward, the Controls tab's last row), ` and every player's touchpad click by
   default.
+- **The settings window from a gamepad** (2026-11-23, BozoEngine#122). Window actions bound like the pad's buttons
+  (input.ini settings_window, save_state, load_state): every player's middle button opens and closes the settings
+  window, which ImGui's gamepad navigation then steers (the gamepads are held from the game meanwhile); save and load
+  are unbound by default. Checked with PS2X_VIRTUAL_PAD (an SDL virtual gamepad pressing buttons at set seconds) and
+  PS2X_INPUT_BACKGROUND=1 in a temp user folder: open, D-pad navigation, close, a bound save writing slot 0.
 - **Save state pictures** (2026-11-22, BozoEngine#119). A save (F5 or F2's Save states tab) also writes the game's
   picture as states/slotN.png (320 wide); the tab shows it beside the slot, full size under the pointer. Checked with
   PS2X_USER_DIR in a temp folder, PS2X_STATE_SAVE_AT and a capture of the open tab.
