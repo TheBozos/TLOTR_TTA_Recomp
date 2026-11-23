@@ -4,13 +4,13 @@
 
 # TLOTR_TTA_Recomp
 
-**A native Windows, Linux and macOS port of *The Lord of the Rings: The Third Age* (NTSC-U, `SLUS-21027`), made by statically recompiling the game's PlayStation 2 code to C++.**<br>
+**A native PC port of *The Lord of the Rings: The Third Age* (NTSC-U, `SLUS-21027`), made by statically recompiling the game's PlayStation 2 code to C++. Windows now; Linux and macOS later.**<br>
 Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own toolchain: the game's EE code recompiled to C++, every library and kernel call it makes answered by native code. No PS2 hardware model at any level: no GS, VU, VIF/GIF, DMA, IOP or SPU2.
 
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1b8cff)
+![Platform](https://img.shields.io/badge/platform-Windows%20(Linux%20%7C%20macOS%20later)-1b8cff)
 ![Compiler](https://img.shields.io/badge/compiler-GCC%20%7C%20Clang-1b8cff)
 ![Based on](https://img.shields.io/badge/based%20on-BozoEngine-17a35b)
-![Status](https://img.shields.io/badge/status-first%20battle%20native%20at%2060%20fps-17a35b)
+![Status](https://img.shields.io/badge/status-playable%20natively%20at%2060%20fps-17a35b)
 
 </div>
 
@@ -24,11 +24,14 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 
 ## Status
 
-**On BozoEngine (since 2026-11-09): the game plays natively in a window.** On the PS2Recomp fork the game
-played from the boot to the first battle (the older screenshots below), but its graphics went through a PS2 emulation
-layer (VU1 sandbox, GS state machine, GS memory). BozoEngine has none of it, so the picture comes back as native draw
-hooks are written from the game's own data: the frame and the movies first (2026-11-10), then the 2D, the text and
-the 3D. Windows comes first, then Linux and macOS.
+**On BozoEngine (since 2026-11-09): the game plays natively in a window, at 60 frames a second.** On the PS2Recomp
+fork the game played from the boot to the first battle (the older screenshots below), but its graphics went through a
+PS2 emulation layer (VU1 sandbox, GS state machine, GS memory). BozoEngine has none of it: everything the game draws,
+the movies, the 2D, the text, the 3D and its effects, comes from native draw hooks written from the game's own data.
+Every region loads and its battles play (Eregion to the Pelennor Fields, through the debug warps); what is left is
+a few effects, a playthrough from the intro to the end of the campaign, and the Linux and macOS builds. Beyond the
+console: widescreen, higher resolutions, anti-aliasing, texture upscaling, frames between the game's, fast forward,
+save states and cheats.
 
 | Milestone on BozoEngine | |
 |---|:---:|
@@ -45,6 +48,9 @@ the 3D. Windows comes first, then Linux and macOS.
 | Effects, water, render targets (blur, glows), the battle menu's details | 🔧 |
 | Window, sound output, pad from the PC, save states (F5 / F7) | ✅ |
 | The game playable again: the first battle, the forest, Eregion and on (played in the window, saves on disk) | ✅ |
+| Every region loads and its battles play: Moria, the Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith, the Pelennor | ✅ |
+| PC options: widescreen, render scale, MSAA, texture upscaling and smoothing, interpolated frames, fast forward, gamepad menus, cheats | ✅ |
+| The whole campaign played through, from the intro to the end | ⏳ |
 | Linux and macOS builds | ⏳ |
 
 The engine changes TTA needs are merged into BozoEngine's `master`, which the submodule follows.
@@ -55,6 +61,15 @@ The engine changes TTA needs are merged into BozoEngine's `master`, which the su
 what remains open.
 
 ## Screenshots
+
+**2026-11-23.** The Cheats tab (F2): infinite HP and AP (a knocked-out member gets up again), one-hit kills, an
+experience multiplier, and any of the game's ~390 items into the bag, found by name. HP, AP and experience were found
+in the game's own code (its Lua functions' C side, its full heal, its experience award); the items come from its
+entity database and its string table.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-23-bozo-cheats-tab.png" width="560" alt="The settings window's Cheats tab over the forest: Infinite HP and One-hit kills ticked, Infinite AP, the Experience multiplier, and a searchable list of items with Add buttons">
+</p>
 
 **2026-11-23.** Anti-aliasing (the Video tab, 2x to 8x MSAA): Helm's Deep's battle, the console's edges on the
 left, 8x on the right; the blades, the arm and the braid without their steps. Everything the game draws from the
@@ -316,7 +331,7 @@ over the game after two seconds without moving
 
 | Key | |
 |---|---|
-| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles), Cheats |
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, anti-aliasing, frame rate, fast forward's speed, pause in the background), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles), Cheats |
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9); the Save states tab shows each slot's picture |
@@ -342,7 +357,8 @@ They last until the game closes. For scripted runs, `TTA_CHEATS=hp,ap,kill,xp=30
 ## Goal
 
 A fully playable *The Third Age* as a native executable on Windows, Linux and macOS, from the intro to the end of the
-campaign. Accuracy first; once it is playable, widescreen and higher internal resolution.
+campaign. Accuracy first: the console's picture by default, the PC's options (widescreen, resolution, anti-aliasing,
+frame rate) on top, each off or as the console unless chosen.
 
 ## How it works
 
@@ -354,7 +370,7 @@ disc (your ISO) ──► scripts/extract_iso.sh ──► game/ (SLUS_210.27, M
         bozo-externals ──► the externals list   bozo-recomp ──► C++ (build/bozo/tta_gen/)
         tools/tta_bozo_audio.py ──► AUDIOPF.IRX and LIBSD.IRX as C++ (BozoEngine tools/native_irx)
                                    │
-              CMakeLists.txt ──► BozoEngine runtime + generated code + runtime/ ──► tta-headless
+              CMakeLists.txt ──► BozoEngine runtime + generated code + runtime/ ──► tta (window), tta-headless
 ```
 
 - The retail executable is stripped. `recomp/tta_symbols.txt` names its library and kernel functions:
@@ -368,7 +384,7 @@ disc (your ISO) ──► scripts/extract_iso.sh ──► game/ (SLUS_210.27, M
 
 ## Requirements
 
-- Windows 10/11 with [MSYS2](https://www.msys2.org/) (UCRT64), Linux, or macOS
+- Windows 10/11 with [MSYS2](https://www.msys2.org/) (UCRT64); Linux and macOS are the goal, not built yet
 - CMake 3.21+, Ninja, GCC 13+ or Clang with C++20
 - GNU make and curl (the movies' minimal FFmpeg is built from its source once: scripts/build_ffmpeg.sh); or FFmpeg
   development libraries (`libavcodec`, `libavutil`) through `pkg-config` with `TTA_SYSTEM_FFMPEG=1`
@@ -419,7 +435,7 @@ their two frames' places, the HUD and effects show the newest frame. `TTA_FRAME_
 "Pause in the background" (off by default; `pause_in_background` in `video.ini`, `PS2X_PAUSE_IN_BACKGROUND=on`) holds
 the game while another window has the focus or this one is minimised.
 
-`scripts/regress.sh` is the visual regression check: fifteen scenes (the boot films and title, the logos skipped with START, the first battle and
+`scripts/regress.sh` is the visual regression check: fourteen scenes (the boot films and title, the logos skipped with START, the first battle and
 the same in widescreen, the outpost, the forest, the pause menu, Idrial's film, the Balrog's film, and battles in
 Western Moria, Rohan, Helm's Deep, Osgiliath and Minas Tirith) captured from local save states and compared with a local baseline (`--update` makes it), ~5 minutes. Its runs are reproducible to the pixel.
 
@@ -436,7 +452,7 @@ Debug tools (the F2 window's **Debug** tab, built on the game's own level-script
 - **Enemy groups**: any enemy group of the current map in a battle: the random battles' groups (`Rnd_Easy / Med /
   Hard`, each with its 1-, 2- or 3-enemy layout) or a story battle's (the Watcher as an ordinary fight).
 
-Start them while walking freely, not during another battle; a battle asked for during a film or a prompt waits for it
+Start them while walking freely, not during another battle (an id the map does not have prints the map's list); a battle asked for during a film or a prompt waits for it
 to end (two minutes at most). Enemies of another region: warp there first.
 
 From the command line: `--warp MAP[@FRAME]` (a region such as `"helms deep"`, a path such as `e02c05`, or an index)
