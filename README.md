@@ -64,6 +64,15 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-23.** From one region to the next, native: the Watcher in the Water beaten, its films play and Gimli
+joins the party in Western Moria (left); after the Balrog, the company comes out of Moria into the light (right).
+Checked with the new Win this battle cheat from each region's last fight.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-23-bozo-western-moria-party.png" width="400" alt="The party with Gimli standing in a dark hall of Western Moria">
+  <img src="docs/screenshots/2026-11-23-bozo-leaving-moria.png" width="400" alt="The party walking out of Moria toward a bright opening, seen from behind">
+</p>
+
 **2026-11-23.** The ending, native: Gandalf crowns Aragorn in the closing films, after the Eye of Sauron is beaten
 on the Pelennor Fields. Reached from the debug warp with the cheats; the Eye's Wrath of Sauron fells the party
 outright (an instant-death effect marked in the battle's action, which the winner check reads before the HP), so
