@@ -776,6 +776,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   Deterministic runs are unpaced: the regression scenes are unchanged. Then BozoEngine#121: fast forward is a binding
   like a PS2 button (input.ini fast_forward, the Controls tab's last row), ` and every player's touchpad click by
   default.
+- **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
+  PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
+  colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
+  copy of it (sampleTarget, the screen filters' source 0), the depth an image pass reads, an auxiliary target sharing
+  the frame's depth, the depth tiles (lens flares) and the present. Off: regress.sh battle1 logos pause forest
+  helmsdeep identical. 8x: battle1, pause, forest, helmsdeep, balrog and idrial differ only along edges (mean <= 0.21,
+  <= 0.68% of pixels past 8 levels), the shadows, glows and the Balrog's fire intact.
 - **The settings window from a gamepad** (2026-11-23, BozoEngine#122). Window actions bound like the pad's buttons
   (input.ini settings_window, save_state, load_state): every player's middle button opens and closes the settings
   window, which ImGui's gamepad navigation then steers (the gamepads are held from the game meanwhile); save and load

@@ -56,6 +56,14 @@ what remains open.
 
 ## Screenshots
 
+**2026-11-23.** Anti-aliasing (the Video tab, 2x to 8x MSAA): Helm's Deep's battle, the console's edges on the
+left, 8x on the right; the blades, the arm and the braid without their steps. Everything the game draws from the
+frame (its glows, blurs, shadows) reads the smoothed picture.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-23-bozo-msaa-helmsdeep.png" width="800" alt="Two zoomed crops of Helm's Deep's battle side by side, jagged sword and arm edges on the left, smooth ones with 8x MSAA on the right">
+</p>
+
 **2026-11-22.** Berethor's sword slash in the first battle, now drawn in the 3D scene: depth-tested at its place and
 taken by the screen filters' glow, as the console sends it, where it used to lie flat over the finished picture with
 the HUD.
@@ -391,7 +399,8 @@ music, voices and effects together; the console left it to the TV.
 
 **Video settings:** the Video tab of the settings window (F2) sets the window's size, windowed / full screen /
 borderless (F11 or Alt+Enter switch), the 3D's render scale, texture upscaling, texture smoothing (off as the console,
-trilinear, or anisotropic up to 16x: distant ground without the shimmer) and the frame rate, saved in
+trilinear, or anisotropic up to 16x: distant ground without the shimmer), anti-aliasing (off as the console, or 2x,
+4x, 8x MSAA: the 3D's edges smoothed) and the frame rate, saved in
 `%APPDATA%\TLOTR_TTA_Recomp\video.ini`. `--fullscreen` starts borderless full screen. Scripted and `TTA_DETERMINISTIC`
 runs ignore the file, so their captures stay the same. Above the game's 60 frames a second (120, 144, the monitor's
 refresh), the pictures between the game's frames are drawn interpolated: the scenery and the characters move between
