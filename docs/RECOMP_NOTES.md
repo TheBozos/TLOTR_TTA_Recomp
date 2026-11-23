@@ -858,8 +858,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   the warp left it (Minas Tirith's entrance after the Witch-king; Osgiliath's start after Gothmog; Helm's Deep plays
   its opening films first) and the region goes on as before: a debug-started fight runs outside the story, whose
   later steps (the walk to the exit, the closing films) depend on the region's earlier events, which the warp skips.
-  The developers' options are only "level" / "file" (never read) and "encounters_only": no chapter select. Checking
-  these five needs saves made in play near each region's end.
+  The developers' options are only "level" / "file" (never read) and "encounters_only": no chapter select. Closed
+  there by the user's choice: three transitions confirmed (Eregion -> Western Moria, Rohan -> Helm's Deep, Pelennor
+  -> the ending); the other six (Western Moria -> Eastern Moria, Eastern Moria -> the Gullies, the Gullies -> Rohan,
+  Helm's Deep -> Osgiliath, Osgiliath -> Minas Tirith, Minas Tirith -> the Pelennor) need a real playthrough or
+  saves made in play near each region's end.
 - **Issue #3, the encounter palantir hidden by meshes** (2026-11-23, worked around). The orb the game shows in the
   screen's top-left corner when an encounter is near (the reporter's video: fixed on screen while trees pass in
   front) is three Glow systems attached to the camera ~21 units ahead (matrix w translation 20.78, texture records
