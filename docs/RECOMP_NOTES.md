@@ -791,6 +791,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   the game re-sorts at its next add. Checked: the forest's warg camp (2118), lost without cheats, won with hp,ap; XP
   x3 gave exactly 3 x 2112 / 960; Pot8 x5 and Gsw0 in the bag and kept after the battle's own drop; regress.sh
   battle1 logos pause forest helmsdeep identical with cheats off. A missed encounter id now logs the map's list.
+  Revive (the user's request, same day): with infinite HP a member at 0 HP is set back to full 30 game frames later.
+  For the party, knocked out is HP 0 alone: 0x17eb20 (IsAlive's test) wants HP > 0 and, for actor type 0xd only,
+  state bit 0x1d clear (+0xe24, set by 0x11f290 from 0x1160c4); Berethor's +0xe24 stays 0 while down in the first
+  battle. Checked in the warg camp: Idrial felled by a 174 critical hit (157 max) stood up at 157, came back into the
+  turn queue and acted; the battle was won.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

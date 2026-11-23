@@ -246,20 +246,39 @@ namespace tta
             return actors;
         }
 
-        // Each game frame: the living members' HP and AP back to their maximums (a fallen member stays down: only a hit
-        // over a full bar fells one).
-        void applyCheats(uint8_t *rdram)
+        // Each game frame: the members' HP and AP back to their maximums. A member knocked out (HP 0; for the party that
+        // alone is down: 0x17eb20's alive test is HP > 0, the state bit 0x1d it also reads is set for another kind of
+        // actor only) is revived with full HP half a second later, once the game has dealt with the fall.
+        void applyCheats(uint8_t *rdram, uint32_t frame)
         {
             const bool hp = g_infiniteHp.load(std::memory_order_relaxed), ap = g_infiniteAp.load(std::memory_order_relaxed);
+            static std::vector<std::pair<uint32_t, uint32_t>> fallen; // actor, the frame it was seen down
+            if (!hp)
+                fallen.clear();
             if (!hp && !ap)
                 return;
             for (const uint32_t actor : partyActors(rdram))
             {
                 const int32_t health = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
+                const int32_t mostHp = static_cast<int32_t>(read32(rdram, actor + 0xd98u));
                 if (health <= 0)
+                {
+                    if (!hp || mostHp <= 0 || mostHp >= 100000)
+                        continue;
+                    auto it = std::find_if(fallen.begin(), fallen.end(), [&](const auto &f) { return f.first == actor; });
+                    if (it == fallen.end())
+                        fallen.push_back({actor, frame});
+                    else if (frame - it->second >= 30u)
+                    {
+                        write32(rdram, actor + 0x9cu, static_cast<uint32_t>(mostHp));
+                        fallen.erase(it);
+                        std::printf("[tta:debug] cheat: revived %x at game frame %u%c", actor, frame, 10);
+                    }
                     continue;
-                if (const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd98u)); hp && most > health && most < 100000)
-                    write32(rdram, actor + 0x9cu, static_cast<uint32_t>(most));
+                }
+                fallen.erase(std::remove_if(fallen.begin(), fallen.end(), [&](const auto &f) { return f.first == actor; }), fallen.end());
+                if (hp && mostHp > health && mostHp < 100000)
+                    write32(rdram, actor + 0x9cu, static_cast<uint32_t>(mostHp));
                 if (const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd9cu));
                     ap && most > 0 && most < 65536 && read16(rdram, actor + 0xa5eu) < most)
                     write16(rdram, actor + 0xa5eu, static_cast<uint16_t>(most));
@@ -661,7 +680,7 @@ namespace tta
                 else
                     warp(rdram, ctx, rt, r.value);
             }
-            applyCheats(rdram);
+            applyCheats(rdram, frame);
             // Items the Cheats tab asked for, once the game's data is loaded.
             {
                 std::deque<std::pair<uint32_t, int>> adds;
@@ -906,7 +925,7 @@ namespace tta
             bool hp = g_infiniteHp.load(), ap = g_infiniteAp.load();
             if (ImGui::Checkbox("Infinite HP", &hp))
                 g_infiniteHp = hp;
-            ImGui::TextDisabled("Health back to full every frame: only a hit larger than a full bar can fell someone.");
+            ImGui::TextDisabled("Health back to full every frame; anyone knocked out gets up again half a second later.");
             if (ImGui::Checkbox("Infinite AP", &ap))
                 g_infiniteAp = ap;
             ImGui::TextDisabled("Skills and spells cost nothing: AP back to full every frame.");
