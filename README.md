@@ -316,7 +316,7 @@ over the game after two seconds without moving
 
 | Key | |
 |---|---|
-| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles) |
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, frame rate), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles), Cheats |
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9); the Save states tab shows each slot's picture |
@@ -327,6 +327,15 @@ over the game after two seconds without moving
 
 The game's own saves (its two memory cards) are in `%APPDATA%\TheBozos\The Third Age\cards`; the settings
 (`video.ini`, `input.ini`, `tta.ini`) in `%APPDATA%\TLOTR_TTA_Recomp`.
+
+**Cheats:** the Cheats tab of the settings window (F2):
+- **Infinite HP and AP:** the party's health and Action Points go back to full every frame. Only a blow larger than a
+  full bar, or several landing in the same frame, can still fell someone.
+- **Experience:** every battle's experience multiplied by 2, 3, 5 or 10.
+- **Items:** any of the game's ~390 items (potions, weapons, armour, rings...) added to the party's bag in any amount
+  up to 99. A search box finds them by name or by their four-letter id.
+
+They last until the game closes. For scripted runs, `TTA_CHEATS=hp,ap,xp=300,item=Pot8x5` does the same.
 
 ## Goal
 

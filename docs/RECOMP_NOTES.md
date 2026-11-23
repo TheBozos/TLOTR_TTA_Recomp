@@ -776,6 +776,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   Deterministic runs are unpaced: the regression scenes are unchanged. Then BozoEngine#121: fast forward is a binding
   like a PS2 button (input.ini fast_forward, the Controls tab's last row), ` and every player's touchpad click by
   default.
+- **Cheats** (2026-11-23, the user's request; runtime/tta_debug.cpp, the Cheats tab, TTA_CHEATS). Found from the
+  Lua C functions' table (names loaded by 0x26a8xx, their C sides by lui 0x26 / addiu): GetHealthAsPercentage 0x267fc8
+  -> 0x17ebf0 reads HP at actor +0x9c over 0x183f28's maximum (+0xd98, recomputed by 0x18cef0); 0x1840a0 is the
+  maximum AP (+0xd9c), and the game's full heal at 0x1249c4 writes +0x9c and the halfword +0xa5e (current AP) from
+  them. XP is +0xa54, added by 0x18c7d0(actor, amount) (at most 50,000,000; the battle rewards call it from
+  0x111a5c / 0x1127ec / 0x112838; found by diffing TTA_RAM_DUMP before and after a won warg fight); a joining
+  member's level is set through it from 0x16ab74, which the multiplier leaves alone. The bag is the party manager
+  0x3a5bd0's first 0x200 slots {record, count}; 0x194388(party, id, notify, 0) adds an item by its four-character id
+  (the item message at 0x18f8d8), the record from the entity database *(0x35b750) (0x164808: count +8, sorted ids
+  +0x28, records +0x2c of +0x10 bytes; items are kind 0x04400440 at +8). Names: the string table's inv_<id>_nm /
+  itm_<id>_nm, scanned from RAM: 387 named items. Called from the main-loop hook, 0x194388 never came back (a
+  fault at 0x3a5be8, likely its qsort's comparison through the C library), so the tab writes the slot itself and
+  the game re-sorts at its next add. Checked: the forest's warg camp (2118), lost without cheats, won with hp,ap; XP
+  x3 gave exactly 3 x 2112 / 960; Pot8 x5 and Gsw0 in the bag and kept after the battle's own drop; regress.sh
+  battle1 logos pause forest helmsdeep identical with cheats off. A missed encounter id now logs the map's list.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

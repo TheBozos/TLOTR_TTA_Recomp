@@ -216,6 +216,198 @@ namespace tta
         std::atomic<int> g_currentMap{-1};
         std::string g_last; // the last action's result, for the tab
 
+        // ---- Cheats ----
+        // The party list 0x3a6e50 (GetPartyMemberByName's, 0x1941f8): its count at +8, member k's actor at +0xba4 + k *
+        // 0x20. An actor (a combatant when +0x98 bit 27 is set, as 0x17ebf0 / 0x183f28 test) keeps its HP at +0x9c and
+        // its AP as a halfword at +0xa5e; its maximums, as 0x18cef0 last worked them out, at +0xd98 and +0xd9c (0x183f28,
+        // 0x1840a0). The game's own full heal (0x1249c4) writes the maximums back the same way.
+        constexpr uint32_t kParty = 0x3a6e50u;
+        std::atomic<bool> g_infiniteHp{false}, g_infiniteAp{false};
+
+        uint16_t read16(const uint8_t *rdram, uint32_t address)
+        {
+            uint16_t v = 0;
+            std::memcpy(&v, rdram + (address & 0x1ffffffu), 2);
+            return v;
+        }
+        void write16(uint8_t *rdram, uint32_t address, uint16_t v) { std::memcpy(rdram + (address & 0x1ffffffu), &v, 2); }
+
+        // The party's members' actors (combatants only).
+        std::vector<uint32_t> partyActors(const uint8_t *rdram)
+        {
+            std::vector<uint32_t> actors;
+            const uint32_t count = std::min<uint32_t>(read32(rdram, kParty + 8u), 8u);
+            for (uint32_t k = 0; k < count; ++k)
+            {
+                const uint32_t actor = read32(rdram, kParty + 0xba4u + k * 0x20u);
+                if (actor >= 0x100000u && actor < 0x2000000u && ((read32(rdram, actor + 0x98u) >> 27) & 1u))
+                    actors.push_back(actor);
+            }
+            return actors;
+        }
+
+        // Each game frame: the living members' HP and AP back to their maximums (a fallen member stays down: only a hit
+        // over a full bar fells one).
+        void applyCheats(uint8_t *rdram)
+        {
+            const bool hp = g_infiniteHp.load(std::memory_order_relaxed), ap = g_infiniteAp.load(std::memory_order_relaxed);
+            if (!hp && !ap)
+                return;
+            for (const uint32_t actor : partyActors(rdram))
+            {
+                const int32_t health = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
+                if (health <= 0)
+                    continue;
+                if (const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd98u)); hp && most > health && most < 100000)
+                    write32(rdram, actor + 0x9cu, static_cast<uint32_t>(most));
+                if (const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd9cu));
+                    ap && most > 0 && most < 65536 && read16(rdram, actor + 0xa5eu) < most)
+                    write16(rdram, actor + 0xa5eu, static_cast<uint16_t>(most));
+            }
+        }
+
+        // XP: 0x18c7d0(actor, amount) adds experience (+0xa54, at most 50,000,000; a float tally at +0xa80); the battles'
+        // rewards call it (0x111a5c, 0x1127ec, 0x112838). The XP multiplier scales the amount, except when the game sets
+        // a joining member's level (0x16ab20: the amount that member is short of it, from 0x16ab74).
+        std::atomic<int> g_xpPercent{100};
+
+        void addExperience(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const int percent = g_xpPercent.load(std::memory_order_relaxed);
+            const int64_t amount = ctx->r[5].sw[0];
+            if (percent != 100 && amount > 0 && ctx->r[31].uw[0] != 0x16ab7cu)
+            {
+                const int64_t scaled = std::clamp<int64_t>(amount * percent / 100, 1, 50000000);
+                ctx->r[5].ud[0] = static_cast<uint64_t>(scaled);
+            }
+            func_0x18c7d0(rdram, ctx, rt);
+        }
+
+        // Items. The entity database *(0x35b750) (0x164808's binary search: count at +8, sorted four-character ids at
+        // +0x28, records of +0x10 bytes from +0x2c) holds the items as records of kind 0x04400440 (+8); the party's bag is
+        // the party manager 0x3a5bd0's first 0x200 slots {record, count}. 0x194388(party, id, notify, 0) adds one (a new
+        // slot or one more, then the bag sorted), as the game's item messages do (0x18f8d8). The names are the strings
+        // inv_<id>_nm (things to use) and itm_<id>_nm (things to wear) of the game's string table, read from RAM.
+        constexpr uint32_t kDatabase = 0x35b750u, kItemKind = 0x04400440u, kBag = 0x3a5bd0u;
+        struct Item
+        {
+            uint32_t id;
+            std::string code; // the id's four characters
+            std::string name;
+            bool equipment; // itm_ (worn) rather than inv_ (used)
+        };
+        std::vector<Item> g_items;               // under g_mutex: empty until listed
+        std::vector<std::pair<uint32_t, uint32_t>> g_bag; // under g_mutex: id, count (refreshed every half second)
+        std::atomic<bool> g_itemsWanted{false};  // the tab is open: list the items and keep the bag fresh
+        std::deque<std::pair<uint32_t, int>> g_itemAdds; // under g_mutex: id, amount
+
+        void listItems(const uint8_t *rdram, std::vector<Item> &items)
+        {
+            items.clear();
+            const uint32_t db = read32(rdram, kDatabase);
+            if (db < 0x100000u || db >= 0x2000000u)
+                return;
+            const uint32_t count = std::min<uint32_t>(read32(rdram, db + 8u), 20000u), ids = read32(rdram, db + 0x28u),
+                           size = read32(rdram, db + 0x10u), records = read32(rdram, db + 0x2cu);
+            if (!count || ids >= 0x2000000u || records >= 0x2000000u || size == 0 || size > 0x1000u)
+                return;
+            // The names: every "inv_XXXX_nm\0<name>\0" / "itm_XXXX_nm\0<name>\0" in RAM.
+            std::vector<std::pair<uint32_t, std::pair<std::string, bool>>> names;
+            const char *ram = reinterpret_cast<const char *>(rdram);
+            constexpr size_t kRam = 32u << 20;
+            for (size_t at = 0x100000u; at + 16 < kRam;)
+            {
+                const void *found = std::memchr(ram + at, '_', kRam - 16 - at);
+                if (!found)
+                    break;
+                const size_t p = static_cast<size_t>(static_cast<const char *>(found) - ram);
+                at = p + 1;
+                if (p < 3 || std::memcmp(ram + p + 5, "_nm", 4) != 0) // "_XXXX_nm\0"
+                    continue;
+                const bool inv = std::memcmp(ram + p - 3, "inv", 3) == 0, itm = std::memcmp(ram + p - 3, "itm", 3) == 0;
+                if (!inv && !itm)
+                    continue;
+                const char *value = ram + p + 9;
+                const size_t length = strnlen(value, 80);
+                if (length == 0 || length == 80)
+                    continue;
+                uint32_t id = 0;
+                std::memcpy(&id, ram + p + 1, 4);
+                names.push_back({id, {std::string(value, length), itm}});
+            }
+            std::sort(names.begin(), names.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                const uint32_t id = read32(rdram, ids + 4u * i);
+                if (read32(rdram, records + size * i + 8u) != kItemKind)
+                    continue;
+                const auto it = std::lower_bound(names.begin(), names.end(), id, [](const auto &n, uint32_t v) { return n.first < v; });
+                if (it == names.end() || it->first != id)
+                    continue;
+                std::string code(reinterpret_cast<const char *>(&id), 4);
+                items.push_back({id, code, it->second.first, it->second.second});
+            }
+            std::sort(items.begin(), items.end(), [](const Item &a, const Item &b) { return a.name < b.name; });
+        }
+
+        // `amount` of the item `id` into the bag, as 0x194388 does it (one more on its slot, else the first free slot), up to
+        // 99 a slot; the game's own add, called from the tick, never came back (its sort's comparison runs through the
+        // C library). The bag stays in its order until the game next adds and sorts. Returns how many went in.
+        int addItem(uint8_t *rdram, uint32_t id, int amount)
+        {
+            const uint32_t db = read32(rdram, kDatabase);
+            const uint32_t count = std::min<uint32_t>(read32(rdram, db + 8u), 20000u), ids = read32(rdram, db + 0x28u),
+                           size = read32(rdram, db + 0x10u), records = read32(rdram, db + 0x2cu);
+            uint32_t record = 0;
+            for (uint32_t lo = 0, hi = count; lo < hi;) // the ids are sorted as signed words (0x164808's slt)
+            {
+                const uint32_t mid = (lo + hi) / 2;
+                const int32_t at = static_cast<int32_t>(read32(rdram, ids + 4u * mid));
+                if (at == static_cast<int32_t>(id))
+                {
+                    record = records + size * mid;
+                    break;
+                }
+                if (at < static_cast<int32_t>(id))
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            if (!record || read32(rdram, record + 8u) != kItemKind)
+                return 0;
+            uint32_t slot = 0x200u;
+            for (uint32_t k = 0; k < 0x200u; ++k)
+            {
+                const uint32_t held = read32(rdram, kBag + k * 8u);
+                if (held == record)
+                {
+                    slot = k;
+                    break;
+                }
+                if (held == 0 && slot == 0x200u)
+                    slot = k;
+            }
+            if (slot == 0x200u)
+                return 0;
+            const uint32_t had = read32(rdram, kBag + slot * 8u) == record ? read32(rdram, kBag + slot * 8u + 4u) : 0u;
+            const uint32_t now = std::min<uint32_t>(had + static_cast<uint32_t>(amount), 99u);
+            write32(rdram, kBag + slot * 8u, record);
+            write32(rdram, kBag + slot * 8u + 4u, now);
+            return static_cast<int>(now - had);
+        }
+
+        // The bag as {id, count}: each slot's record's id (+4).
+        void readBag(const uint8_t *rdram, std::vector<std::pair<uint32_t, uint32_t>> &bag)
+        {
+            bag.clear();
+            for (uint32_t k = 0; k < 0x200u; ++k)
+            {
+                const uint32_t record = read32(rdram, kBag + k * 8u);
+                if (record >= 0x100000u && record < 0x2000000u)
+                    bag.push_back({read32(rdram, record + 4u), read32(rdram, kBag + k * 8u + 4u)});
+            }
+        }
+
         void request(Request::Kind kind, int32_t value, uint32_t atFrame = 0)
         {
             std::lock_guard lock(g_mutex);
@@ -320,15 +512,20 @@ namespace tta
             // (the game's frame stops; seen with an Eregion id right after a warp to Rohan, its list still empty).
             bool listed = false;
             size_t count = 0;
+            std::string names; // the map's encounters, for a scripted run that asked for another
             {
                 std::lock_guard lock(g_mutex);
                 count = g_encounters.size();
                 for (const Encounter &e : g_encounters)
+                {
                     listed = listed || (e.id == id && objectIs(rdram, e, kEncounterType));
+                    names += (names.empty() ? "" : ", ") + std::to_string(e.id) + " " + e.name;
+                }
             }
             if (!listed)
             {
-                note("no encounter " + std::to_string(id) + " on this map (" + std::to_string(count) + " listed): not started");
+                note("no encounter " + std::to_string(id) + " on this map (" + std::to_string(count) + " listed: " + names +
+                     "): not started");
                 return;
             }
             // Not inside one of the game's in-engine films (0x3a5294: 5 in a film, 6 exploring, 3 in battle): Helm's
@@ -463,6 +660,49 @@ namespace tta
                     startGroup(rdram, ctx, rt, r.value);
                 else
                     warp(rdram, ctx, rt, r.value);
+            }
+            applyCheats(rdram);
+            // Items the Cheats tab asked for, once the game's data is loaded.
+            {
+                std::deque<std::pair<uint32_t, int>> adds;
+                const uint32_t db = read32(rdram, kDatabase);
+                if (db >= 0x100000u && db < 0x2000000u && read32(rdram, db + 8u) != 0u && frame > 60u)
+                {
+                    std::lock_guard lock(g_mutex);
+                    adds.swap(g_itemAdds);
+                }
+                for (const auto &[id, amount] : adds)
+                {
+                    const int added = addItem(rdram, id, amount);
+                    note("added " + std::to_string(added) + " x " + std::string(reinterpret_cast<const char *>(&id), 4) +
+                         (added == 0 ? " (no such item, or the bag is full)" : ""));
+                }
+            }
+            if (g_itemsWanted.load(std::memory_order_relaxed))
+            {
+                static uint32_t bagFrame = 0;
+                bool empty;
+                {
+                    std::lock_guard lock(g_mutex);
+                    empty = g_items.empty();
+                }
+                static uint32_t listFrame = 0;
+                if (empty && frame - listFrame >= 120u) // at most every two seconds while nothing is found (a load)
+                {
+                    listFrame = frame;
+                    std::vector<Item> items;
+                    listItems(rdram, items);
+                    std::lock_guard lock(g_mutex);
+                    g_items.swap(items);
+                }
+                if (frame - bagFrame >= 30u)
+                {
+                    bagFrame = frame;
+                    std::vector<std::pair<uint32_t, uint32_t>> bag;
+                    readBag(rdram, bag);
+                    std::lock_guard lock(g_mutex);
+                    g_bag.swap(bag);
+                }
             }
             if (g_restore.address && frame >= g_restore.frame)
             {
@@ -660,6 +900,99 @@ namespace tta
             ImGui::EndChild();
         }
 
+        void drawCheatsTab()
+        {
+            ImGui::TextDisabled("For the party (everyone who fights). They apply at once and last until the game closes.");
+            bool hp = g_infiniteHp.load(), ap = g_infiniteAp.load();
+            if (ImGui::Checkbox("Infinite HP", &hp))
+                g_infiniteHp = hp;
+            ImGui::TextDisabled("Health back to full every frame: only a hit larger than a full bar can fell someone.");
+            if (ImGui::Checkbox("Infinite AP", &ap))
+                g_infiniteAp = ap;
+            ImGui::TextDisabled("Skills and spells cost nothing: AP back to full every frame.");
+
+            static const int kXp[] = {100, 200, 300, 500, 1000};
+            static const char *kXpNames[] = {"1x (normal)", "2x", "3x", "5x", "10x"};
+            int xpIndex = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(kXp); ++i)
+                if (g_xpPercent.load() == kXp[i])
+                    xpIndex = i;
+            ImGui::SetNextItemWidth(160.0f * ImGui::GetStyle().FontScaleDpi);
+            if (ImGui::Combo("Experience", &xpIndex, kXpNames, IM_ARRAYSIZE(kXpNames)))
+                g_xpPercent = kXp[xpIndex];
+            ImGui::TextDisabled("Every battle's experience multiplied (levels come faster).");
+
+            ImGui::SeparatorText("Items");
+            g_itemsWanted = true;
+            std::vector<Item> items;
+            std::vector<std::pair<uint32_t, uint32_t>> bag;
+            {
+                std::lock_guard lock(g_mutex);
+                items = g_items;
+                bag = g_bag;
+            }
+            if (items.empty())
+            {
+                ImGui::TextDisabled("The item list comes once a game is loaded.");
+                return;
+            }
+            static char search[64] = "";
+            static int amount = 1;
+            ImGui::SetNextItemWidth(260.0f * ImGui::GetStyle().FontScaleDpi);
+            ImGui::InputTextWithHint("##itemsearch", "search (athelas, mithril, Pot4...)", search, sizeof(search));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f * ImGui::GetStyle().FontScaleDpi);
+            if (ImGui::InputInt("Amount", &amount))
+                amount = std::clamp(amount, 1, 99);
+            std::string want = search;
+            for (char &c : want)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            const float height = ImGui::GetStyle().FontScaleDpi * 260.0f;
+            if (ImGui::BeginTable("items", 4, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter,
+                                  ImVec2(0.0f, height)))
+            {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("In the bag", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableHeadersRow();
+                for (const Item &item : items)
+                {
+                    if (!want.empty())
+                    {
+                        std::string text = item.name + " " + item.code;
+                        for (char &c : text)
+                            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                        if (text.find(want) == std::string::npos)
+                            continue;
+                    }
+                    uint32_t owned = 0;
+                    for (const auto &[id, count] : bag)
+                        if (id == item.id)
+                            owned += count;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::PushID(static_cast<int>(item.id));
+                    if (ImGui::SmallButton("Add"))
+                    {
+                        std::lock_guard lock(g_mutex);
+                        g_itemAdds.push_back({item.id, amount});
+                    }
+                    ImGui::PopID();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(item.name.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("%s %s", item.equipment ? "gear" : "use", item.code.c_str());
+                    ImGui::TableNextColumn();
+                    if (owned)
+                        ImGui::Text("%u", owned);
+                }
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("Added to the party's bag at once; equipment then shows in the Equip menu.");
+        }
+
         void drawTab()
         {
             std::vector<Encounter> encounters, groups;
@@ -758,8 +1091,29 @@ namespace tta
             requestEncounter(e);
         if (const char *g = std::getenv("TTA_GROUP"))
             requestGroup(g);
+        // TTA_CHEATS=hp,ap,xp=<percent>,item=<id>x<amount>: the Cheats tab for a scripted run (an item's id is its four
+        // characters, given when the game first ticks).
+        if (const char *c = std::getenv("TTA_CHEATS"))
+        {
+            std::istringstream in(c);
+            for (std::string spec; std::getline(in, spec, ',');)
+                if (spec == "hp")
+                    g_infiniteHp = true;
+                else if (spec == "ap")
+                    g_infiniteAp = true;
+                else if (spec.rfind("xp=", 0) == 0)
+                    g_xpPercent = std::clamp(std::atoi(spec.c_str() + 3), 0, 10000);
+                else if (spec.rfind("item=", 0) == 0 && spec.size() >= 9)
+                {
+                    uint32_t id = 0;
+                    std::memcpy(&id, spec.data() + 5, 4);
+                    const int amount = spec.size() > 10 && spec[9] == 'x' ? std::atoi(spec.c_str() + 10) : 1;
+                    g_itemAdds.push_back({id, std::clamp(amount, 1, 99)});
+                }
+        }
         registry.registerFunction(0x140670, parseArguments);
         registry.registerFunction(0x216118, mainLoopTick);
+        registry.registerFunction(0x18c7d0, addExperience);
         if (std::getenv("TTA_ENCOUNTER_TRACE"))
             registry.registerFunction(0x15b6c8, encounterTrace);
         if (std::getenv("TTA_ZONE_TRACE"))
@@ -769,6 +1123,7 @@ namespace tta
         }
 #ifdef BOZO_SETTINGS_UI
         bozo::app::ui::registerTab("Debug", drawTab);
+        bozo::app::ui::registerTab("Cheats", drawCheatsTab);
 #endif
     }
 }
