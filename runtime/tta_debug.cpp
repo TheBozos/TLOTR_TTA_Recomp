@@ -336,6 +336,60 @@ namespace tta
             Original(rdram, ctx, rt);
         }
 
+        // TTA_STATE_TRACE=1 also: the chapter messages (category 0x7d0, handler 0x18f420: {0x7d0, ?, number, arguments}).
+        void chapterMessageTrace(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t m = ctx->r[4].uw[0];
+            if (read32(rdram, m) == 0x7d0u)
+                std::printf("[tta:state] game frame %u: chapter message %u (%x %x %x %x) from %x%c", gameFrame(rdram), read32(rdram, m + 8u),
+                            read32(rdram, m + 4u), read32(rdram, m + 12u), read32(rdram, m + 16u), read32(rdram, m + 20u),
+                            ctx->r[31].uw[0], 10);
+            func_0x18f420(rdram, ctx, rt);
+        }
+
+        // Instant kills: the battle's action (0x110e38, from the battle state at 0x16317c) marks the targets an
+        // instant-death effect fells (the Eye of Sauron's Wrath of Sauron carries one) in the action context 0x3a1900
+        // (0x110438): the targets from +0x210, their count at +0x204 + 0x7e, one result byte each from +0x278, 1 for
+        // felled; it may also set their HP straight to 0 (0x111654-0x11167c), past 0x18bcd8. The winner check later
+        // in the same frame (0x161630 -> 0x17caa0, each side counted through the alive filter 0x17da40) leaves out a
+        // fighter so marked whatever its HP, so the Eye's side won with the whole party at full HP. With infinite HP
+        // the party's marks are cleared and its HP put back, after the action and again before the winner check.
+        constexpr uint32_t kAction = 0x3a1900u;
+
+        void keepPartyStanding(uint8_t *rdram)
+        {
+            if (!g_infiniteHp.load(std::memory_order_relaxed))
+                return;
+            const std::vector<uint32_t> party = partyActors(rdram);
+            const int count = std::clamp<int>(static_cast<int8_t>(rdram[kAction + 0x204u + 0x7eu]), 0, 26);
+            for (int k = 0; k < count; ++k)
+                if (std::find(party.begin(), party.end(), read32(rdram, kAction + 0x210u + 4u * k)) != party.end() &&
+                    rdram[kAction + 0x278u + k] == 1u)
+                {
+                    rdram[kAction + 0x278u + k] = 0u;
+                    std::printf("[tta:debug] cheat: %x not felled at game frame %u%c", read32(rdram, kAction + 0x210u + 4u * k),
+                                gameFrame(rdram), 10);
+                }
+            for (const uint32_t actor : party)
+            {
+                const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd98u));
+                if (static_cast<int32_t>(read32(rdram, actor + 0x9cu)) <= 0 && most > 0 && most < 100000)
+                    write32(rdram, actor + 0x9cu, static_cast<uint32_t>(most));
+            }
+        }
+
+        void battleAction(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            func_0x110e38(rdram, ctx, rt);
+            keepPartyStanding(rdram);
+        }
+
+        void battleWinner(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            keepPartyStanding(rdram);
+            func_0x161630(rdram, ctx, rt);
+        }
+
         // XP: 0x18c7d0(actor, amount) adds experience (+0xa54, at most 50,000,000; a float tally at +0xa80); the battles'
         // rewards call it (0x111a5c, 0x1127ec, 0x112838). The XP multiplier scales the amount, except when the game sets
         // a joining member's level (0x16ab20: the amount that member is short of it, from 0x16ab74).
@@ -740,6 +794,13 @@ namespace tta
                 {
                     std::printf("[tta:state] game frame %u: %u -> %u%c", frame, last, state, 10);
                     last = state;
+                }
+                // The top-level mode (0x3ba700, the machine 0x1c29c8 over the table 0x35fc98).
+                static int lastMode = 1000;
+                if (const int mode = static_cast<int8_t>(rdram[0x3ba700u]); mode != lastMode)
+                {
+                    std::printf("[tta:state] game frame %u: mode %d -> %d%c", frame, lastMode, mode, 10);
+                    lastMode = mode;
                 }
             }
             // Items the Cheats tab asked for, once the game's data is loaded.
@@ -1206,6 +1267,10 @@ namespace tta
             registry.registerFunction(0x11b368, damageTrace<0x11b368u, func_0x11b368>);
         }
         registry.registerFunction(0x18bcd8, battleHpChange);
+        registry.registerFunction(0x110e38, battleAction);
+        registry.registerFunction(0x161630, battleWinner);
+        if (std::getenv("TTA_STATE_TRACE"))
+            registry.registerFunction(0x18f420, chapterMessageTrace);
         if (std::getenv("TTA_ENCOUNTER_TRACE"))
             registry.registerFunction(0x15b6c8, encounterTrace);
         if (std::getenv("TTA_ZONE_TRACE"))

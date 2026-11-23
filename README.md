@@ -28,8 +28,9 @@ Built on [BozoEngine](https://github.com/TheBozos/BozoEngine), The Bozos' own to
 fork the game played from the boot to the first battle (the older screenshots below), but its graphics went through a
 PS2 emulation layer (VU1 sandbox, GS state machine, GS memory). BozoEngine has none of it: everything the game draws,
 the movies, the 2D, the text, the 3D and its effects, comes from native draw hooks written from the game's own data.
-Every region loads and its battles play (Eregion to the Pelennor Fields, through the debug warps); what is left is
-a few effects, a playthrough from the intro to the end of the campaign, and the Linux and macOS builds. Beyond the
+Every region loads and its battles play (Eregion to the Pelennor Fields, through the debug warps), and the last
+battle, against the Eye of Sauron, ends in the game's closing films and back to the title. What is left is a few
+effects, a playthrough from the intro to the end of the campaign, and the Linux and macOS builds. Beyond the
 console: widescreen, higher resolutions, anti-aliasing, texture upscaling, frames between the game's, fast forward,
 save states and cheats.
 
@@ -50,6 +51,7 @@ save states and cheats.
 | The game playable again: the first battle, the forest, Eregion and on (played in the window, saves on disk) | ✅ |
 | Every region loads and its battles play: Moria, the Gullies, Rohan, Helm's Deep, Osgiliath, Minas Tirith, the Pelennor | ✅ |
 | PC options: widescreen, render scale, MSAA, texture upscaling and smoothing, interpolated frames, fast forward, gamepad menus, cheats | ✅ |
+| The last battle (the Eye of Sauron) won and the ending played, reached through the debug warp and the cheats | ✅ |
 | The whole campaign played through, from the intro to the end | ⏳ |
 | Linux and macOS builds | ⏳ |
 
@@ -61,6 +63,15 @@ The engine changes TTA needs are merged into BozoEngine's `master`, which the su
 what remains open.
 
 ## Screenshots
+
+**2026-11-23.** The ending, native: Gandalf crowns Aragorn in the closing films, after the Eye of Sauron is beaten
+on the Pelennor Fields. Reached from the debug warp with the cheats; the Eye's Wrath of Sauron fells the party
+outright (an instant-death effect marked in the battle's action, which the winner check reads before the HP), so
+infinite HP now keeps them standing through it.
+
+<p align="center">
+  <img src="docs/screenshots/2026-11-23-bozo-ending-coronation.png" width="560" alt="The ending film: Gandalf in white lifting the crown over Aragorn's head in the hall of Minas Tirith">
+</p>
 
 **2026-11-23.** The Cheats tab (F2): infinite HP and AP (a knocked-out member gets up again), one-hit kills, an
 experience multiplier, and any of the game's ~390 items into the bag, found by name. HP, AP and experience were found
@@ -344,8 +355,8 @@ The game's own saves (its two memory cards) are in `%APPDATA%\TheBozos\The Third
 (`video.ini`, `input.ini`, `tta.ini`) in `%APPDATA%\TLOTR_TTA_Recomp`.
 
 **Cheats:** the Cheats tab of the settings window (F2):
-- **Infinite HP and AP:** battle damage to the party is ignored, and health and Action Points are kept full. Anyone
-  knocked out anyway gets up again half a second later. Turn it off for a battle the story means you to lose, such
+- **Infinite HP and AP:** battle damage to the party is ignored, instant kills (the Eye of Sauron's Wrath of Sauron)
+  fell no one, and health and Action Points are kept full. Anyone knocked out anyway gets up again half a second later. Turn it off for a battle the story means you to lose, such
   as the first one against the Nazgul.
 - **One-hit kills:** enemies are held at 1 HP in battle, so any blow that lands fells them (a miss still misses).
 - **Experience:** every battle's experience multiplied by 2, 3, 5 or 10.

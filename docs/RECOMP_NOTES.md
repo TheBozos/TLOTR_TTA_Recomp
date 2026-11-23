@@ -817,6 +817,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   defeat is decided elsewhere (the drain's caller runs 0x18c440's forecast and 0x111d48's effects); not found yet.
   What the ending shows was checked apart: the credits (title > More > Credits: CreditsManager) scroll natively
   with their fades; the last chapter's films are E3C3F01-11 (the same MPEG path as every film seen).
+  Solved (same day): the Game Over message (category 0xaf0, float 5.0, to 0x1ecc18 -> ShowGameOver 0x1e5f78) is
+  posted by the game-mode state 0x1640e8, chosen at 0x162a14 after the winner check 0x161630 found side 1 (the
+  Eye's) left standing: GetWinningSide's 0x17caa0 counts each side through the alive filter 0x17da40, which
+  besides HP > 0 leaves out a fighter its action marked felled: the action context 0x3a1900 (0x110438), targets
+  from +0x210, count at +0x204 + 0x7e, a result byte each from +0x278 (1 felled), set by Wrath of Sauron's
+  instant-death effect (which may also zero HP directly, 0x111654-0x11167c). Infinite HP now clears the party's
+  marks and puts its HP back after the action (0x110e38) and before the winner check. With hp,ap,kill the Eye
+  (Inst_e3c3_27, 1333) is beaten at game frame 17207 (winner 0, the victory states 0x3a20e0 / 0x3a20e8 /
+  0x3a2098); the level script then posts chapter messages 8 and 0 to map index 0 (e98c03, the ending map): the
+  closing films (the mountains, the Grey Havens, Gandalf crowning Aragorn), then the title screen. The HUD still
+  shows the party at 0 HP during Wrath of Sauron (it reads the action's result, not the actors).
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
