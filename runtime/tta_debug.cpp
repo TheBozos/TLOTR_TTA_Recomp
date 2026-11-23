@@ -222,7 +222,9 @@ namespace tta
         // its AP as a halfword at +0xa5e; its maximums, as 0x18cef0 last worked them out, at +0xd98 and +0xd9c (0x183f28,
         // 0x1840a0). The game's own full heal (0x1249c4) writes the maximums back the same way.
         constexpr uint32_t kParty = 0x3a6e50u;
-        std::atomic<bool> g_infiniteHp{false}, g_infiniteAp{false};
+        std::atomic<bool> g_infiniteHp{false}, g_infiniteAp{false}, g_oneHitKills{false};
+        // The battle's combatants: the turn queue manager 0x3a5578's list, count 0x3a5a2c, actors from 0x3a5a30.
+        constexpr uint32_t kCombatantCount = 0x3a5a2cu, kCombatants = 0x3a5a30u;
 
         uint16_t read16(const uint8_t *rdram, uint32_t address)
         {
@@ -252,6 +254,25 @@ namespace tta
         void applyCheats(uint8_t *rdram, uint32_t frame)
         {
             const bool hp = g_infiniteHp.load(std::memory_order_relaxed), ap = g_infiniteAp.load(std::memory_order_relaxed);
+            // One-hit kills: every enemy in the combatant list (flags +0x98 with bit 27, a combatant, and bit 30, an enemy:
+            // 0x48000004 for the first battle's Nazgul and the forest's wargs, 0x08000004 for the party) held at 1 HP, so
+            // any blow that lands fells it through the game's own damage and death. The game state word is no guide (6,
+            // exploring, through a debug-started battle), and the list outlives its battle, so an actor counts only while
+            // it still looks like one: both bits, its HP within a sane maximum.
+            if (g_oneHitKills.load(std::memory_order_relaxed))
+            {
+                const uint32_t count = std::min<uint32_t>(read32(rdram, kCombatantCount), 16u);
+                for (uint32_t k = 0; k < count; ++k)
+                {
+                    const uint32_t actor = read32(rdram, kCombatants + 4u * k);
+                    if (actor < 0x100000u || actor >= 0x2000000u || (read32(rdram, actor + 0x98u) & 0x48000000u) != 0x48000000u)
+                        continue;
+                    const int32_t health = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
+                    const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd98u));
+                    if (health > 1 && most >= health && most < 1000000)
+                        write32(rdram, actor + 0x9cu, 1u);
+                }
+            }
             static std::vector<std::pair<uint32_t, uint32_t>> fallen; // actor, the frame it was seen down
             if (!hp)
                 fallen.clear();
@@ -929,6 +950,10 @@ namespace tta
             if (ImGui::Checkbox("Infinite AP", &ap))
                 g_infiniteAp = ap;
             ImGui::TextDisabled("Skills and spells cost nothing: AP back to full every frame.");
+            bool kill = g_oneHitKills.load();
+            if (ImGui::Checkbox("One-hit kills", &kill))
+                g_oneHitKills = kill;
+            ImGui::TextDisabled("Enemies held at 1 HP in battle: any blow that lands fells them (a miss still misses).");
 
             static const int kXp[] = {100, 200, 300, 500, 1000};
             static const char *kXpNames[] = {"1x (normal)", "2x", "3x", "5x", "10x"};
@@ -1110,7 +1135,7 @@ namespace tta
             requestEncounter(e);
         if (const char *g = std::getenv("TTA_GROUP"))
             requestGroup(g);
-        // TTA_CHEATS=hp,ap,xp=<percent>,item=<id>x<amount>: the Cheats tab for a scripted run (an item's id is its four
+        // TTA_CHEATS=hp,ap,kill,xp=<percent>,item=<id>x<amount>: the Cheats tab for a scripted run (an item's id is its four
         // characters, given when the game first ticks).
         if (const char *c = std::getenv("TTA_CHEATS"))
         {
@@ -1118,6 +1143,8 @@ namespace tta
             for (std::string spec; std::getline(in, spec, ',');)
                 if (spec == "hp")
                     g_infiniteHp = true;
+                else if (spec == "kill")
+                    g_oneHitKills = true;
                 else if (spec == "ap")
                     g_infiniteAp = true;
                 else if (spec.rfind("xp=", 0) == 0)

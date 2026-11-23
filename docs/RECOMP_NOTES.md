@@ -796,6 +796,11 @@ the game's behaviour); its code is in the history before `8ade037`.
   state bit 0x1d clear (+0xe24, set by 0x11f290 from 0x1160c4); Berethor's +0xe24 stays 0 while down in the first
   battle. Checked in the warg camp: Idrial felled by a 174 critical hit (157 max) stood up at 157, came back into the
   turn queue and acted; the battle was won.
+  One-hit kills (the user's request, same day): the combatant list of the turn queue manager 0x3a5578 (count
+  0x3a5a2c, actors from 0x3a5a30) with each enemy (flags +0x98 & 0x48000000: combatant and enemy; the party is
+  0x08000004) held at 1 HP. The game state word 0x3a5294 reads 6 through a debug-started battle and the list
+  outlives its battle, so the flags and a sane HP maximum are the guard. The warg camp, lost without cheats, ended
+  with the experience screen by game frame 16400 with kill alone.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

@@ -332,11 +332,12 @@ The game's own saves (its two memory cards) are in `%APPDATA%\TheBozos\The Third
 - **Infinite HP and AP:** the party's health and Action Points go back to full every frame. Anyone knocked out
   anyway (a blow larger than a full bar) gets up again half a second later. Turn it off for a battle the story
   means you to lose, such as the first one against the Nazgul.
+- **One-hit kills:** enemies are held at 1 HP in battle, so any blow that lands fells them (a miss still misses).
 - **Experience:** every battle's experience multiplied by 2, 3, 5 or 10.
 - **Items:** any of the game's ~390 items (potions, weapons, armour, rings...) added to the party's bag in any amount
   up to 99. A search box finds them by name or by their four-letter id.
 
-They last until the game closes. For scripted runs, `TTA_CHEATS=hp,ap,xp=300,item=Pot8x5` does the same.
+They last until the game closes. For scripted runs, `TTA_CHEATS=hp,ap,kill,xp=300,item=Pot8x5` does the same.
 
 ## Goal
 
