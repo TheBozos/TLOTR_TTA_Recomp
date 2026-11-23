@@ -776,6 +776,23 @@ the game's behaviour); its code is in the history before `8ade037`.
   Deterministic runs are unpaced: the regression scenes are unchanged. Then BozoEngine#121: fast forward is a binding
   like a PS2 button (input.ini fast_forward, the Controls tab's last row), ` and every player's touchpad click by
   default.
+- **The release: TMB's and DC's launcher** (2026-11-23, the user's request). The same design and tools as
+  TheBozos/DC_Recomp (itself TMB's): launcher/ (TTA Launcher.exe: DC's, with TTA's name, disc, texts in English and
+  French, and icon runtime/app/tta.ico; it now keeps video.ini's keys it does not know, the game's newer ones),
+  tools/tta_build.py (dc_build.py's steps: verify the ELF's SHA-1, extract the ELF, SYSTEM.CNF, LIBSD / AUDIOPF.IRX
+  and the .SCP archives (17 files, 840 MB), configure with TTA_GUI_SUBSYSTEM=ON and the kit's FFmpeg through
+  TTA_FFMPEG_ROOT, recompile, convert textures and meshes, compile, stage), tools/make_build_kit.py,
+  tools/make_release.py (TTA's player README; .scp / .sas refused in a release), tools/apply_update.py (TMB's: DC's
+  repository has none, so its Update button has nothing to run), the release workflow, tests/test_release_tools.py,
+  VERSION 0.1.0, CHANGELOG.md (one line per bullet: the launcher's What's new prints line breaks and drops `code`).
+  tta.exe takes its ELF, disc.iso, tta_symbols.txt, textures/ and meshes/ from beside itself in a folder the stage
+  step made (marked by tta_build.json; build/bozo has a tta_symbols.txt of bozo-recomp's that is not the map: without
+  the marker every regression scene faulted at _sceSDC). Checked: the kit from this MSYS2 (its versions match DC's
+  pins; 441 MB, 114 s), the release (170 MB zip, 92 s) audited by --verify-zip, unzipped under "Jérôme Jeux",
+  the launcher's --self-check (a file of zeros refused), the game prepared there with the kit alone (no MSYS2 or
+  Python on the PATH, through the ASCII junctions) in 207 s, the prepared game's battle1 frame 6300 identical to the
+  regression baseline, the launcher's screens (--selftest --screens). Not checked: the release workflow on GitHub,
+  the launcher's Prepare and Play buttons by hand.
 - **Cheats** (2026-11-23, the user's request; runtime/tta_debug.cpp, the Cheats tab, TTA_CHEATS). Found from the
   Lua C functions' table (names loaded by 0x26a8xx, their C sides by lui 0x26 / addiu): GetHealthAsPercentage 0x267fc8
   -> 0x17ebf0 reads HP at actor +0x9c over 0x183f28's maximum (+0xd98, recomputed by 0x18cef0); 0x1840a0 is the

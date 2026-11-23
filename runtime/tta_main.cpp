@@ -76,6 +76,10 @@ namespace
         if (here.empty())
             return;
         std::error_code ec;
+        // Only a folder the stage step made (it writes tta_build.json): a developer's build folder has files of the
+        // same names that are not these (build/bozo/tta_symbols.txt is bozo-recomp's own output).
+        if (!std::filesystem::exists(here / "tta_build.json", ec))
+            return;
         const auto has = [&](const char *name) { return std::filesystem::exists(here / name, ec); };
         if (has("SLUS_210.27"))
             options.elf = (here / "SLUS_210.27").string();
