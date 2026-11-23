@@ -13,8 +13,9 @@
 // Maps. The map index (0x35bd0c, 0..13) chooses among the paths at 0x35bc88 (e98c/e98c03 ... e03c/e03c04); 0x190130(i)
 // sets it, and the chapter message 0 (category 0x7d0, handler 0x18f420: {0x7d0, 0, number, arguments}) loads the map
 // at that index through 0x18f318 (SetLevel 0x190040, Data/Game/<path>.scp into 0x35bcc8): the game's loading screen,
-// then the map's own opening (its films, its start position). Indices 6 (e99c01) and 13 (e03c04) have no files on the
-// disc; 0 and 1 are the developers' test maps (e98c03 went back to the title, e98c02 played Eregion's films).
+// then the map's own opening (its films, its start position). Indices 6 (e99c01), 8 (e02c04) and 13 (e03c04) have no
+// files on the disc; 0 and 1 are the developers' test maps (e98c03 goes back to the title, e98c02 played Eregion's
+// films). The closing films after the Eye of Sauron are the Pelennor script's own, before it loads e98c03.
 //
 // Both run from the main loop's wait on the graphics paths (0x216118, once a frame, see tta_port.cpp's busyPaths): a warp
 // as calls into the game with the caller's registers kept, a battle as the loop's next call (callStartEncounter).
@@ -75,7 +76,7 @@ namespace tta
             {"e02c/e02c01", "Eastemnet Gullies"},
             {"e99c/e99c01", nullptr}, // not on the disc
             {"e02c/e02c03", "Rohan"},
-            {"e02c/e02c04", "(e02c04)"},
+            {"e02c/e02c04", nullptr}, // not on the disc (E02C holds 01, 03, 05): a warp there stayed black
             {"e02c/e02c05", "Helm's Deep"},
             {"e03c/e03c01", "Osgiliath"},
             {"e03c/e03c02", "Minas Tirith"},
