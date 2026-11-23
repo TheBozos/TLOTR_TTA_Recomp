@@ -854,6 +854,12 @@ the game's behaviour); its code is in the history before `8ade037`.
   tomb (e01c02 1001), the Gullies' Enc_End (1139), Helm's Deep's Keep (1132), Gothmog (1269) and the Witch-king (1561)
   were won without a map change within 10,000 frames: their regions move on by walking or scripts a debug-started
   battle does not reach, so those transitions stay unchecked. Pelennor's Eye of Sauron leads to the ending (above).
+  Looked at again (same day, the user's choice to check them): after those wins the game puts the party back where
+  the warp left it (Minas Tirith's entrance after the Witch-king; Osgiliath's start after Gothmog; Helm's Deep plays
+  its opening films first) and the region goes on as before: a debug-started fight runs outside the story, whose
+  later steps (the walk to the exit, the closing films) depend on the region's earlier events, which the warp skips.
+  The developers' options are only "level" / "file" (never read) and "encounters_only": no chapter select. Checking
+  these five needs saves made in play near each region's end.
 - **Issue #3, the encounter palantir hidden by meshes** (2026-11-23, worked around). The orb the game shows in the
   screen's top-left corner when an encounter is near (the reporter's video: fixed on screen while trees pass in
   front) is three Glow systems attached to the camera ~21 units ahead (matrix w translation 20.78, texture records
