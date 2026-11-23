@@ -223,7 +223,7 @@ namespace tta
         // its AP as a halfword at +0xa5e; its maximums, as 0x18cef0 last worked them out, at +0xd98 and +0xd9c (0x183f28,
         // 0x1840a0). The game's own full heal (0x1249c4) writes the maximums back the same way.
         constexpr uint32_t kParty = 0x3a6e50u;
-        std::atomic<bool> g_infiniteHp{false}, g_infiniteAp{false}, g_oneHitKills{false};
+        std::atomic<bool> g_infiniteHp{false}, g_infiniteAp{false}, g_oneHitKills{false}, g_winBattle{false}, g_autoWin{false};
         // The battle's combatants: the turn queue manager 0x3a5578's list, count 0x3a5a2c, actors from 0x3a5a30.
         constexpr uint32_t kCombatantCount = 0x3a5a2cu, kCombatants = 0x3a5a30u;
 
@@ -260,6 +260,32 @@ namespace tta
             // any blow that lands fells it through the game's own damage and death. The game state word is no guide (6,
             // exploring, through a debug-started battle), and the list outlives its battle, so an actor counts only while
             // it still looks like one: both bits, its HP within a sane maximum.
+            // Win the battle (the tab's button, once; TTA_CHEATS=win for every battle): every enemy at 0 HP, so the
+            // game's own winner check (0x161630, after the next action) finds their side down.
+            const bool autoWin = g_autoWin.load(std::memory_order_relaxed);
+            if (autoWin || g_winBattle.load(std::memory_order_relaxed))
+            {
+                const uint32_t count = std::min<uint32_t>(read32(rdram, kCombatantCount), 16u);
+                uint32_t felled = 0;
+                for (uint32_t k = 0; k < count; ++k)
+                {
+                    const uint32_t actor = read32(rdram, kCombatants + 4u * k);
+                    if (actor < 0x100000u || actor >= 0x2000000u || (read32(rdram, actor + 0x98u) & 0x48000000u) != 0x48000000u)
+                        continue;
+                    const int32_t health = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
+                    const int32_t most = static_cast<int32_t>(read32(rdram, actor + 0xd98u));
+                    if (health > 0 && most >= health && most < 1000000)
+                    {
+                        write32(rdram, actor + 0x9cu, 0u);
+                        ++felled;
+                    }
+                }
+                g_winBattle = false;
+                if (felled)
+                {
+                    std::printf("[tta:debug] cheat: %u enemies felled at game frame %u%c", felled, frame, 10);
+                }
+            }
             if (g_oneHitKills.load(std::memory_order_relaxed))
             {
                 const uint32_t count = std::min<uint32_t>(read32(rdram, kCombatantCount), 16u);
@@ -803,6 +829,14 @@ namespace tta
                     std::printf("[tta:state] game frame %u: mode %d -> %d%c", frame, lastMode, mode, 10);
                     lastMode = mode;
                 }
+                // The map index (kMapIndex): which region is loaded.
+                static uint32_t lastMap = ~0u;
+                if (const uint32_t map = read32(rdram, kMapIndex); map != lastMap)
+                {
+                    std::printf("[tta:state] game frame %u: map %u (%s)%c", frame, map,
+                                map < 14u ? kMaps[map].path : "?", 10);
+                    lastMap = map;
+                }
             }
             // Items the Cheats tab asked for, once the game's data is loaded.
             {
@@ -1056,6 +1090,9 @@ namespace tta
             if (ImGui::Checkbox("One-hit kills", &kill))
                 g_oneHitKills = kill;
             ImGui::TextDisabled("Enemies held at 1 HP in battle: any blow that lands fells them (a miss still misses).");
+            if (ImGui::Button("Win this battle"))
+                g_winBattle = true;
+            ImGui::TextDisabled("Every enemy down at once; the battle ends after the next action.");
 
             static const int kXp[] = {100, 200, 300, 500, 1000};
             static const char *kXpNames[] = {"1x (normal)", "2x", "3x", "5x", "10x"};
@@ -1247,6 +1284,8 @@ namespace tta
                     g_infiniteHp = true;
                 else if (spec == "kill")
                     g_oneHitKills = true;
+                else if (spec == "win")
+                    g_autoWin = true;
                 else if (spec == "ap")
                     g_infiniteAp = true;
                 else if (spec.rfind("xp=", 0) == 0)

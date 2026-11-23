@@ -64,6 +64,8 @@ namespace tta
             return v;
         }
 
+        float g_lastMeshScreen[16] = {}; // the last mesh's RC+0x2e0 (TTA_GLOW_DUMP compares the glows' with it)
+
         // TTA_3D_TRACE=1: per second, the nodes drawn and missing by kind.
         int traceLevel()
         {
@@ -1097,6 +1099,7 @@ namespace tta
                     // what the alike draws share.
                     const uint64_t base = (1ull << 40) | node;
                     drawQueue().setKey(instanceKey(rdram, base), base);
+                    std::memcpy(g_lastMeshScreen, screen, sizeof(screen));
                     drawNode(rdram, *m, it->second, screen);
                     drawQueue().setKey(0);
                     count(rdram, g_drawn);
@@ -1476,7 +1479,7 @@ namespace tta
             viewport[15] = 1.0f;
             multiply(viewport, clip, screen);
             if (env("TTA_SHADOW_ORDER"))
-                std::printf("[tta:shadowz] frame %u pass18 %d G %x viewport z %.6g + %.6g clip z %.4g %.4g %.4g %.4g w %.4g %.4g %.4g %.4g\n",
+                std::printf("[tta:shadowz] frame %u pass18 %d G %x viewport z %.9g + %.9g clip z %.9g %.9g %.9g %.9g w %.9g %.9g %.9g %.9g\n",
                             frame(rdram), g_shadowPass ? 1 : 0, g, viewport[10], viewport[14], clip[2], clip[6], clip[10], clip[14],
                             clip[3], clip[7], clip[11], clip[15]);
             // G is set only by the VisualEntity draw 0x1b1b18 (through 0x225920): a skinned node drawn by another path
@@ -2697,6 +2700,10 @@ namespace tta
             for (int i = 0; i < 16; ++i)
                 m[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
             const float focal = readFloat(rdram, rc + 0x524), aspect = readFloat(rdram, rc + 0x5e4);
+            if (g_glowDump)
+                std::printf("[tta:glow]   matrix z %g %g %g %g w %g %g %g %g; last mesh z %g %g %g %g w %g %g %g %g%c", m[2], m[6],
+                            m[10], m[14], m[3], m[7], m[11], m[15], g_lastMeshScreen[2], g_lastMeshScreen[6], g_lastMeshScreen[10],
+                            g_lastMeshScreen[14], g_lastMeshScreen[3], g_lastMeshScreen[7], g_lastMeshScreen[11], g_lastMeshScreen[15], 10);
             const bool own = !env("TTA_GLOW_DS_STATE");
             const uint64_t tex0 = own && g_glowHasTex0 ? g_glowTex0 : read64(rdram, ds + 0x1a0);
             const uint64_t alpha = own && g_glowHasAlpha ? g_glowAlpha : read64(rdram, ds + 0x100);
@@ -2742,6 +2749,9 @@ namespace tta
                     const float cw = m[3] * world[0] + m[7] * world[1] + m[11] * world[2] + m[15];
                     if (!(cw > 1.0e-4f))
                         continue;
+                    // The GS Z is z / w, the scale of the scene's meshes and skins. The microcode's FTOI4 on Z (0xae0 ..
+                    // 0xaf8) suggests 16 z / w, but the console's GS dumps give Z x w ~1.2e6 (1.68e6 in the other shot)
+                    // for the glows and the scene alike (2026-11-23, issue #3): 16 z / w hazed every scene.
                     const float q = 1.0f / cw, sx = cx * q, sy = cy * q, sz = cz * q;
                     if (sz < 0.0f || sz > 16777215.0f)
                         continue;
@@ -2959,6 +2969,12 @@ namespace tta
                 std::printf("[tta:glow] #%d instance %x S %x: +88 %g +8c %x +a0 %x +a4 %g +c8 %x +134 %x +138 %x\n", g_glowIndex,
                             ctx->r[4].uw[0], s, readFloat(rdram, s + 0x88), read32(rdram, s + 0x8c), read32(rdram, s + 0xa0),
                             readFloat(rdram, s + 0xa4), read32(rdram, s + 0xc8), read32(rdram, s + 0x134), read32(rdram, s + 0x138));
+                const uint32_t packet = read32(rdram, s + 0x138);
+                std::printf("[tta:glow]   +84 %x +94 %x; packet", read32(rdram, s + 0x84), read32(rdram, s + 0x94));
+                for (uint32_t q = 0; packet && q < 12u; ++q)
+                    std::printf(" | %g %g %g %g", readFloat(rdram, packet + q * 16u), readFloat(rdram, packet + q * 16u + 4u),
+                                readFloat(rdram, packet + q * 16u + 8u), readFloat(rdram, packet + q * 16u + 12u));
+                std::printf("%c", 10);
             }
             g_glowBlocks.clear();
             g_glowZbuf = 0;

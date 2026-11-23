@@ -845,6 +845,28 @@ the game's behaviour); its code is in the history before `8ade037`.
   0x3a2098); the level script then posts chapter messages 8 and 0 to map index 0 (e98c03, the ending map): the
   closing films (the mountains, the Grey Havens, Gandalf crowning Aragorn), then the title screen. The HUD still
   shows the party at 0 HP during Wrath of Sauron (it reads the action's result, not the actors).
+- **Region to region, and Win this battle** (2026-11-23). The Cheats tab's Win this battle (TTA_CHEATS=win for every
+  battle) sets every enemy in the combatant list to 0 HP; the winner check ends the battle with its rewards.
+  TTA_STATE_TRACE=1 now also logs the map index (0x35bd0c) as it changes. From the forest state, each region's last
+  fight started from the debug warp with hp,ap,win (a CROSS every 240 frames for the Continue screens):
+  Eregion's Watcher (2133) plays its films, Gimli joins and Western Moria loads; Rohan's EncounterInstance_Death
+  (1397) posts chapter messages 8 and 0 and Helm's Deep loads; the Balrog (e01c04 1004) plays its films. Balin's
+  tomb (e01c02 1001), the Gullies' Enc_End (1139), Helm's Deep's Keep (1132), Gothmog (1269) and the Witch-king (1561)
+  were won without a map change within 10,000 frames: their regions move on by walking or scripts a debug-started
+  battle does not reach, so those transitions stay unchecked. Pelennor's Eye of Sauron leads to the ending (above).
+- **Issue #3, the encounter palantir hidden by meshes** (2026-11-23, open). The blue orb the game shows near an
+  encounter is a Glow: three systems (records with ids 0x1beef3 / 0xada699fa / 0x56ea8870f / 0x4602d5f) with their
+  own TEST 0x5000a (Z GEQUAL) and ZBUF ZMSK 1 in their first DMA block, PRMODE 0x250 (context 2) and ALPHA 0x48 in
+  the second. On the console it stays in front (the user); natively Berethor's head (outpost, host 4150) and the
+  forest's foliage (build/states/palantir_14142.state, the orb ~21 units away at the top left) hide it. Tried and
+  dropped: the glow microcode converts Z with FTOI4 (16 z / w), but the two console GS dumps give Z x w ~1.2e6 /
+  1.68e6 for the glows and the scene's draws alike (PACKED ST's Q = 1 / w), so glows, statics and skins share one
+  scale, as natively; 16 z / w hazed every scene (battle1 6048 mean 19.5) and put the fog over Berethor and a
+  chest's rays through the ground (build/states/chest_fog_12821.state). The matrix the microcode gets (its first
+  block's UNPACK to VU 0) equals RC+0x2e0 as read; the scene's Z inversion around the shadows (two white - Cd
+  passes into FBP 0x100) restores it exactly before the glows; static batches keep the scene's alpha > 0 test.
+  Open: what the console's Z holds where the orb is drawn (no console capture of a palantir scene).
+  TTA_GLOW_DUMP now prints each system's +0x84 / +0x94, its packet and its matrix beside the last mesh's.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
