@@ -809,7 +809,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   drain (the party's changes from 0x1112d8, the Eye healed by the same from 0x11176c); with hp,ap,kill every
   combatant keeps its HP in RAM (party full, the Eye at 1) and the HUD still shows the party at 0, then Game Over
   within a second. The defeat comes from something other than HP (the battle's own outcome, or the encounter's
-  script missing its story setup); not followed further. The ending is still unchecked.
+  script missing its story setup). Followed further (same day; TTA_STATE_TRACE=1 logs the state word's changes,
+  TTA_DAMAGE_TRACE now the game frame): the blow at game frame 16712, then at 16817 the game's map load (0x1c3ed8
+  from 0x1c2b00, the top-level mode machine: a table of mode handlers at 0x35fc98, each returning the next) with
+  the party's full heal (0x1921f8 via 0x193e18), Game Over and a new game's Eregion. The battle manager 0x3a4f98's
+  forced winner (+0x1ec, read by 0x17ccc0) and result (+0x44c) stay -1 throughout, and no HP reaches 0, so the
+  defeat is decided elsewhere (the drain's caller runs 0x18c440's forecast and 0x111d48's effects); not found yet.
+  What the ending shows was checked apart: the credits (title > More > Credits: CreditsManager) scroll natively
+  with their fades; the last chapter's films are E3C3F01-11 (the same MPEG path as every film seen).
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

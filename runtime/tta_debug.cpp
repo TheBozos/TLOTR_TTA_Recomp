@@ -319,7 +319,7 @@ namespace tta
                     ctx->r[5].ud[0] = 0;
             }
             if (std::getenv("TTA_DAMAGE_TRACE"))
-                std::printf("[tta:dmg] 18bcd8 actor %x change %d hp %d from %x%c", ctx->r[4].uw[0], ctx->r[5].sw[0],
+                std::printf("[tta:dmg] frame %u 18bcd8 actor %x change %d hp %d from %x%c", gameFrame(rdram), ctx->r[4].uw[0], ctx->r[5].sw[0],
                             static_cast<int32_t>(read32(rdram, ctx->r[4].uw[0] + 0x9cu)), ctx->r[31].uw[0], 10);
             func_0x18bcd8(rdram, ctx, rt);
         }
@@ -331,7 +331,8 @@ namespace tta
         {
             const uint32_t actor = ctx->r[4].uw[0];
             const int32_t before = static_cast<int32_t>(read32(rdram, actor + 0x9cu));
-            std::printf("[tta:dmg] %x actor %x amount %d hp %d from %x%c", Address, actor, ctx->r[5].sw[0], before, ctx->r[31].uw[0], 10);
+            std::printf("[tta:dmg] frame %u %x actor %x amount %d hp %d from %x%c", gameFrame(rdram), Address, actor, ctx->r[5].sw[0], before,
+                        ctx->r[31].uw[0], 10);
             Original(rdram, ctx, rt);
         }
 
@@ -731,6 +732,16 @@ namespace tta
                     warp(rdram, ctx, rt, r.value);
             }
             applyCheats(rdram, frame);
+            // TTA_STATE_TRACE=1: each change of the game's state word (3 a battle, 4 its end, 5 a film, 6 exploring).
+            if (static const bool trace = std::getenv("TTA_STATE_TRACE") != nullptr; trace)
+            {
+                static uint32_t last = ~0u;
+                if (const uint32_t state = read32(rdram, kGameState); state != last)
+                {
+                    std::printf("[tta:state] game frame %u: %u -> %u%c", frame, last, state, 10);
+                    last = state;
+                }
+            }
             // Items the Cheats tab asked for, once the game's data is loaded.
             {
                 std::deque<std::pair<uint32_t, int>> adds;
