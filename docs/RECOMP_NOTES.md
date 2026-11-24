@@ -897,6 +897,26 @@ the game's behaviour); its code is in the history before `8ade037`.
   chain's numbers give); every other regress scene is identical and the battle's frame rate unchanged (60.6 / 64.1
   frames a second against 61.7 / 63.5 without, window build, unpaced). TTA_NO_HIGHLIGHT_MASK=1 for the old drawing,
   TTA_HIGHLIGHT_TRACE=1 logs the passes. No console capture to check the strength against.
+- **Helm's Deep's battle start: the shadow volumes' hidden sides** (2026-11-24). The stretch from helmsdeep_18850
+  (--encounter 1126@18900, to 19700), window build hidden and unpaced (TTA_NO_LOCKSTEP=1: with lockstep a scripted run
+  waits for each present, so the game and the renderer no longer overlap and the frame is their sum). TTA_HOST_PROFILE:
+  the game thread a full core, a third of it in Renderer::draw's memcpy of each batch into the frame (memory bound:
+  ~420K vertices a frame there, 13 MB), 5% copying vectors of vertices. Switched off one at a time, the skins
+  (TTA_NO_SKIN) are a quarter of the stretch and the shadows (TTA_NO_SHADOWS: their own skinning pass and the volumes) a
+  sixth; the glows nothing. TTA_SHADOW_STATS=1 counts the volumes: 11 characters, 145K of the frame's vertices.
+  drawShadowVolume sweeps each triangle along the light into a closed prism (two caps, three sides of two faces each)
+  for the z-fail count. Two neighbours' sides along a shared edge are the same flat quad (the edge swept by the same
+  light, split along the other diagonal), turned opposite ways: one adds 1, the other takes 1 from the same pixels, and
+  the counts wrap, so the pair changes nothing. The sweep now classifies all eight faces first (the same outward and
+  screen-winding tests as before), pairs each side with its neighbour's by the edge's two ends (their bits, in a table
+  reused between frames), and leaves out a pair when both are unclipped and in opposite lists; what is left is the
+  caps and the outline as the light sees it. TTA_SHADOW_ALL_SIDES=1: every side as before. The volumes are also built
+  straight into the frame's queue entries, kept between frames, instead of copied into the queue. 145K -> 75K shadow
+  vertices; regress: 3 pixels differ in 33 captures (2 at a shadow's edge on the Helm's Deep wall by 14 levels, 1 by
+  1: the other diagonal's rounding). Old against new build, alternated four times each: 9.62 s -> 8.79 s for the 804
+  frames (-9%, the new one faster in every pair); the battle's work 12.2-13.3 -> 11.2-12.1 ms a frame. With the PC
+  otherwise idle the stretch now runs at 82-96 frames a second unpaced, only single frames over 16.7 ms (the battle's
+  load); measured while the PC was busy it was 43, so the dips the window showed depend on what else runs.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
@@ -1432,6 +1452,7 @@ sceGsExecLoadImage, the garbled loading text, have no counterpart there: the loa
 BozoEngine's libmpeg keeps one stream callback a type, so the sceMpeg callback leak JC2 found cannot happen):
 - The highlight glow (below, "The highlight mask") has no console capture to check its strength against.
 - The shine layer "02" (above, "The shine layer and F7"): no case seen to check it against.
-- Helm's Deep's battle start still dips to ~56 frames a second for two seconds (above, "Frame times in the later
-  regions"; was ~10 s at 49-57 before BozoEngine#112).
+- Helm's Deep's battle start: 82-96 frames a second unpaced on an idle PC since the shadow volumes' hidden sides went
+  (above), single frames over 16.7 ms at the battle's load; a third of the game thread is still the copy of each batch
+  into the frame (Renderer::draw), which only fewer vertices or batches written straight into the frame would cut.
 - The Linux and macOS builds (WSL here has no compiler; installing one needs the user's sudo).

@@ -27,6 +27,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <set>
+#include <span>
 #include <thread>
 #include <vector>
 
@@ -1347,7 +1348,10 @@ namespace tta
             uint32_t strength = 0;
             uint64_t key = 0; // the character's volume (frames between the game's)
         };
-        std::vector<QueuedShadow> g_shadowQueue; // this frame's volumes, drawn at the shadow layer (flushShadows)
+        // This frame's volumes (the first g_shadowCount), drawn at the shadow layer (flushShadows). The entries stay between
+        // frames, so their vertex storage is reused instead of copied into the queue each frame.
+        std::vector<QueuedShadow> g_shadowQueue;
+        size_t g_shadowCount = 0;
         uint32_t g_shadowQueueFrame = 0;
         void flushShadows(const uint8_t *rdram);
         float g_shadowScreen[16];
@@ -2222,8 +2226,18 @@ namespace tta
                 v.rgba = 0x80808080u;
                 return v;
             };
-            // Reused between frames (a character's volume is a few thousand faces each frame).
-            static std::vector<bozo::render::Vertex> up, down, face;
+            // Built straight into this frame's next queue entry, whose storage is reused between frames (a character's
+            // volume is a few thousand faces each frame).
+            if (g_shadowQueueFrame != frame(rdram))
+            {
+                g_shadowCount = 0;
+                g_shadowQueueFrame = frame(rdram);
+            }
+            if (g_shadowCount == g_shadowQueue.size())
+                g_shadowQueue.emplace_back();
+            QueuedShadow &q = g_shadowQueue[g_shadowCount++];
+            std::vector<bozo::render::Vertex> &up = q.up, &down = q.down;
+            static std::vector<bozo::render::Vertex> face;
             up.clear();
             down.clear();
             up.reserve(g_shadowWorld.size() * 8);
@@ -2250,8 +2264,22 @@ namespace tta
                 }
                 return k;
             };
-            const auto addFace = [&](const Corner &ka, const Corner &kb0, const Corner &kc0, const float centre[3])
+            // A prism: its six corners (the triangle's, then swept along the light) and its eight faces, each turned
+            // outward (away from the prism's centre) and sorted into the count's lists.
+            struct Face
             {
+                uint8_t a, b, c; // corners, in the drawn order
+                int8_t list;     // 0: up, 1: down (both unclipped), 2: clipped to the Z range first, -1: none (edge-on)
+            };
+            struct Prism
+            {
+                Corner k[6];
+                Face f[8];
+                bool sideDropped[3] = {false, false, false};
+            };
+            const auto classify = [](const Corner (&k)[6], uint8_t ia, uint8_t ib0, uint8_t ic0, const float centre[3])
+            {
+                const Corner &ka = k[ia], &kb0 = k[ib0], &kc0 = k[ic0];
                 const std::array<float, 3> &a = ka.p;
                 // Outward: the face's normal away from the prism's centre.
                 const float u[3] = {kb0.p[0] - a[0], kb0.p[1] - a[1], kb0.p[2] - a[2]};
@@ -2259,15 +2287,26 @@ namespace tta
                 const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
                 const float out = n[0] * (a[0] - centre[0]) + n[1] * (a[1] - centre[1]) + n[2] * (a[2] - centre[2]);
                 if (out == 0.0f)
-                    return;
-                const Corner &kb = out < 0.0f ? kc0 : kb0, &kc = out < 0.0f ? kb0 : kc0;
-                const std::array<float, 3> &b = kb.p, &c = kc.p;
+                    return Face{ia, ib0, ic0, -1};
+                const uint8_t ib = out < 0.0f ? ic0 : ib0, ic = out < 0.0f ? ib0 : ic0;
+                const Corner &kb = k[ib], &kc = k[ic];
                 // The common case: all three in front of the camera and inside the Z range: no clipping, the screen
                 // winding from the projected points directly.
                 if (ka.inside && kb.inside && kc.inside)
                 {
                     const float area = (kb.sx - ka.sx) * (kc.sy - ka.sy) - (kb.sy - ka.sy) * (kc.sx - ka.sx);
-                    auto &into = area > 0.0f ? up : down;
+                    return Face{ia, ib, ic, static_cast<int8_t>(area > 0.0f ? 0 : 1)};
+                }
+                return Face{ia, ib, ic, 2};
+            };
+            const auto emit = [&](const Corner (&k)[6], const Face &f)
+            {
+                if (f.list < 0)
+                    return;
+                const std::array<float, 3> &a = k[f.a].p, &b = k[f.b].p, &c = k[f.c].p;
+                if (f.list < 2)
+                {
+                    auto &into = f.list == 0 ? up : down;
                     into.push_back(vertex(a));
                     into.push_back(vertex(b));
                     into.push_back(vertex(c));
@@ -2278,12 +2317,12 @@ namespace tta
                 for (size_t i = 0; i + 2 < face.size(); i += 3)
                 {
                     float sx[3], sy[3];
-                    for (int k = 0; k < 3; ++k)
+                    for (int j = 0; j < 3; ++j)
                     {
-                        const auto &v = face[i + k];
+                        const auto &v = face[i + j];
                         const float w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
-                        sx[k] = (m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12]) / w;
-                        sy[k] = (m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13]) / w;
+                        sx[j] = (m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12]) / w;
+                        sy[j] = (m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13]) / w;
                     }
                     const float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);
                     auto &into = area > 0.0f ? up : down;
@@ -2291,6 +2330,11 @@ namespace tta
                                 face.begin() + static_cast<std::ptrdiff_t>(i) + 3);
                 }
             };
+            // The faces, in the order they were always drawn: the two caps, then each edge's side (two faces).
+            static constexpr uint8_t kFaces[8][3] = {{0, 1, 2}, {3, 4, 5}, {0, 1, 4}, {0, 4, 3},
+                                                     {1, 2, 5}, {1, 5, 4}, {2, 0, 3}, {2, 3, 5}};
+            static std::vector<Prism> prisms;
+            prisms.clear();
             for (size_t i = 0; i + 2 < g_shadowWorld.size(); i += 3)
             {
                 const auto &a = g_shadowWorld[i], &b = g_shadowWorld[i + 1], &c = g_shadowWorld[i + 2];
@@ -2310,16 +2354,91 @@ namespace tta
                 float centre[3];
                 for (int k = 0; k < 3; ++k)
                     centre[k] = (a[k] + b[k] + c[k]) / 3.0f + d[k] * 0.5f;
-                const Corner ka = corner(a), kb = corner(b), kc = corner(c), ka2 = corner(a2), kb2 = corner(b2), kc2 = corner(c2);
-                addFace(ka, kb, kc, centre);
-                addFace(ka2, kb2, kc2, centre);
-                addFace(ka, kb, kb2, centre);
-                addFace(ka, kb2, ka2, centre);
-                addFace(kb, kc, kc2, centre);
-                addFace(kb, kc2, kb2, centre);
-                addFace(kc, ka, ka2, centre);
-                addFace(kc, ka2, kc2, centre);
+                Prism &p = prisms.emplace_back();
+                p.k[0] = corner(a);
+                p.k[1] = corner(b);
+                p.k[2] = corner(c);
+                p.k[3] = corner(a2);
+                p.k[4] = corner(b2);
+                p.k[5] = corner(c2);
+                for (int f = 0; f < 8; ++f)
+                    p.f[f] = classify(p.k, kFaces[f][0], kFaces[f][1], kFaces[f][2], centre);
             }
+            // Two neighbours' sides along a shared edge are the same flat quad (the edge swept along the light). When
+            // both are unclipped and land in opposite lists, one adds 1 and the other takes 1 from the same pixels:
+            // the counts wrap, so the pair changes nothing and is left out (most of a character's sides: what stays is
+            // its outline as the light sees it). TTA_SHADOW_ALL_SIDES=1: every side drawn, as before.
+            static const bool allSides = env("TTA_SHADOW_ALL_SIDES") != nullptr;
+            if (!allSides)
+            {
+                struct Slot
+                {
+                    uint32_t key[6];
+                    uint32_t gen = 0;
+                    uint32_t side = 0; // prism * 3 + edge, waiting for its neighbour (UINT32_MAX: none)
+                };
+                static std::vector<Slot> table;
+                static uint32_t gen = 0;
+                size_t size = 64;
+                while (size < prisms.size() * 6)
+                    size *= 2;
+                if (table.size() < size)
+                {
+                    table.assign(size, Slot{});
+                    gen = 0;
+                }
+                size = table.size();
+                ++gen;
+                for (uint32_t pi = 0; pi < prisms.size(); ++pi)
+                {
+                    Prism &p = prisms[pi];
+                    for (uint32_t e = 0; e < 3; ++e)
+                    {
+                        const Face &f0 = p.f[2 + 2 * e], &f1 = p.f[3 + 2 * e];
+                        if (f0.list < 0 || f0.list > 1 || f1.list != f0.list)
+                            continue; // clipped or edge-on: drawn
+                        // The edge's two ends by their bits, the lower first, so both neighbours find the same key.
+                        uint32_t s[3], r[3];
+                        std::memcpy(s, p.k[e].p.data(), sizeof(s));
+                        std::memcpy(r, p.k[(e + 1) % 3].p.data(), sizeof(r));
+                        uint32_t key[6];
+                        const bool swap = std::lexicographical_compare(r, r + 3, s, s + 3);
+                        std::memcpy(key, swap ? r : s, sizeof(s));
+                        std::memcpy(key + 3, swap ? s : r, sizeof(s));
+                        uint64_t h = 0x9e3779b97f4a7c15ull;
+                        for (uint32_t w : key)
+                            h = (h ^ w) * 0xff51afd7ed558ccdull;
+                        size_t at = static_cast<size_t>(h ^ (h >> 29)) & (size - 1);
+                        while (table[at].gen == gen && std::memcmp(table[at].key, key, sizeof(key)) != 0)
+                            at = (at + 1) & (size - 1);
+                        Slot &slot = table[at];
+                        const uint32_t side = pi * 3 + e;
+                        if (slot.gen != gen)
+                        {
+                            std::memcpy(slot.key, key, sizeof(key));
+                            slot.gen = gen;
+                            slot.side = side;
+                            continue;
+                        }
+                        if (slot.side != UINT32_MAX)
+                        {
+                            Prism &o = prisms[slot.side / 3];
+                            if (o.f[2 + 2 * (slot.side % 3)].list != f0.list)
+                            {
+                                o.sideDropped[slot.side % 3] = true;
+                                p.sideDropped[e] = true;
+                                slot.side = UINT32_MAX;
+                                continue;
+                            }
+                        }
+                        slot.side = side;
+                    }
+                }
+            }
+            for (const Prism &p : prisms)
+                for (int f = 0; f < 8; ++f)
+                    if (f < 2 || !p.sideDropped[(f - 2) / 2])
+                        emit(p.k, p.f[f]);
             // TTA_SHADOW_SHOW=1: the volume's faces drawn in colour instead (red one winding, blue the other).
             if (env("TTA_SHADOW_SHOW"))
             {
@@ -2336,6 +2455,7 @@ namespace tta
                     queueDraw(show, m, up.data(), static_cast<uint32_t>(up.size()));
                 if (!down.empty())
                     queueDraw(show, m, down.data(), static_cast<uint32_t>(down.size()));
+                --g_shadowCount; // drawn already, not queued
                 return;
             }
             // Queued, drawn at the game's shadow layer (flushShadows at 0x21ae10): after the whole scene, as the
@@ -2345,15 +2465,7 @@ namespace tta
             const char *alpha = env("TTA_SHADOW_ALPHA");
             const uint32_t gameStrength = (lightAt ? read32(rdram, g + 0x2b4) : read32(rdram, 0x3779a0)) & 0xffu;
             const uint32_t strength = alpha ? static_cast<uint32_t>(std::strtoul(alpha, nullptr, 0)) : gameStrength;
-            if (g_shadowQueueFrame != frame(rdram))
-            {
-                g_shadowQueue.clear();
-                g_shadowQueueFrame = frame(rdram);
-            }
-            QueuedShadow &q = g_shadowQueue.emplace_back();
             std::memcpy(q.matrix, m, sizeof(q.matrix));
-            q.up = up;
-            q.down = down;
             q.strength = strength;
             q.key = instanceKey(rdram, (3ull << 40) ^ (static_cast<uint64_t>(g) * 0x9e3779b97f4a7c15ull));
             if (env("TTA_SHADOW_IMMEDIATE"))
@@ -2365,11 +2477,12 @@ namespace tta
         // scene), then the frame darkened once where a count is left.
         void flushShadows(const uint8_t *rdram)
         {
-            if (g_shadowQueue.empty() || g_shadowQueueFrame != frame(rdram))
+            if (g_shadowCount == 0 || g_shadowQueueFrame != frame(rdram))
             {
-                g_shadowQueue.clear();
+                g_shadowCount = 0;
                 return;
             }
+            const std::span<QueuedShadow> queued(g_shadowQueue.data(), g_shadowCount);
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             // The whole GS window (TTA draws to 1792..2304 x 1824..2272).
             const auto wholeScreen = [&](const bozo::render::Material &material, uint32_t rgba)
@@ -2393,7 +2506,7 @@ namespace tta
                 show.blend = bozo::render::Material::Blend::Alpha;
                 show.depthTest = true;
                 show.depthWrite = false;
-                for (QueuedShadow &q : g_shadowQueue)
+                for (QueuedShadow &q : queued)
                 {
                     for (auto &v : q.up)
                         v.rgba = 0x600000ffu;
@@ -2404,8 +2517,19 @@ namespace tta
                     if (!q.down.empty())
                         queueDraw(show, q.matrix, q.down.data(), static_cast<uint32_t>(q.down.size()));
                 }
-                g_shadowQueue.clear();
+                g_shadowCount = 0;
                 return;
+            }
+            // TTA_SHADOW_STATS=1: the volumes queued and their vertices, every 60th game frame.
+            if (env("TTA_SHADOW_STATS") && frame(rdram) % 60u == 0u)
+            {
+                size_t up = 0, down = 0;
+                for (const QueuedShadow &q : queued)
+                {
+                    up += q.up.size();
+                    down += q.down.size();
+                }
+                std::printf("[tta:shadow] frame %u: %zu volumes, %zu + %zu vertices\n", frame(rdram), g_shadowCount, up, down);
             }
             bozo::render::Material volume;
             volume.textured = false;
@@ -2422,7 +2546,7 @@ namespace tta
             // (z-pass, TTA_SHADOW_ZPASS=1) such a volume darkened a large straight-edged wedge of the ground.
             const bool zFail = !env("TTA_SHADOW_ZPASS");
             volume.stencilDepthFail = zFail;
-            for (const QueuedShadow &q : g_shadowQueue)
+            for (const QueuedShadow &q : queued)
             {
                 drawQueue().setKey(q.key);
                 volume.stencilOp = bozo::render::Material::StencilOp::IncrementWrap;
@@ -2443,10 +2567,10 @@ namespace tta
             // The game's strength (0x21ae10's TEXA.TA0 = *(0x3779a0), set by 0x225218 from G+0x2b4 when the character has
             // its own light at G+0x298): the frame times 1 - TA0 / 128 where a volume counted (0x13..0x20 seen: -15..25%).
             uint32_t strength = 0;
-            for (const QueuedShadow &q : g_shadowQueue)
+            for (const QueuedShadow &q : queued)
                 strength = std::max(strength, q.strength);
             wholeScreen(darken, std::min<uint32_t>(strength, 0x80u) << 24);
-            g_shadowQueue.clear();
+            g_shadowCount = 0;
         }
 
         // 0x21ae10, the shadow layer's darkening pass: the game's own (its GS work does nothing natively), then the queued
