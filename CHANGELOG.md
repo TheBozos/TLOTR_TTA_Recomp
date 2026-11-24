@@ -4,6 +4,8 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-24
+
 ### Added
 - Cheats: a "Win this battle" button.
 - A Special thanks tab in the settings window (F2), for the players who test the port and report what they find.
