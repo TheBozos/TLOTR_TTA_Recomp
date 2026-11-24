@@ -813,6 +813,37 @@ namespace tta
                     warp(rdram, ctx, rt, r.value);
             }
             applyCheats(rdram, frame);
+            // TTA_MENU_SKILL=<id>: experiment (issue #9): the skill's record appended to the battle menu's second skill
+            // list (0x3d533c, the current actor's Spirit Powers: record pointers, 0x140 bytes) while it is not empty.
+            if (static const char *menuSkill = std::getenv("TTA_MENU_SKILL"); menuSkill && std::strlen(menuSkill) == 4)
+            {
+                uint32_t id = 0;
+                std::memcpy(&id, menuSkill, 4);
+                const uint32_t db = read32(rdram, kDatabase);
+                uint32_t record = 0;
+                if (db >= 0x100000u && db < 0x2000000u)
+                {
+                    const uint32_t count = std::min<uint32_t>(read32(rdram, db + 8u), 20000u), ids = read32(rdram, db + 0x28u),
+                                   size = read32(rdram, db + 0x10u), records = read32(rdram, db + 0x2cu);
+                    for (uint32_t i = 0; i < count && !record; ++i)
+                        if (read32(rdram, ids + 4u * i) == id)
+                            record = records + size * i;
+                }
+                constexpr uint32_t kList = 0x3d533cu;
+                if (record && read32(rdram, kList) != 0u)
+                {
+                    uint32_t slot = 0;
+                    bool present = false;
+                    for (; slot < 0x50u && read32(rdram, kList + slot * 4u) != 0u; ++slot)
+                        present = present || read32(rdram, kList + slot * 4u) == record;
+                    // The list's count is kept elsewhere: the last entry is replaced rather than one appended.
+                    if (!present && slot > 0u)
+                    {
+                        write32(rdram, kList + (slot - 1u) * 4u, record);
+                        std::printf("[tta:debug] game frame %u: %s put in the skill menu (slot %u)%c", frame, menuSkill, slot - 1u, 10);
+                    }
+                }
+            }
             // TTA_STATE_TRACE=1: each change of the game's state word (3 a battle, 4 its end, 5 a film, 6 exploring).
             if (static const bool trace = std::getenv("TTA_STATE_TRACE") != nullptr; trace)
             {

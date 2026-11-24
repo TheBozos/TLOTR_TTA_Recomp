@@ -622,6 +622,26 @@ namespace tta
             const bool alphaOnly = ((frameReg >> 32) & 0xffffffu) == 0xffffffu;
 
             std::vector<bozo::render::Vertex> points(n);
+            std::vector<float> pointW(n, 1.0f); // each vertex's clip w (behind the camera when <= 0)
+            if (static int shown = 0; env("TTA_MODE1_PROBE") && rdram[(p + 0x90) & kMask] == 1 && shown < 2)
+            {
+                ++shown;
+                const uint32_t rc = read32(rdram, read32(rdram, 0x36f350));
+                std::printf("[tta:mode1] from %x: point (%g %g %g %g)\n  m:", ra, readFloat(rdram, xyz), readFloat(rdram, xyz + 4),
+                            readFloat(rdram, xyz + 8), readFloat(rdram, xyz + 12));
+                for (int i = 0; i < 16; ++i)
+                    std::printf(" %g", m[i]);
+                std::printf("\n  RC+0x2e0:");
+                for (int i = 0; i < 16; ++i)
+                    std::printf(" %g", readFloat(rdram, rc + 0x2e0 + i * 4));
+                std::printf("\n  RC+0x1a0:");
+                for (int i = 0; i < 16; ++i)
+                    std::printf(" %g", readFloat(rdram, rc + 0x1a0 + i * 4));
+                std::printf("\n  P+0x40:");
+                for (int i = 0; i < 16; ++i)
+                    std::printf(" %g", readFloat(rdram, p + 0x40 + i * 4));
+                std::printf("\n");
+            }
             // A depth-tested primitive (TEST_1: ZTE with ZTST GEQUAL / GREATER) is part of the 3D scene: the effects'
             // strips (sword trails 0x23b988, light beams 0x236218, the particles' 0x2311f8 ..), sent with the scene's
             // TEST 0x5000a / 0x5080a; EA Apt's HUD and menus draw with Z ALWAYS (0x3080a, 0x3001b). Those go into the
@@ -640,6 +660,7 @@ namespace tta
                 float r[4];
                 for (int c = 0; c < 4; ++c)
                     r[c] = m[c] * v[0] + m[4 + c] * v[1] + m[8 + c] * v[2] + m[12 + c] * v[3];
+                pointW[i] = r[3];
                 if (r[3] != 1.0f && r[3] != 0.0f)
                     for (int c = 0; c < 3; ++c)
                         r[c] /= r[3];
@@ -846,11 +867,22 @@ namespace tta
             else
                 material.textured = false;
 
+            // A point on or behind the camera plane under a projective matrix (its w column not constant: the view
+            // projection RC+0x60 of matrix mode 1 makes w = the view z) has no place on screen. The point was left
+            // undivided, at its raw x and y, thousands of pixels off: Aura of the Valar's strips (0x231d44, view-space
+            // points at z 0 in the self-target close-up) became triangles across the whole screen, a navy wash (issue
+            // #9). The console's microcode clips them away; here every triangle using one is left out. Constant-w
+            // matrices (the 2D: P+0x40, w 1) are unaffected. TTA_KEEP_W0=1 for the old way.
+            static const bool keepW0 = env("TTA_KEEP_W0") != nullptr;
+            const bool projective = !(m[3] == 0.0f && m[7] == 0.0f && m[11] == 0.0f);
+            const auto unseen = [&](uint32_t i) { return projective && !keepW0 && !(pointW[i] > 0.0f); };
             // The primitive as triangles.
             std::vector<bozo::render::Vertex> triangles;
             if (type == 6) // sprites: two corners each
                 for (uint32_t i = 0; i + 1 < n; i += 2)
                 {
+                    if (unseen(i) || unseen(i + 1))
+                        continue;
                     const bozo::render::Vertex &a = points[i], &b = points[i + 1];
                     bozo::render::Vertex c[4] = {a, a, a, b};
                     c[1].x = b.x;
@@ -862,17 +894,26 @@ namespace tta
                     triangles.insert(triangles.end(), {c[0], c[1], c[2], c[1], c[3], c[2]});
                 }
             else if (type == 3)
-                triangles.assign(points.begin(), points.begin() + (n / 3) * 3);
+            {
+                for (uint32_t i = 0; i + 2 < n; i += 3)
+                    if (!unseen(i) && !unseen(i + 1) && !unseen(i + 2))
+                        triangles.insert(triangles.end(), {points[i], points[i + 1], points[i + 2]});
+            }
             else if (type == 4)
                 for (uint32_t i = 2; i < n; ++i)
                 {
                     if (i < 32 && (adcMask >> i) & 1u) // the GS's ADC: this vertex closes no triangle
                         continue;
+                    if (unseen(i - 2) || unseen(i - 1) || unseen(i))
+                        continue;
                     triangles.insert(triangles.end(), {points[i - 2], points[i - 1], points[i]});
                 }
             else
                 for (uint32_t i = 2; i < n; ++i)
-                    triangles.insert(triangles.end(), {points[0], points[i - 1], points[i]});
+                    if (!unseen(0) && !unseen(i - 1) && !unseen(i))
+                        triangles.insert(triangles.end(), {points[0], points[i - 1], points[i]});
+            if (triangles.empty())
+                return count(rdram, false);
             if (alphaOnly)
             {
                 if (!fullScreenMask)
@@ -881,9 +922,16 @@ namespace tta
             }
             if (masked)
                 triangles = clipToMask(triangles);
+            // The screen filters' code (0x1c1d34 .. 0x1d235c) also draws plain sprites into the frame itself: Aura of the
+            // Valar's backdrop (0x1cce44, a full-screen navy at alpha up to 0x7f, ALPHA 0x44) is drawn in the frame's
+            // order, the caster and the spell's light after it. In the overlay it covered them too: a navy screen for the
+            // whole spell (issue #9). Those go to the 3D frame's list in order. TTA_FILTER_SPRITES_IN_OVERLAY=1 for the
+            // old way.
+            static const bool filterSpritesInOverlay = env("TTA_FILTER_SPRITES_IN_OVERLAY") != nullptr;
+            const bool filterSprite = !target && source < 0 && !apt && ra >= 0x1c0000u && ra < 0x1d3000u && !filterSpritesInOverlay;
             // Into a target or from one: the 3D frame's list (the overlay is composited after it and samples nothing), in GS
             // screen space; a target's window (centred on 2048) spread over the screen rectangle the renderer maps onto it.
-            if (target || source >= 0)
+            if (target || source >= 0 || filterSprite)
             {
                 // The GS samples a pixel at its integer position, the GPU at its centre (+0.5): moved by half a destination
                 // pixel the filters' chain (frame -> 256 -> 128 -> 64 -> frame) samples what the GS does. Without it each
@@ -903,6 +951,17 @@ namespace tta
                 material.target = target;
                 material.frameWidth = 512u;
                 material.frameHeight = 448u;
+                // A plain sprite into the frame keeps FRAME's write mask (FBMSK), as on the GS: the spells' tint leaves the
+                // frame's alpha alone (0xff000000).
+                if (filterSprite)
+                {
+                    const uint32_t fbmsk = static_cast<uint32_t>(frameReg >> 32);
+                    uint8_t mask = 0;
+                    for (uint32_t c = 0; c < 4; ++c)
+                        if (((fbmsk >> (c * 8)) & 0xffu) != 0xffu)
+                            mask |= static_cast<uint8_t>(1u << c);
+                    material.colourMask = mask;
+                }
                 static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
                 // The GS's integer blend: each of the filters' faint additive passes (the frame into a target at alpha ~7)
                 // adds floor(floor(Ct Cv / 128) As / 128), so a dark texel adds nothing and every pass loses half a level on
@@ -985,9 +1044,10 @@ namespace tta
                                                                        static_cast<uint32_t>(triangles.size()), picture);
                 if (traceLevel() >= 2)
                     std::printf("[tta:2d] frame %u: scene effect from %x: %zu triangles, TEST %llx, first at %.0f,%.0f Z %.0f "
-                                "rgba %08x, matrix mode %u\n",
+                                "rgba %08x, matrix mode %u, w %g..%g\n",
                                 frame(rdram), ra, triangles.size() / 3, static_cast<unsigned long long>(test), triangles[0].x,
-                                triangles[0].y, triangles[0].z, triangles[0].rgba, rdram[(p + 0x90) & kMask]);
+                                triangles[0].y, triangles[0].z, triangles[0].rgba, rdram[(p + 0x90) & kMask],
+                                *std::min_element(pointW.begin(), pointW.end()), *std::max_element(pointW.begin(), pointW.end()));
                 return count(rdram, true);
             }
             // The GS scissor (SCISSOR_1, DS+0x110: x0 bits 0-10, x1 16-26, y0 32-42, y1 48-58, in the frame's pixels):
@@ -1030,14 +1090,15 @@ namespace tta
                                                            static_cast<uint32_t>(triangles.size()), picture);
             if (traceLevel() >= 2)
                 std::printf("[tta:2d] frame %u: type %u n %u from %x tex %s (TEX0 %016llx: TBW %u TW %u TH %u CBP %x) blend %d "
-                            "(%.1f,%.1f)-(%.1f,%.1f) st (%.3f,%.3f)-(%.3f,%.3f) rgba %08x rgba-arg %x\n",
+                            "(%.1f,%.1f)-(%.1f,%.1f) st (%.3f,%.3f)-(%.3f,%.3f) rgba %08x rgba-arg %x ALPHA %llx FBMSK %08x\n",
                             frame(rdram), type, n, ra,
                             picture ? g_placed[{static_cast<uint32_t>(tex0 & 0x3fffu), static_cast<uint32_t>((tex0 >> 20) & 0x3fu)}].file.c_str() : "-",
                             static_cast<unsigned long long>(tex0), static_cast<uint32_t>((tex0 >> 14) & 0x3fu),
                             static_cast<uint32_t>((tex0 >> 26) & 0xfu), static_cast<uint32_t>((tex0 >> 30) & 0xfu),
                             static_cast<uint32_t>((tex0 >> 37) & 0x3fffu), static_cast<int>(material.blend), points[0].x,
                             points[0].y, points[n - 1].x, points[n - 1].y, points[0].u, points[0].v, points[n - 1].u,
-                            points[n - 1].v, points[0].rgba, rgba);
+                            points[n - 1].v, points[0].rgba, rgba, static_cast<unsigned long long>(alpha),
+                            static_cast<uint32_t>(frameReg >> 32));
             count(rdram, true);
         }
     }

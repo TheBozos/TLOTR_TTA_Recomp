@@ -1006,8 +1006,26 @@ the game's behaviour); its code is in the history before `8ade037`.
   against the screen window (c14, vf25.w), FCOR 0xdf7df7 / 0xefbefb / 0xf7df7d / 0xfbefbe: all four past the same edge
   skips it. The FMAND 0x10 tests before are the spin's wrap (the sign of w), not culls. No near-camera test: the
   console draws this particle too, and TTA_GLOW_GUARD=2000 (the microcode's guard) left the frame identical. So the
-  tint is the game's, as far as the microcode shows; left as is. TTA_GLOW_DUMP now takes <frame>+<count>; in battle
-  the game counter 0x3b5720 runs ~330 behind the capture frames.
+  lavender with Gift of Elrond is the game's. TTA_GLOW_DUMP now takes <frame>+<count>; in battle the game counter
+  0x3b5720 runs ~330 behind the capture frames.
+  The reported case, Aura of the Valar (Wcr7) on Idrial, was the real bug. It is not learned in that save: the battle
+  menu's skill lists are record pointers (the current actor's, 0x3d4a7c .., 0x140 bytes each; Spirit Powers at
+  0x3d533c), their counts kept elsewhere; TTA_MENU_SKILL=<id> replaces the last Spirit Powers entry (Loudwater Fury
+  became Aura of the Valar; build/issue9/pad_aura.txt casts it on Idrial). Learned skills are not stored by id or
+  pointer anywhere found (the class tree "_hel" at 0xb94e38 lists Hel1, Wcr2 .. WcrE in order with SP costs; the
+  Fgod / FMor lists are debug and chapter loadouts). The cast turned the screen navy (26, 26, 52) for its whole
+  length; not glows, nodes, skins, shadows, mist, water or fog: the screen filters' code draws a full-screen untextured
+  sprite (0x1cce44, ALPHA 0x44, alpha up to 0x7f, FBMSK 0xff000000; navy 0x190c0c for Aura, dark green 0x0c1900 at
+  0x3f for the Scream). It went to the overlay, over everything. A PCSX2 GS dump of the Scream's Wraith Slash (the
+  user's, build/pcsx2_scream/, parsed by the scratchpad's gsdump.py) gives the console's order: the 3D scene and the
+  shadows, the tint (#32356), the attack's effects (particles, strips, Z GEQUAL), then the bloom chain (FBP 0x1c0), the
+  flare and the HUD. tta_2d.cpp now draws plain sprites from the filters' code (0x1c0000 .. 0x1d3000, no source or
+  target) into the 3D frame's list in order, with FBMSK as a colour mask (TTA_FILTER_SPRITES_IN_OVERLAY=1 for the old
+  way): Aura shows Idrial on the navy backdrop with the white flower and arches of light, the Scream's glows shine
+  at full strength as in the user's PCSX2 shots (they were dimmed by half), the defeat fade (battle1 6800) lies under
+  the HUD. Also: a point at w <= 0 under a projective matrix (matrix mode 1, RC+0x60, w = the view z) is no longer
+  drawn undivided; the triangles using it are left out (TTA_KEEP_W0=1). Baselines re-recorded with the user's
+  approval: battle1, moria (also #5's tentacle edge), rays, rohan, widescreen.
 - **F2's Special thanks tab** (2026-11-24, the user's idea): the players who test and report, one line each in
   tta_main.cpp (kThanks). Vaweila, for #3 to #10.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,

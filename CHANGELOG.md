@@ -18,6 +18,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - The palantir that warns of a coming encounter fades in again instead of showing at full strength at once (#6); other glows fade by the game's strength too.
 - Light rays and lens flares from a light hidden behind walls no longer flash on while the camera turns (#7).
 - The lake at the end of Eregion has its water surface again (#8).
+- Spells that darken the screen (Aura of the Valar, the Nazgul's Scream, Rage of Saruman and others) no longer cover their own caster and light: the screen no longer turns almost solid blue during Aura of the Valar, and the spells' glows shine as on the console (#9).
 - In widescreen, objects at the sides of the picture (such as a save point in Moria) no longer vanish until they reach the middle (#10).
 - Save states made with 0.1.0 keep loading with the updated engine (two engine changes had made them refused).
 
