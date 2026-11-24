@@ -446,6 +446,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
   TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
   clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
+- **Audio pass and frame pacing** (2026-11-24). Same method as below (dummy driver, TTA_AUDIO_STATS, TTA_AUDIO_RATE).
+  Steady play makes 48,000 samples a wall second (forest walk, Helm's Deep, battles); the dummy device sometimes
+  drains over 1 % fast, which pins the ratio at 0.99 and gives underruns that are the test's, not the game's. Found:
+  the first movie after the title (new game, CROSS at 2600) gave 111,505 samples in a second, 1.2 s dropped by the
+  queue: the stall sound (the watcher's, during the load) was brought up to the EE clock and its disc waits, outside
+  the frames' host-time budget. BozoEngine#143 holds it to the same budget: 52K that second, queue max 82 ms, nothing
+  dropped. Left: a region load (warp) stalls 454 ms in host work without out-calls, 36 underruns on the loading screen.
+  The player's "60 but not smooth" (same day): the pacer's 60 Hz and the monitor's drifted (a picture now and then
+  two refreshes, the next never shown) and the driver queued up to three frames; BozoEngine#142 waits each vsync
+  present out (glFinish) and ends the game's frames on the refreshes once their period is steady within 1 % of 60
+  (PS2X_NO_VSYNC_PACE=1 / PS2X_NO_SWAP_FINISH=1 for the old ways). The user played it: smoother.
 - **The sound's crackle** (2026-11-20, the user: "sometimes the sound crackles"). Measured with the window build in
   real time on SDL's dummy audio driver (SDL_AUDIO_DRIVER=dummy TTA_SCRIPTED_SOUND=1 TTA_AUDIO_STATS=1: the device
   drains at 48 kHz, nothing plays) on the user's forest clearing walk: 7 underruns and ~158k dropped samples in a
