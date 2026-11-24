@@ -4,8 +4,10 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-25
+
 ### Fixed
-- A battle's opening animation (the Eye of Sauron in Moria, the swirl of leaves in the forest) covers the battle's menus and bars again, which show through only as it fades, as on the console (#14).
+- A battle's opening animation (the Eye of Sauron in Moria, the swirl of leaves in the forest) covers the battle's menus and bars, which show through only as it fades, as on the console (#14).
 - In widescreen, the ring that shows when the Perfect Mode bar is full is drawn on the bar again instead of beside it (#13; it came with 0.1.1's fix for #10).
 
 ## [0.1.2] - 2026-11-24
