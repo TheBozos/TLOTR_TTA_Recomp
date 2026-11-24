@@ -13,6 +13,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - Crowded scenes with many shadows, such as the start of the battle on Helm's Deep's wall, run about 9% faster.
 - Characters fading in at the start of a battle no longer show the inside of their heads (the face drawn over the back of the head, as if turned around) (#4).
 - The forest ground no longer flickers at the camera's feet on slopes (a second ground layer showed through for single frames as the camera moved) (#5).
+- A character's sword no longer throws a long dark strip of shadow for single frames.
 - Save states made with 0.1.0 keep loading with the updated engine (two engine changes had made them refused).
 
 ## [0.1.0] - 2026-11-23

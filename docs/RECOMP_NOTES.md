@@ -935,8 +935,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   out of terms in the hundreds, and some landed past the maximum, where the vertex shader wraps Z as the GS does: the
   grass triangle's depth went to the far end and the dirt won (exactly, A's Z there is ~5000 units over B's). The
   clip plane (and boxInsideDepthRange, the shadow corners' test) now sits 1/64 of the range inside (kDepthClip). A
-  256-unit margin was not enough. TTA_3D_DUMP_FRAME now also prints the screen matrix. Still open there: Berethor's
-  sword shadow shows for single frames (137150 has it, 137149 and 137151 not); not changed by TTA_SHADOW_ALL_SIDES.
+  256-unit margin was not enough. TTA_3D_DUMP_FRAME now also prints the screen matrix.
+- **The sword's shadow strip** (2026-11-24, same state): at 137150 alone a long dark strip ran off Berethor's shadow,
+  the blade's. The blade is part of the body's shadow mesh (scbm 70063, 1245 shadow vertices every frame;
+  TTA_SHADOW_NODES=1 lists the shadow pass's nodes) and nearly edge-on to the light: TTA_SHADOW_EDGE_ON=0 (no prism
+  skipped) kept the single-frame strip, 0.05 removed it. Each prism face was turned outward against the prism's
+  centre, which for such a flat prism lies almost on every face: some faces turned wrong and the count stopped
+  closing. The faces now turn by one sign, n . d of the triangle against the sweep (kFaces is outward for n . d > 0
+  except the near cap; the other way, all but the near cap flip), the same answer as before on any prism of size.
+  Frame to frame the still scene now changes 0.03% (the idle animation) instead of 0.13% at 137150.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

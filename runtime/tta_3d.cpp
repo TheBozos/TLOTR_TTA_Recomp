@@ -1510,6 +1510,17 @@ namespace tta
             bool fresh = true;
             for (int i = 0; i < 16 && fresh; ++i)
                 fresh = std::fabs(expected[i] - object[i]) <= 1e-3f * (1.0f + std::fabs(object[i]));
+            if (static const bool traceShadowNodes = env("TTA_SHADOW_NODES") != nullptr; traceShadowNodes && g_shadowPass)
+            {
+                size_t shadowVertices = 0;
+                for (const Batch &b : it->second.batches)
+                    if (b.prim & 0x8000u)
+                        shadowVertices += b.vertices.size();
+                if (shadowVertices)
+                    std::printf("[tta:shadownode] frame %u %s %u +%x G %x fresh %d root %u fade %u, %zu shadow vertices, W pos %.2f %.2f %.2f\n",
+                                frame(rdram), type.c_str(), index, offset, g, fresh ? 1 : 0, rootBone, fade, shadowVertices,
+                                (fresh ? w : object)[12], (fresh ? w : object)[13], (fresh ? w : object)[14]);
+            }
             if (!fresh)
                 std::memcpy(w, object, sizeof(w));
             multiply(screen, w, matrix);
@@ -2305,18 +2316,15 @@ namespace tta
                 Face f[8];
                 bool sideDropped[3] = {false, false, false};
             };
-            const auto classify = [](const Corner (&k)[6], uint8_t ia, uint8_t ib0, uint8_t ic0, const float centre[3])
+            // Outward faces: kFaces as listed are outward when the triangle's normal points along the sweep (n . d > 0)
+            // but for the near cap (face 0); the other way, every face but the near cap turns. Taken face by face from
+            // the prism's centre, a prism of a triangle nearly edge-on to the light (the flat blade of Berethor's sword)
+            // had its centre almost on every face: some faces turned the wrong way, the count no longer closed, and the
+            // blade's shadow came out as a long dark strip for single frames (seen on issue #5's slope).
+            const auto classify = [](const Corner (&k)[6], uint8_t ia, uint8_t ib0, uint8_t ic0, bool flip)
             {
-                const Corner &ka = k[ia], &kb0 = k[ib0], &kc0 = k[ic0];
-                const std::array<float, 3> &a = ka.p;
-                // Outward: the face's normal away from the prism's centre.
-                const float u[3] = {kb0.p[0] - a[0], kb0.p[1] - a[1], kb0.p[2] - a[2]};
-                const float t[3] = {kc0.p[0] - a[0], kc0.p[1] - a[1], kc0.p[2] - a[2]};
-                const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
-                const float out = n[0] * (a[0] - centre[0]) + n[1] * (a[1] - centre[1]) + n[2] * (a[2] - centre[2]);
-                if (out == 0.0f)
-                    return Face{ia, ib0, ic0, -1};
-                const uint8_t ib = out < 0.0f ? ic0 : ib0, ic = out < 0.0f ? ib0 : ic0;
+                const Corner &ka = k[ia];
+                const uint8_t ib = flip ? ic0 : ib0, ic = flip ? ib0 : ic0;
                 const Corner &kb = k[ib], &kc = k[ic];
                 // The common case: all three in front of the camera and inside the Z range: no clipping, the screen
                 // winding from the projected points directly.
@@ -2377,11 +2385,9 @@ namespace tta
                 const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, t[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
                 const float n[3] = {u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
                 const float nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                if (!(nl > 0.0f) || std::fabs(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) < 1e-4f * nl * reach)
+                const float facing = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+                if (!(nl > 0.0f) || std::fabs(facing) < 1e-4f * nl * reach)
                     continue;
-                float centre[3];
-                for (int k = 0; k < 3; ++k)
-                    centre[k] = (a[k] + b[k] + c[k]) / 3.0f + d[k] * 0.5f;
                 Prism &p = prisms.emplace_back();
                 p.k[0] = corner(a);
                 p.k[1] = corner(b);
@@ -2390,7 +2396,7 @@ namespace tta
                 p.k[4] = corner(b2);
                 p.k[5] = corner(c2);
                 for (int f = 0; f < 8; ++f)
-                    p.f[f] = classify(p.k, kFaces[f][0], kFaces[f][1], kFaces[f][2], centre);
+                    p.f[f] = classify(p.k, kFaces[f][0], kFaces[f][1], kFaces[f][2], (f == 0) != (facing < 0.0f));
             }
             // Two neighbours' sides along a shared edge are the same flat quad (the edge swept along the light). When
             // both are unclipped and land in opposite lists, one adds 1 and the other takes 1 from the same pixels:
