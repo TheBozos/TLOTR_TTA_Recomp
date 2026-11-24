@@ -1828,6 +1828,34 @@ namespace tta
                     job(material, texture);
                     continue;
                 }
+                // A shadow-volume mesh in the type-18 pass needs its positions only, in world space: no normal, no lighting
+                // (the full path below transformed and lit every shadow vertex, then threw the colour away). The debug
+                // switches that look at the skinned vertices keep the full path.
+                static const bool fullShadowSkin = env("TTA_SHADOW_FULL_SKIN") != nullptr;
+                if ((batch.prim & 0x8000u) && g_shadowPass && type == 3 && !skinHere && !fullShadowSkin)
+                {
+                    std::memcpy(g_shadowScreen, screen, sizeof(g_shadowScreen));
+                    const size_t whole = batch.vertices.size() / 3 * 3;
+                    for (size_t v = 0; v < whole; ++v)
+                    {
+                        float p[3] = {};
+                        const float in[3] = {batch.vertices[v].x, batch.vertices[v].y, batch.vertices[v].z};
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            const float weight = batch.weights[v][k];
+                            if (weight == 0.0f)
+                                continue;
+                            float bp[3];
+                            transformPoint(bone(batch.bones[v][k]).data(), in, 1.0f, bp);
+                            for (int c = 0; c < 3; ++c)
+                                p[c] += weight * bp[c];
+                        }
+                        std::array<float, 3> out;
+                        transformPoint(w, p, 1.0f, out.data());
+                        g_shadowWorld.push_back(out);
+                    }
+                    continue;
+                }
                 skinned = batch.vertices;
                 for (size_t v = 0; v < skinned.size(); ++v)
                 {

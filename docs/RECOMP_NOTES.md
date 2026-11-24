@@ -970,6 +970,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   bounds but one column of strips per edge (44 triangles against the stream's 88), half the lake. drawMist now draws
   the stream's own strips whenever every vertex has its ST and colour (TTA_MIST_NATIVE=1 keeps the rebuild).
   TTA_MIST_EXTENT=1 prints both bounds, the stream's vertices once and the triangles kept by the depth clip.
+- **The shadow pass skins positions only** (2026-11-24, the hub's choice A). The shadow-volume meshes (prim 0x8000)
+  are their own meshes, not the visible ones, so the main pass's skinned vertices could not be reused; but the type-18
+  pass ran them through the visible path: per vertex the normal blended and turned to world space, normalised, and
+  the 10-term lighting for three channels, all thrown away. They now blend the bones' positions and go to world space
+  only (TTA_SHADOW_FULL_SKIN=1 for the old path; the skin debug switches keep it too). The volumes are the same: the
+  33 captures unchanged. Host profile of helmsdeep_18850 (encounter 1126 at 18900, to 19700) on a busy PC: the game
+  thread's samples in TTA's native code from 34.9% to 28.4%; alternated wall-clock pairs 3-5% faster when the PC was
+  quiet, within noise when not.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
