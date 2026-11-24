@@ -1026,6 +1026,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   the HUD. Also: a point at w <= 0 under a projective matrix (matrix mode 1, RC+0x60, w = the view z) is no longer
   drawn undivided; the triangles using it are left out (TTA_KEEP_W0=1). Baselines re-recorded with the user's
   approval: battle1, moria (also #5's tentacle edge), rays, rohan, widescreen.
+- **The cutscenes' depth of field** (2026-11-24, the cutscene after the Watcher, build/issue9/watcher.state with
+  TTA_CHEATS=win and pad_win.txt; captures 191350 / 191500 in build/issue9/dof_*). The whole picture was blurred.
+  It is no movie: 0x1cbce0 blurs the frame into target FBP 0x1c0 (0x1cb2d4, five offset taps), then
+  lays it back over the frame 15 times (the loop at 0x1cc0b8: 14 at 0x1cc108, the last at 0x1cc14c). Each sprite's
+  Z steps from the focus (f20) to the far end (f21) by |f21 - f20| / 15 (0x1cc110), at fading alpha (0x0c .. 0x01),
+  under the scene's depth test (GEQUAL). Only what lies behind a step takes that pass, so the far scene is the
+  blurriest and the focused characters stay sharp. The post-draw path dropped the test. A filter draw into the frame
+  (target 0) with ZTE and GEQUAL / GREATER now keeps it, at the sprite's projected Z
+  (tta_2d.cpp; TTA_DOF_NO_DEPTH=1 for the old way). Regression: all 38 captures match.
 - **F2's Special thanks tab** (2026-11-24, the user's idea): the players who test and report, one line each in
   tta_main.cpp (kThanks). Vaweila, for #3 to #10.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,

@@ -949,6 +949,16 @@ namespace tta
                         q.y = 1824.0f + (q.y - (2048.0f - targetHeight * 0.5f)) * 448.0f / targetHeight;
                     }
                 material.target = target;
+                // A filter pass back into the frame with the scene's depth test (ZTE, ZTST GEQUAL / GREATER) keeps it: the
+                // cutscenes' depth of field (0x1cbce0) lays the blurred frame over it 15 times, each sprite a step further
+                // away at fading alpha, so only what lies behind each step is blurred. Without the test the whole picture
+                // was (the cutscene after the Watcher, all blur). TTA_DOF_NO_DEPTH=1 for the old way.
+                if (!target && sceneEffect && !env("TTA_DOF_NO_DEPTH"))
+                {
+                    material.depthTest = true;
+                    material.depthGreater = zTest == 3u;
+                    material.depthWrite = false;
+                }
                 material.frameWidth = 512u;
                 material.frameHeight = 448u;
                 // A plain sprite into the frame keeps FRAME's write mask (FBMSK), as on the GS: the spells' tint leaves the
