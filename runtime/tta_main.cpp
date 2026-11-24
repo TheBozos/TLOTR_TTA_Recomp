@@ -297,6 +297,36 @@ int main(int argc, char **argv)
                                        savePortSettings();
                                    ImGui::TextDisabled("The music, voices and effects together. Applies at once.");
                                });
+    // The F2 window's Special thanks tab: the players who test the port and report what they find. One line each.
+    struct Thanks
+    {
+        const char *name, *what;
+    };
+    static constexpr Thanks kThanks[] = {
+        {"Vaweila", "testing, and reports #3 to #10: the encounter palantir, the battle fade-in, the forest ground, "
+                    "the god rays, the lake by the gate of Moria, the widescreen culling and more"},
+    };
+    bozo::app::ui::registerTab("Special thanks",
+                               []
+                               {
+                                   ImGui::TextWrapped("To the players who test this port and take the time to report what "
+                                                      "they find, with saves, videos and patience. Thank you.");
+                                   ImGui::Spacing();
+                                   ImGui::Separator();
+                                   ImGui::Spacing();
+                                   for (const Thanks &t : kThanks)
+                                   {
+                                       ImGui::TextUnformatted(t.name);
+                                       ImGui::Indent();
+                                       ImGui::PushTextWrapPos(0.0f);
+                                       ImGui::TextDisabled("%s", t.what);
+                                       ImGui::PopTextWrapPos();
+                                       ImGui::Unindent();
+                                       ImGui::Spacing();
+                                   }
+                                   ImGui::Spacing();
+                                   ImGui::TextDisabled("Found something? Report it at github.com/TheBozos/TLOTR_TTA_Recomp/issues.");
+                               });
 #endif
     // PS2X_TEXTURE_SMOOTHING (off, trilinear, 2x .. 16x) for the runs without the video settings too (scripted ones).
     if (const char *smoothing = std::getenv("PS2X_TEXTURE_SMOOTHING"); smoothing && *smoothing && window && !windowOptions.videoSettings)

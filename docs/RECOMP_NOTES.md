@@ -985,6 +985,16 @@ the game's behaviour); its code is in the history before `8ade037`.
   every pixel clear off the PC's clock, so the flashing itself is not captured) and lake (lake_172593.state: the
   water's own strips, #8). Baselines recorded for these four only; a second run matched to the pixel. 38 captures in
   all.
+- **Issue #10: widescreen culling** (2026-11-24, the user's build/issue10/hall.state, Eastern Moria's first hall, F5
+  at 196458; walking left with build/issue10/pad_turn.txt puts the save point's pedestal at the right edge at 196500).
+  The game culls against its own 4:3 view, so what only the wide picture shows was missing (the pedestal: its glow
+  without it). The camera set-up 0x2111f8 makes the side slope RC+0x540 = F4 x *(*(RC+0x14)+0x28) x
+  *(*(RC+0x18)+0x28) and builds the side frustum planes (RC+0x54c / 0x554, 0x560 / 0x564 and the normals) from it
+  in the same call, so scaling 0x540 after the call changed nothing. The hook widens *(*(RC+0x18)+0x28) by 4/3 for
+  the call and puts it back; nothing else in the set-up reads it. Widescreen only; TTA_WIDE_NO_CULL=1 for the old way.
+  In the 4:3 part the frames are unchanged.
+- **F2's Special thanks tab** (2026-11-24, the user's idea): the players who test and report, one line each in
+  tta_main.cpp (kThanks). Vaweila, for #3 to #10.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

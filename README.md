@@ -360,7 +360,7 @@ over the game after two seconds without moving
 
 | Key | |
 |---|---|
-| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, anti-aliasing, frame rate, fast forward's speed, pause in the background), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles), Cheats |
+| F2 | The settings window: Video (window size, full screen, render scale, texture upscaling and smoothing, anti-aliasing, frame rate, fast forward's speed, pause in the background), Game (widescreen, skippable logos, volume), Controls, Save states, Debug (warps and battles), Cheats, Special thanks (the players who test and report) |
 | F3 | Frame rate counter |
 | F11 or Alt+Enter | Window / full screen |
 | F5 / F7 | Save / load a save state; F6 and Shift+F6 pick the slot (0-9); the Save states tab shows each slot's picture |

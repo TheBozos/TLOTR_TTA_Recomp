@@ -6,6 +6,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ### Added
 - Cheats: a "Win this battle" button.
+- A Special thanks tab in the settings window (F2), for the players who test the port and report what they find.
 
 ### Fixed
 - The soft glow around highlighted and buffed characters in some battles is drawn.
@@ -17,6 +18,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - The palantir that warns of a coming encounter fades in again instead of showing at full strength at once (#6); other glows fade by the game's strength too.
 - Light rays and lens flares from a light hidden behind walls no longer flash on while the camera turns (#7).
 - The lake at the end of Eregion has its water surface again (#8).
+- In widescreen, objects at the sides of the picture (such as a save point in Moria) no longer vanish until they reach the middle (#10).
 - Save states made with 0.1.0 keep loading with the updated engine (two engine changes had made them refused).
 
 ## [0.1.0] - 2026-11-23

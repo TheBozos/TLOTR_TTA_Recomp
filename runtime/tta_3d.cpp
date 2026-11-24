@@ -1235,6 +1235,32 @@ namespace tta
             ctx->pc = ra;
         }
 
+        // 0x2111f8: the camera set-up (RC in a0). In widescreen the picture shows a third more on each side than the game's
+        // 4:3 view, but the game culls what lies outside its own view (issue #10: Eastern Moria's save point appeared only
+        // once inside the 4:3 part). The set-up makes the horizontal slope RC+0x540 = F4 x *(*(RC+0x14)+0x28) x
+        // *(*(RC+0x18)+0x28) and builds the side frustum planes from it in the same call, so the second factor is widened
+        // by 4/3 for the call alone and put back after: the game's own slope and planes come out as wide as the picture.
+        // Nothing else in the set-up reads it (the projection, RC+0x524, comes from elsewhere). TTA_WIDE_NO_CULL=1: as
+        // the game set it.
+        void cameraSetup(uint8_t *rdram, R5900Context *ctx, Runtime *rt)
+        {
+            const uint32_t ra = ctx->r[31].uw[0], rc = ctx->r[4].uw[0];
+            static const bool off = env("TTA_WIDE_NO_CULL") != nullptr;
+            const uint32_t dims = rc ? read32(rdram, rc + 0x18) : 0;
+            const bool widen = widescreen() && !off && dims;
+            float kept = 0.0f;
+            if (widen)
+            {
+                kept = readFloat(rdram, dims + 0x28);
+                const float wide = kept / kWideSqueeze;
+                std::memcpy(rdram + ((dims + 0x28) & kMask), &wide, 4);
+            }
+            func_0x2111f8(rdram, ctx, rt);
+            if (widen)
+                std::memcpy(rdram + ((dims + 0x28) & kMask), &kept, 4);
+            ctx->pc = ra;
+        }
+
         // 0x2221b8: the water's (type 19) per-node render, instance = node + 0x28: it only marks the node visible this
         // frame (inst+0x1e) for the water driver 0x2246e8. Natively the node's converted surface is drawn here (at rest:
         // the driver's waves, 0x2236a0, are not reproduced yet).
@@ -3823,6 +3849,7 @@ namespace tta
         registry.registerFunction(0x21d9f8, staticRender<0x21d9f8, func_0x21d9f8>);
         registry.registerFunction(0x1bdbe8, render);
         registry.registerFunction(0x221178, terrain);
+        registry.registerFunction(0x2111f8, cameraSetup);
         registry.registerFunction(0x2221b8, water);
         registry.registerFunction(0x2236a0, mistAnimator);
     }
