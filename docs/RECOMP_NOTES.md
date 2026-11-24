@@ -978,6 +978,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   33 captures unchanged. Host profile of helmsdeep_18850 (encounter 1126 at 18900, to 19700) on a busy PC: the game
   thread's samples in TTA's native code from 34.9% to 28.4%; alternated wall-clock pairs 3-5% faster when the PC was
   quiet, within noise when not.
+- **Four regression scenes from the issues' saves** (2026-11-24). scripts/regress.sh now also runs fadein (the
+  helmsdeep warp's battle at 19364, the party fading in: #4), slope (build/states/slope_137138.state walked left with
+  tools/pads/pad_slope_walk.txt: 137150 the sword's shadow, 137171 the near cut on the forest ground: #5), rays
+  (rays_151830.state, the waterfall cave with a light in view: glows and flares, #6 / #7; the occlusion test counts
+  every pixel clear off the PC's clock, so the flashing itself is not captured) and lake (lake_172593.state: the
+  water's own strips, #8). Baselines recorded for these four only; a second run matched to the pixel. 38 captures in
+  all.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

@@ -5,6 +5,7 @@
 #   scripts/regress.sh --update   capture straight into build/regress/baseline
 #   scripts/regress.sh [--update] <scene>...   only those scenes (battle1 outpost forest rohan helmsdeep boot pause idrial
 #                                                moria osgiliath minastirith balrog widescreen sunny
+#                                                fadein slope rays lake
 #                                                logos)
 # Runs are deterministic (TTA_DETERMINISTIC=1, the window in lockstep): the game holds at each capture frame until the window has captured
 # it, so the same build gives the same pixels. Build first (ninja -C build/bozo tta).
@@ -37,6 +38,13 @@ SCENES=(
     "widescreen|--widescreen --load-state $STATES/battle1_5800.state --pad-script $PADS/pad_attack.txt|5900 6300"
     "sunny|--load-state $STATES/sunny_battle_9340.state $NONE|9360 9450"
     "logos|--skip-logos --pad-script $PADS/pad_logo_skip.txt|540 700"
+    # 2026-11-24, from the user's saves for issues #4-#8: the party fading in at a battle's start (#4), the forest slope
+    # walked left (#5: the ground's near cut at 137171, the sword's shadow at 137150), the outpost with a light in view
+    # (#6 / #7: glows and flares) and the lake by the gate of Moria (#8: the water's own strips).
+    "fadein|$FOREST --warp HelmsDeep@15000 --encounter 1126@16200 --pad-script $PADS/pad_warp_battle.txt|19364"
+    "slope|--load-state $STATES/slope_137138.state --pad-script $PADS/pad_slope_walk.txt|137150 137171"
+    "rays|--load-state $STATES/rays_151830.state $NONE|151850"
+    "lake|--load-state $STATES/lake_172593.state $NONE|172600"
 )
 
 out="$ROOT/build/regress/$([ $update = 1 ] && echo baseline || echo new)"
