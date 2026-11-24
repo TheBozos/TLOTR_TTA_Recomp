@@ -2878,6 +2878,18 @@ namespace tta
             for (int i = 0; i < 16; ++i)
                 m[i] = readFloat(rdram, rc + 0x2e0 + i * 4);
             const float focal = readFloat(rdram, rc + 0x524), aspect = readFloat(rdram, rc + 0x5e4);
+            // The glow's strength (0x21f980, F20): S+0xa4 times a ramp of *(*(S+0x8c)+0xa8) between the glow mesh's
+            // *(S+0x134)+0xe0 and +0xe4. Below 0.005 the game draws nothing (no blocks reach here); below 0.99 it sends
+            // c27 again with its w (the alpha cap) times the strength (UNPACK 0x6c01001b). Without it the encounter
+            // palantir showed at full strength as soon as it appeared instead of fading in (issue #6).
+            float strength = 1.0f;
+            if (const uint32_t mesh = read32(rdram, s + 0x134), owner = read32(rdram, s + 0x8c); mesh && owner && !env("TTA_GLOW_NO_STRENGTH"))
+            {
+                const float lo = readFloat(rdram, mesh + 0xe0), hi = readFloat(rdram, mesh + 0xe4), at = readFloat(rdram, owner + 0xa8);
+                const float ramp = at <= lo ? 0.0f : hi <= at ? 1.0f : (at - lo) / (hi - lo);
+                strength = readFloat(rdram, s + 0xa4) * ramp;
+            }
+            const float alphaCap = strength < 0.99f ? c(27, 3) * strength : c(27, 3);
             if (g_glowDump)
                 std::printf("[tta:glow]   matrix z %g %g %g %g w %g %g %g %g; last mesh z %g %g %g %g w %g %g %g %g%c", m[2], m[6],
                             m[10], m[14], m[3], m[7], m[11], m[15], g_lastMeshScreen[2], g_lastMeshScreen[6], g_lastMeshScreen[10],
@@ -2965,7 +2977,7 @@ namespace tta
                             v = (c(28, k) + c(25, k) * age) * static_cast<float>(((tint >> (k * 5)) & 31u) << 3) / 128.0f;
                         else
                             v = std::min(c(28, 3) + alphaRate * age, c(31, 3) + c(31, 2) * age);
-                        v = std::min(std::max(v, c(26, k)), c(27, k));
+                        v = std::min(std::max(v, c(26, k)), k == 3 ? alphaCap : c(27, k));
                         rgba |= static_cast<uint32_t>(std::clamp(v, 0.0f, 255.0f)) << (k * 8);
                     }
                     if (g_glowDump)
@@ -3024,8 +3036,22 @@ namespace tta
             // draw without the depth test. TTA_PALANTIR_DEPTH=1 keeps the packet's test.
             if (record)
                 if (const uint64_t id = read64(rdram, record);
-                    (id == 0x56ea8870full || id == 0xada699faull || id == 0x4602d5full) && !env("TTA_PALANTIR_DEPTH"))
-                    material.depthTest = false;
+                    (id == 0x56ea8870full || id == 0xada699faull || id == 0x4602d5full))
+                {
+                    if (!env("TTA_PALANTIR_DEPTH"))
+                        material.depthTest = false;
+                    if (static const bool trace = env("TTA_PALANTIR_TRACE") != nullptr; trace)
+                    {
+                        double sum[4] = {};
+                        for (const auto &v : triangles)
+                            for (int k = 0; k < 4; ++k)
+                                sum[k] += (v.rgba >> (k * 8)) & 0xffu;
+                        const double n = static_cast<double>(triangles.size());
+                        std::printf("[tta:palantir] frame %u S %x id %llx: %zu quads, rgba %.0f %.0f %.0f %.0f, strength %.3f (+a4 %g)\n",
+                                    frame(rdram), s, static_cast<unsigned long long>(id), triangles.size() / 6, sum[0] / n, sum[1] / n,
+                                    sum[2] / n, sum[3] / n, strength, readFloat(rdram, s + 0xa4));
+                    }
+                }
             material.depthWrite = (((g_glowZbuf ? g_glowZbuf : read64(rdram, ds + 0x120)) >> 32) & 1u) == 0;
             if (test & 1u)
             {

@@ -944,6 +944,13 @@ the game's behaviour); its code is in the history before `8ade037`.
   closing. The faces now turn by one sign, n . d of the triangle against the sweep (kFaces is outward for n . d > 0
   except the near cap; the other way, all but the near cap flip), the same answer as before on any prism of size.
   Frame to frame the still scene now changes 0.03% (the idle animation) instead of 0.13% at 137150.
+- **Issue #6: the encounter palantir's fade-in** (2026-11-24). 0x21f980 computes a glow's strength F20 = S+0xa4 x a ramp
+  of *(*(S+0x8c)+0xa8) between *(S+0x134)+0xe0 and +0xe4 (0 at or below the first, 1 at or past the second); below
+  0.005 it draws nothing, below 0.99 it appends a block (DMA cnt 1, UNPACK V4-32 0x6c01001b) that sends c27 again
+  with w x F20: the particles' alpha cap. drawGlow read c27 from the system's packet only, so every glow drew at full
+  strength; the palantir (palantir_14142: +a4 0.08) went from alpha 160 to 20, and in play it fades in as the
+  encounter nears (checked by the user). TTA_GLOW_NO_STRENGTH=1 for the old way, TTA_PALANTIR_TRACE=1 prints the three
+  palantir systems' quads, mean colour and strength each frame. Issue #7 (god rays popping) may be the same.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
