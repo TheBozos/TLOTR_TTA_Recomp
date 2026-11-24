@@ -1020,7 +1020,9 @@ the game's behaviour); its code is in the history before `8ade037`.
   user's, build/pcsx2_scream/, parsed by the scratchpad's gsdump.py) gives the console's order: the 3D scene and the
   shadows, the tint (#32356), the attack's effects (particles, strips, Z GEQUAL), then the bloom chain (FBP 0x1c0), the
   flare and the HUD. tta_2d.cpp now draws plain sprites from the filters' code (0x1c0000 .. 0x1d3000, no source or
-  target) into the 3D frame's list in order, with FBMSK as a colour mask (TTA_FILTER_SPRITES_IN_OVERLAY=1 for the old
+  target, untextured only: the region title cards' ring and caption, 0x1c0b3c / 0x1c0f58, are textured sprites from
+  the same code, white in the frame's list since that path passed no texture; they stay in the overlay)
+  into the 3D frame's list in order, with FBMSK as a colour mask (TTA_FILTER_SPRITES_IN_OVERLAY=1 for the old
   way): Aura shows Idrial on the navy backdrop with the white flower and arches of light, the Scream's glows shine
   at full strength as in the user's PCSX2 shots (they were dimmed by half), the defeat fade (battle1 6800) lies under
   the HUD. Also: a point at w <= 0 under a projective matrix (matrix mode 1, RC+0x60, w = the view z) is no longer

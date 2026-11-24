@@ -928,7 +928,11 @@ namespace tta
             // whole spell (issue #9). Those go to the 3D frame's list in order. TTA_FILTER_SPRITES_IN_OVERLAY=1 for the
             // old way.
             static const bool filterSpritesInOverlay = env("TTA_FILTER_SPRITES_IN_OVERLAY") != nullptr;
-            const bool filterSprite = !target && source < 0 && !apt && ra >= 0x1c0000u && ra < 0x1d3000u && !filterSpritesInOverlay;
+            // Only untextured ones: the region title cards' map and caption (0x1c0b3c, 0x1c0f58) are textured sprites from
+            // the same code, drawn over a black screen. They stay in the overlay (their shape kept in widescreen); in the
+            // frame's list they came out white.
+            const bool filterSprite = !target && source < 0 && !picture && !apt && ra >= 0x1c0000u && ra < 0x1d3000u &&
+                                      !filterSpritesInOverlay;
             // Into a target or from one: the 3D frame's list (the overlay is composited after it and samples nothing), in GS
             // screen space; a target's window (centred on 2048) spread over the screen rectangle the renderer maps onto it.
             if (target || source >= 0 || filterSprite)
@@ -1007,7 +1011,7 @@ namespace tta
                     }
                 }
                 if (!triangles.empty())
-                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()), picture);
                 // GS alpha goes to 0xff (As ~ 2): the screen filters add their blurred target back over the frame at alpha
                 // 0xff, twice the target. The GPU's alpha stops at 1, so an additive draw past 0x80 is drawn again with the
                 // rest (Cs As + Cd = Cs 1 + Cs (As - 1) + Cd; the sum saturates as COLCLAMP does).
@@ -1020,7 +1024,7 @@ namespace tta
                         const uint32_t a = q.rgba >> 24;
                         q.rgba = (q.rgba & 0xffffffu) | ((a > 0x80u ? a - 0x80u : 0u) << 24);
                     }
-                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()));
+                    (flushDraws(), bozo::render::Renderer::instance()).draw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()), picture);
                 }
                 if (traceLevel() >= 2 || frameReportActive(rdram))
                 {
