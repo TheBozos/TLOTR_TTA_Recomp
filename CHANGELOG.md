@@ -4,6 +4,10 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Fixed
+- The game feels smooth at 60 frames a second on a 60 Hz monitor: a picture no longer stays twice now and then while the next is skipped, and the controls answer a few frames sooner.
+- The region title cards (such as "Western Moria") show their ring and caption again instead of white rectangles.
+
 ## [0.1.1] - 2026-11-24
 
 ### Added
