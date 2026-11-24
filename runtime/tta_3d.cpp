@@ -3189,6 +3189,14 @@ namespace tta
                                 readFloat(rdram, packet + q * 16u + 8u), readFloat(rdram, packet + q * 16u + 12u));
                 std::printf("%c", 10);
             }
+            if (static const bool traceStrength = env("TTA_GLOW_STRENGTH") != nullptr; traceStrength)
+            {
+                const uint32_t mesh = read32(rdram, s + 0x134), owner = read32(rdram, s + 0x8c), rec = read32(rdram, s + 0xc8);
+                if (mesh && owner)
+                    std::printf("[tta:glowstrength] frame %u S %x id %llx owner %x: +a4 %g, at %g between %g and %g\n", frame(rdram), s,
+                                static_cast<unsigned long long>(rec ? read64(rdram, rec) : 0), owner, readFloat(rdram, s + 0xa4),
+                                readFloat(rdram, owner + 0xa8), readFloat(rdram, mesh + 0xe0), readFloat(rdram, mesh + 0xe4));
+            }
             g_glowBlocks.clear();
             g_glowZbuf = 0;
             g_glowHasAlpha = g_glowHasTest = g_glowHasTex0 = false;

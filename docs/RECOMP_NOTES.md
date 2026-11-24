@@ -950,7 +950,15 @@ the game's behaviour); its code is in the history before `8ade037`.
   with w x F20: the particles' alpha cap. drawGlow read c27 from the system's packet only, so every glow drew at full
   strength; the palantir (palantir_14142: +a4 0.08) went from alpha 160 to 20, and in play it fades in as the
   encounter nears (checked by the user). TTA_GLOW_NO_STRENGTH=1 for the old way, TTA_PALANTIR_TRACE=1 prints the three
-  palantir systems' quads, mean colour and strength each frame. Issue #7 (god rays popping) may be the same.
+  palantir systems' quads, mean colour and strength each frame; TTA_GLOW_STRENGTH=1 every glow's +a4 and ramp inputs.
+- **Issue #7: rays flashing while the camera turns** (2026-11-24, the user's build/issue7/rays.state at the outpost
+  ruins, F5 at 148942). The rays and discs are the flare (type 11), whose strength is the occlusion test
+  (tta_render.cpp readBack). There the light (GS Z 16370) lies behind the floor and walls (Z 107456 .. 110426, 40 of
+  40 in front): no rays, as the console's test against its own Z buffer gives. Turning fast moved the 8 x 5 block
+  onto tiles the window had not read back yet, which counted as clear, so the hidden light's flare came on for
+  those frames. A pixel not read yet now keeps the last test's value. Checked by the user in play, with the rays
+  showing where the light is in view (build/issue7/rays_visible.state, 151830). TTA_RENDER_TRACE now prints the
+  block's Z range. Glow strengths there are at or past their ramp's top (all 1).
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

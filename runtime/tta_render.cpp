@@ -214,7 +214,8 @@ namespace tta
         // R +0..+0x9f, rows of 8 words. Next frame 0x228040 sums the weights (0x397c78, by pixel) of the pixels whose
         // Z & 0xffffff < the light's Z + 16 (nothing in front of it): the flare's visibility. Natively the block is the
         // window's depth (BozoEngine's depthAt: GS Z of the frame presented last; TTA's GS Z is the matrices' z / w); a
-        // pixel not read back yet (headless, the first frames) counts as clear, as before. Off the PC's clock (headless,
+        // pixel not read back yet (a tile the window has not read: the first frames, or the block moved there as the
+        // camera turned) keeps the last test's value; on the first frames that is 0, clear. Off the PC's clock (headless,
         // TTA_DETERMINISTIC) every pixel counts as clear: the engine reads depth back asynchronously, from whichever frame
         // the window presented last, so the flare's strength depended on timing and no two captures of the Scream were
         // alike. TTA_FLARE_NO_DEPTH=1 leaves the block alone (always visible).
@@ -246,23 +247,29 @@ namespace tta
             if (live)
                 renderer.wantDepth();
             const bozo::render::Screen s = screen();
-            uint32_t seen = 0, front = 0;
+            uint32_t seen = 0, front = 0, nearest = 0, farthest = 0xffffffffu;
             for (int r = 0; r < 5; ++r)
                 for (int c = 0; c < 8; ++c)
                 {
                     uint32_t z = 0;
+                    const uint32_t at = rec + static_cast<uint32_t>(r * 32 + c * 4);
                     if (live && renderer.depthAt(wideX(s.originX + static_cast<float>(x0 + c) + 0.5f), // where the 3D is drawn
                                                  s.originY + static_cast<float>(y0 + r) + 0.5f, z))
                         ++seen;
+                    else if (live)
+                        z = read32(rdram, at); // not read back yet: the last test's pixel (counted clear, a hidden light
+                                               // flashed its flare and rays on while the camera turned: issue #7)
                     else
                         z = 0;
                     z = std::min<uint32_t>(z, 0xffffffu);
+                    nearest = std::max(nearest, z);
+                    farthest = std::min(farthest, z);
                     write32(rdram, rec + static_cast<uint32_t>(r * 32 + c * 4), z);
                     front += z >= static_cast<uint32_t>(static_cast<int32_t>(readFloat(rdram, rec + 0xd0))) + 16u ? 1u : 0u;
                 }
             if (trace())
-                std::printf("[tta:render] flare %u: block at %d,%d, %u of 40 read, %u in front of the light (Z %.0f)\n", i, x0,
-                            y0, seen, front, readFloat(rdram, rec + 0xd0));
+                std::printf("[tta:render] flare %u: block at %d,%d, %u of 40 read, %u in front of the light (Z %.0f), Z read %u .. %u\n",
+                            i, x0, y0, seen, front, readFloat(rdram, rec + 0xd0), farthest, nearest);
         }
     }
 
