@@ -917,6 +917,14 @@ the game's behaviour); its code is in the history before `8ade037`.
   frames (-9%, the new one faster in every pair); the battle's work 12.2-13.3 -> 11.2-12.1 ms a frame. With the PC
   otherwise idle the stretch now runs at 82-96 frames a second unpaced, only single frames over 16.7 ms (the battle's
   load); measured while the PC was busy it was 43, so the dips the window showed depend on what else runs.
+- **Issue #4: heads turned round as the party fades in** (2026-11-24). For about a second after a battle's swirl the
+  party showed faces over the backs of their heads (Legolas, Idrial: helmsdeep scene, frames 19356-19368). Neither the
+  bones (no bone's axis turned more than 90 degrees between poses, TTA_GAME_POSE=1 the same) nor the look-at
+  controllers (identity throughout) nor W moved: the skins fade in (G+0x2bc < 0x80, G+0x2b0 |= 0x2000), and the port
+  scaled the vertex alpha by the fade and drew without Z writes, so each head's far triangles landed over its near
+  ones. The game's 0x2000 template (0x377cd0) only changes ALPHA to 0x64, (Cs - Cd) FIX + Cd with FIX = the fade; TEST
+  and ZBUF stay the default's. Now drawn so: the vertex alpha unscaled, the same alpha-tested two passes (opaque texels
+  with Z), both blended by FIX. TTA_SKIN_FADE_ALPHA=1 for the old way. The 33 regression captures are unchanged.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

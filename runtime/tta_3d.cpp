@@ -1662,6 +1662,12 @@ namespace tta
             // Kept between calls (the game thread only): their storage is reused, not allocated per draw.
             static std::vector<bozo::render::Vertex> skinned, triangles;
             float extentMin[3] = {1e30f, 1e30f, 1e30f}, extentMax[3] = {-1e30f, -1e30f, -1e30f};
+            // A character fading in or out (issue #4): 0x1b1b18 sets G+0x2b0 |= 0x2000 and the template 0x377cd0 blends
+            // with ALPHA 0x64 = (Cs - Cd) FIX + Cd, FIX = the fade. Its TEST and ZBUF stay the default's: the opaque
+            // texels still write Z, and the vertex alpha is not scaled. Scaled and drawn without Z, the far side of a
+            // head showed through the near one (the face over the hair) for the second the party fades in.
+            const uint32_t drawMode = read32(rdram, g + 0x2b0);
+            const bool fixFade = fade < 0x80 && (drawMode & 0x2000u) && !(drawMode & 0x81200u) && !env("TTA_SKIN_FADE_ALPHA");
             // The batches' skinning is the draw queue's job (buildSkinBatch), on its inputs copied now; the debug
             // switches below that look at the skinned vertices keep it here.
             static const bool skinDebug = env("TTA_SKIN_STATS") || env("TTA_SKIN_MODES_LOG") || env("TTA_SKIN_EXTENT");
@@ -1688,7 +1694,7 @@ namespace tta
                     std::memcpy(in.bones[b].data(), rdram + ((bones + static_cast<uint32_t>(b) * 64u) & kMask), 64);
                 std::memcpy(in.w, w, sizeof(in.w));
                 std::memcpy(in.lighting, lighting, sizeof(in.lighting));
-                in.fade = fade;
+                in.fade = fixFade ? 0x80u : fade;
             }
             for (const Batch &batch : it->second.batches)
             {
@@ -1770,9 +1776,20 @@ namespace tta
                         material.blendFix = static_cast<uint8_t>(std::min<uint32_t>(fade, 0x80u));
                         material.depthWrite = false;
                     }
-                    else if (texture && fade >= 0x80 && !env("TTA_SKIN_NO_AFAIL"))
+                    else if (fixFade)
                     {
-                        material.blend = bozo::render::Material::Blend::Alpha;
+                        material.gsBlend = true;
+                        material.blendA = 0; // Cs
+                        material.blendB = 1; // Cd
+                        material.blendC = 2; // FIX
+                        material.blendD = 1; // Cd
+                        material.blendFix = static_cast<uint8_t>(fade);
+                        material.depthWrite = true;
+                    }
+                    if (!(mode & 0x1200u) && texture && (fade >= 0x80 || fixFade) && !env("TTA_SKIN_NO_AFAIL"))
+                    {
+                        if (!fixFade)
+                            material.blend = bozo::render::Material::Blend::Alpha;
                         material.alphaTest = true;
                         material.alphaFunc = bozo::render::Material::AlphaFunc::GreaterEqual;
                         material.alphaRef = 0x80;

@@ -11,6 +11,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - The soft glow around highlighted and buffed characters in some battles is drawn.
 - The palantir that shows in the top-left corner when an encounter is near is no longer hidden behind trees (#3).
 - Crowded scenes with many shadows, such as the start of the battle on Helm's Deep's wall, run about 9% faster.
+- Characters fading in at the start of a battle no longer show the inside of their heads (the face drawn over the back of the head, as if turned around) (#4).
 - Save states made with 0.1.0 keep loading with the updated engine (two engine changes had made them refused).
 
 ## [0.1.0] - 2026-11-23
