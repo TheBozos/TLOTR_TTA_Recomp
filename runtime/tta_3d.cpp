@@ -342,19 +342,26 @@ namespace tta
         // wraps GS Z past its range as the GS does, so a triangle reaching behind the camera or past the near Z gets a
         // wrong depth and disappears. Cut here instead, in clip space where the planes are linear: w > 0, the GS Z
         // (z / w) >= 0 and <= the 24-bit range. TTA_NO_NEAR_CLIP turns it off.
+        // The range kept is the GS's 24 bits less a margin: a cut vertex lands on the plane, and the renderer computes
+        // its Z again as z / w in floats. There w is small (0.07 in the forest) and comes out of a sum of terms in the
+        // hundreds, so its last bits move Z by thousands of units; on the maximum itself some vertices came out past
+        // it, where the renderer wraps Z as the GS does, to the far end. The triangle's depth went wrong, and the coarse
+        // ground under the forest's grass layer showed through at the camera's feet for single frames as the camera
+        // moved (issue #5). 1/64 of the range off the near end: a few millimetres of world in front of the lens.
+        constexpr float kDepthClip = 16777215.0f * (1.0f - 1.0f / 64.0f);
         void clipToDepthRange(std::vector<bozo::render::Vertex> &triangles, const float m[16])
         {
             static const bool off = env("TTA_NO_NEAR_CLIP") != nullptr; // read once: the draw workers call this too
             if (off)
                 return;
-            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
+            constexpr float kWMin = 1.0e-3f;
             const auto distance = [m](const bozo::render::Vertex &v, int plane)
             {
                 const float w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
                 if (plane == 0)
                     return w - kWMin;
                 const float z = m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14];
-                return plane == 1 ? z : kDepthMax * w - z;
+                return plane == 1 ? z : kDepthClip * w - z;
             };
             bool change = false;
             for (size_t i = 0; i < triangles.size() && !change; ++i)
@@ -422,13 +429,13 @@ namespace tta
         // x w): the planes are linear in position, so its eight corners decide.
         bool boxInsideDepthRange(const float lo[3], const float hi[3], const float m[16])
         {
-            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
+            constexpr float kWMin = 1.0e-3f;
             for (int c = 0; c < 8; ++c)
             {
                 const float x = (c & 1) ? hi[0] : lo[0], y = (c & 2) ? hi[1] : lo[1], z = (c & 4) ? hi[2] : lo[2];
                 const float w = m[3] * x + m[7] * y + m[11] * z + m[15];
                 const float gz = m[2] * x + m[6] * y + m[10] * z + m[14];
-                if (!(w - kWMin >= 0.0f && gz >= 0.0f && kDepthMax * w - gz >= 0.0f))
+                if (!(w - kWMin >= 0.0f && gz >= 0.0f && kDepthClip * w - gz >= 0.0f))
                     return false;
             }
             return true;
@@ -1179,6 +1186,10 @@ namespace tta
                                 p[k] = det3(t) / det;
                             }
                             std::printf("[tta:dump]   frame %u camera at %.1f %.1f %.1f\n", frame(rdram), p[0], p[1], p[2]);
+                            std::printf("[tta:dump]   screen");
+                            for (int i = 0; i < 16; ++i)
+                                std::printf(" %.9g", screen[i]);
+                            std::printf("\n");
                         }
                     }
                 }
@@ -2259,7 +2270,7 @@ namespace tta
             down.clear();
             up.reserve(g_shadowWorld.size() * 8);
             down.reserve(g_shadowWorld.size() * 8);
-            constexpr float kDepthMax = 16777215.0f, kWMin = 1.0e-3f;
+            constexpr float kWMin = 1.0e-3f;
             // A prism corner, projected once: each corner is in up to six of the prism's eight faces (projected per
             // face, the sweep was a tenth of the main thread in Helm's Deep's crowded battle).
             struct Corner
@@ -2273,7 +2284,7 @@ namespace tta
                 Corner k{q, 0.0f, 0.0f, false};
                 const float w = m[3] * q[0] + m[7] * q[1] + m[11] * q[2] + m[15];
                 const float z = m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14];
-                k.inside = w > kWMin && z >= 0.0f && z <= kDepthMax * w;
+                k.inside = w > kWMin && z >= 0.0f && z <= kDepthClip * w;
                 if (k.inside)
                 {
                     k.sx = (m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12]) / w;

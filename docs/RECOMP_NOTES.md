@@ -925,6 +925,18 @@ the game's behaviour); its code is in the history before `8ade037`.
   ones. The game's 0x2000 template (0x377cd0) only changes ALPHA to 0x64, (Cs - Cd) FIX + Cd with FIX = the fade; TEST
   and ZBUF stay the default's. Now drawn so: the vertex alpha unscaled, the same alpha-tested two passes (opaque texels
   with Z), both blended by FIX. TTA_SKIN_FADE_ALPHA=1 for the old way. The 33 regression captures are unchanged.
+- **Issue #5: the forest ground flickering on slopes** (2026-11-24). Repro: the user's build/issue5/slope_137138.state
+  (Eregion, reached from the reporter's slot0.state) walking left (pad LEFT from 137145): at 137171 a wedge of dirt in
+  the bottom-right corner for one frame. The slope is two ground nodes of ter 111: +4d88 (a grass layer, partly
+  transparent) 0.0055-0.1 units over +b488 (the coarse ground with a dirt path) near the camera, same screen matrix,
+  b488 first. Not depth precision (a reversed 0..1 depth on glClipControl changed no pixel; dropped) and not a wrong
+  mesh variant: both nodes' triangles reach behind the camera and are cut by clipToDepthRange on the GS Z maximum
+  (Z = 16777215 w, w about 0.07 there). The renderer computes each cut vertex's Z again as z / w in floats, w comes
+  out of terms in the hundreds, and some landed past the maximum, where the vertex shader wraps Z as the GS does: the
+  grass triangle's depth went to the far end and the dirt won (exactly, A's Z there is ~5000 units over B's). The
+  clip plane (and boxInsideDepthRange, the shadow corners' test) now sits 1/64 of the range inside (kDepthClip). A
+  256-unit margin was not enough. TTA_3D_DUMP_FRAME now also prints the screen matrix. Still open there: Berethor's
+  sword shadow shows for single frames (137150 has it, 137149 and 137151 not); not changed by TTA_SHADOW_ALL_SIDES.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's
