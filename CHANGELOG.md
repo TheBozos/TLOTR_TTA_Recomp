@@ -10,7 +10,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 ### Fixed
 - The soft glow around highlighted and buffed characters in some battles is drawn.
 - The palantir that shows in the top-left corner when an encounter is near is no longer hidden behind trees (#3).
-- Crowded scenes with many shadows, such as the start of the battle on Helm's Deep's wall, run about 15% faster.
+- Crowded scenes with many shadows, such as the start of the battle on Helm's Deep's wall, run about 9% faster, and their shadows cost less again since.
 - Characters fading in at the start of a battle no longer show the inside of their heads (the face drawn over the back of the head, as if turned around) (#4).
 - The forest ground no longer flickers at the camera's feet on slopes (a second ground layer showed through for single frames as the camera moved) (#5).
 - A character's sword no longer throws a long dark strip of shadow for single frames.
