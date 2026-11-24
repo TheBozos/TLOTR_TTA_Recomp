@@ -3341,6 +3341,9 @@ namespace tta
         {
             float x, y, z;
             uint32_t rgba;
+            float u = 0.0f, v = 0.0f; // V2-16 signed, / 4096 (ITOF12)
+            uint32_t strip = 0;       // the UNPACK block (one GIF strip) it came in
+            bool st = false;          // u, v read from the stream
         };
 
         std::vector<uint32_t> mistPacketColours(const uint8_t *rdram, uint32_t begin, uint32_t end,
@@ -3350,7 +3353,7 @@ namespace tta
             std::vector<MistStreamVertex> positions;
             if (end <= begin || end - begin > 0x100000u)
                 return colours;
-            uint32_t at = begin;
+            uint32_t at = begin, strips = 0;
             while (at + 4 <= end)
             {
                 const uint32_t code = read32(rdram, at);
@@ -3378,9 +3381,27 @@ namespace tta
                             }
                         }
                     else if (vn == 3 && vl == 0 && count > 1) // V4-32: the positions (one-word GIF tags aside)
+                    {
+                        ++strips;
                         for (uint32_t i = 0; i < count; ++i)
-                            positions.push_back({readFloat(rdram, at + i * 16u), readFloat(rdram, at + i * 16u + 4u),
-                                                 readFloat(rdram, at + i * 16u + 8u), 0u});
+                        {
+                            MistStreamVertex p{readFloat(rdram, at + i * 16u), readFloat(rdram, at + i * 16u + 4u),
+                                               readFloat(rdram, at + i * 16u + 8u), 0u};
+                            p.strip = strips;
+                            positions.push_back(p);
+                        }
+                    }
+                    else if (vn == 1 && vl == 1 && count <= positions.size()) // V2-16: the last strip's ST, signed / 4096
+                        for (uint32_t i = 0; i < count; ++i)
+                        {
+                            MistStreamVertex &p = positions[positions.size() - count + i];
+                            int16_t s, t;
+                            std::memcpy(&s, rdram + ((at + i * 4u) & kMask), 2);
+                            std::memcpy(&t, rdram + ((at + i * 4u + 2u) & kMask), 2);
+                            p.u = static_cast<float>(s) / 4096.0f;
+                            p.v = static_cast<float>(t) / 4096.0f;
+                            p.st = true;
+                        }
                     at += bytes;
                 }
             }
@@ -3476,6 +3497,31 @@ namespace tta
                 for (size_t i = 2; i < strip.size(); ++i)
                     triangles.insert(triangles.end(), {strip[i - 2], strip[i - 1], strip[i]});
             }
+            // The game's own strips, when its stream is whole (every vertex with its ST and colour): the VU program draws
+            // them as sent. Rebuilt from the edges, a lake's surface came out one column of strips per edge where the
+            // stream has n (Eregion's lake by the gate: half the surface, the rest open onto the reflection, issue #8).
+            // TTA_MIST_NATIVE=1 keeps the rebuild.
+            static const bool nativeOnly = env("TTA_MIST_NATIVE") != nullptr;
+            if (!nativeOnly && stream && !stream->empty() &&
+                std::all_of(stream->begin(), stream->end(), [](const MistStreamVertex &v) { return v.st; }))
+            {
+                triangles.clear();
+                const auto vertexOf = [&](const MistStreamVertex &g)
+                {
+                    bozo::render::Vertex out;
+                    out.x = g.x;
+                    out.y = g.y;
+                    out.z = g.z;
+                    out.u = g.u;
+                    out.v = g.v;
+                    const float alpha = std::clamp(static_cast<float>(g.rgba >> 24) * fade, 0.0f, 255.0f);
+                    out.rgba = (g.rgba & 0xffffffu) | static_cast<uint32_t>(alpha) << 24;
+                    return out;
+                };
+                for (size_t i = 2; i < stream->size(); ++i)
+                    if ((*stream)[i].strip == (*stream)[i - 2].strip)
+                        triangles.insert(triangles.end(), {vertexOf((*stream)[i - 2]), vertexOf((*stream)[i - 1]), vertexOf((*stream)[i])});
+            }
             if (triangles.empty())
                 return;
             bozo::render::Material material;
@@ -3519,6 +3565,34 @@ namespace tta
                             triangles.empty() ? 0.0f : triangles[0].v, texture ? "found" : "missing", texture ? texture->width : 0u,
                             texture ? texture->height : 0u);
             }
+            static uint32_t extentCalls = 0;
+            if (static const bool extent = env("TTA_MIST_EXTENT") != nullptr; extent && extentCalls++ % 120 < 4)
+            {
+                // Debugging: the native sheet's bounds against the game's own stream's (positions as sent to VU1).
+                float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f}, slo[3] = {1e30f, 1e30f, 1e30f},
+                      shi[3] = {-1e30f, -1e30f, -1e30f};
+                for (const auto &v : triangles)
+                {
+                    const float p[3] = {v.x, v.y, v.z};
+                    for (int c = 0; c < 3; ++c)
+                        lo[c] = std::fmin(lo[c], p[c]), hi[c] = std::fmax(hi[c], p[c]);
+                }
+                if (stream)
+                    for (const auto &v : *stream)
+                    {
+                        const float p[3] = {v.x, v.y, v.z};
+                        for (int c = 0; c < 3; ++c)
+                            slo[c] = std::fmin(slo[c], p[c]), shi[c] = std::fmax(shi[c], p[c]);
+                    }
+                if (stream && extentCalls == 1)
+                    for (size_t i = 0; i < stream->size(); ++i)
+                        std::printf("[tta:miststream] %zu: %.2f %.2f %.2f rgba %08x\n", i, (*stream)[i].x, (*stream)[i].y, (*stream)[i].z,
+                                    (*stream)[i].rgba);
+                std::printf("[tta:mistextent] frame %u geometry %x: native %.1f..%.1f %.1f..%.1f %.1f..%.1f (%zu verts), stream %.1f..%.1f "
+                            "%.1f..%.1f %.1f..%.1f (%zu)\n",
+                            frame(rdram), geometry, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], triangles.size(), slo[0], shi[0], slo[1],
+                            shi[1], slo[2], shi[2], stream ? stream->size() : static_cast<size_t>(0));
+            }
             if (env("TTA_MIST_SHOW")) // debugging: the sheets in flat magenta over everything
             {
                 material.textured = false;
@@ -3526,7 +3600,12 @@ namespace tta
                 for (auto &v : triangles)
                     v.rgba = 0x80ff00ffu;
             }
+            const size_t beforeClip = triangles.size();
             clipToDepthRange(triangles, matrix);
+            if (static const bool extent2 = env("TTA_MIST_EXTENT") != nullptr; extent2 && extentCalls % 120 < 4)
+                std::printf("[tta:mistextent] geometry %x: %zu vertices before the depth clip, %zu after; material blend %d depth %d/%d textured %d\n",
+                            geometry, beforeClip, triangles.size(), static_cast<int>(material.blend), material.depthTest ? 1 : 0,
+                            material.depthWrite ? 1 : 0, material.textured ? 1 : 0);
             if (!triangles.empty())
             {
                 drawQueue().setKey(instanceKey(rdram, (5ull << 40) | geometry)); // the bank's geometry (frames between)

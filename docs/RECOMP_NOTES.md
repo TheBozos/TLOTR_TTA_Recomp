@@ -959,6 +959,17 @@ the game's behaviour); its code is in the history before `8ade037`.
   those frames. A pixel not read yet now keeps the last test's value. Checked by the user in play, with the rays
   showing where the light is in view (build/issue7/rays_visible.state, 151830). TTA_RENDER_TRACE now prints the
   block's Z range. Glow strengths there are at or past their ramp's top (all 1).
+- **Issue #8: the lake by the gate of Moria without its water** (2026-11-24, the user's build/issue8/lake.state, F5 at
+  172593). The PS2 shows a dark teal surface over the lake; natively a flat grey with the reflection (ter 156
+  +23088, the mirrored sky dome, and the mirrored shore) open. Every node there is converted; the chain audit's water
+  producers are 0x22499c (the MPG of microcode set 0x3492e0, 1004 qwords a frame), 0x224a00 / 0x224cf4 (matrices,
+  lights, the camera's corner rays to VU 0x0c, two GIF templates at VU 0x45 / 0x5e, MSCAL 0x3cd: a setup program) and
+  0x224670, the type-19 animator's stream: per strip STROW, a GIF tag (PRIM 0x5c, a textured blended Gouraud strip of
+  6), six V4-32 positions, six signed V2-16 ST (/ 4096) under STMASK, six V4-8 colours, MSCNT. The lake (geometry
+  0x15712d8, 11 edges, n 2) is 22 strips at y -41.3, rgba 0x66151a19; the native rebuild from the edges gave the same
+  bounds but one column of strips per edge (44 triangles against the stream's 88), half the lake. drawMist now draws
+  the stream's own strips whenever every vertex has its ST and colour (TTA_MIST_NATIVE=1 keeps the rebuild).
+  TTA_MIST_EXTENT=1 prints both bounds, the stream's vertices once and the triangles kept by the depth clip.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,
   PS2X_ANTI_ALIASING, also read by scripted runs): off, 2x, 4x or 8x MSAA. The frame's 3D goes into a multisampled
   colour and depth-stencil, resolved (a blit) into the single-sampled target wherever the frame is read: a material's

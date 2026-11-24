@@ -16,6 +16,7 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 - A character's sword no longer throws a long dark strip of shadow for single frames.
 - The palantir that warns of a coming encounter fades in again instead of showing at full strength at once (#6); other glows fade by the game's strength too.
 - Light rays and lens flares from a light hidden behind walls no longer flash on while the camera turns (#7).
+- The lake at the end of Eregion has its water surface again (#8).
 - Save states made with 0.1.0 keep loading with the updated engine (two engine changes had made them refused).
 
 ## [0.1.0] - 2026-11-23
