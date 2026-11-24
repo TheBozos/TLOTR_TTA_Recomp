@@ -446,6 +446,30 @@ the game's behaviour); its code is in the history before `8ade037`.
   nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
   TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
   clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
+- **Issue #14: the battle transitions over the HUD** (2026-11-25, warp e01c02, encounter 1000 at 16200: the Eye of
+  Sauron at captures 16256-16490; the reporter's console video at 20:14). The transitions are glows rendered after EA
+  Apt's HUD in the game's chain: the Eye (system texture id 4f9131f8a26, 160 quads), the first battle's swirl
+  (1e74d05314, game frames 5754-5822), Rohan's 1e1bad418e, all with Z ALWAYS (TEST 0x3000a), before the screen
+  filters and the letterbox bars. On the console they cover the HUD (black after the Eye, then scene and HUD fade in
+  together); natively the HUD was the overlay, over everything. No movie, no display fade (PMODE ALP is a fixed 0x80
+  in 0x2120f8) and no 2D sprite over the HUD were involved. tta_2d.cpp now holds the overlay's draws until the frame
+  ends (releaseOverlay before publishOverlay); a glow with no depth test arriving after them (drawGlow -> hudIntoFrame)
+  first puts them into the 3D frame's list as they are (no depth, clamped, 512 x 448), so the glow, the filters and
+  the bars draw over them. Depth-tested glows don't: the menus render their own GEQUAL glows between their Apt layers
+  (the pause menu's smoke), and moving the HUD under those put smoke over the panels (the console's pause menu shows
+  the smoke behind them; natively it is black there, left as is). TTA_HUD_OVER_ALL=1 for the old way. Captures:
+  battle1 / widescreen 5900 change (the swirl now over the HUD), the rest as before.
+- **Issue #13: the Perfect Mode ring beside the bar in widescreen** (2026-11-25). The ring is a glow,
+  isfx.UI_PerfectFull, spawned by the HUD movie (E01C02.SCP resource 4304, the chud Apt: UpdateStatusItems reads
+  each item's hp / hpx / mp / mpx / so and mPerfectMode its pb / pm, the game's extern variables at 0x3b0da8 ..
+  0x3b0dd0 by the name table 0x395200 -> pointers at 0x395838: pb 0x3b0dcc, pm 0x3b0dd0 the "ready" flag). It is
+  placed in view space from the screen with the camera's slope RC+0x540 and scale RC+0x56c, which #10's widening
+  (cameraSetup, 0x2111f8) left a third wider, so the ring landed at its 4:3 place while the HUD is squeezed. The set-up
+  run both ways differs in 0x540, the side planes 0x548 .. 0x55c and 0x56c; the planes stay wide (culling: the hall's
+  pedestal, build/issue10, pixel-identical), 0x540 and 0x56c go back to the 4:3 values (TTA_WIDE_PLACE_WIDE=1 for the
+  old way). Reproduced by writing pm = 1 into the status object (this 0x3b0d98 + 0x38) right after the getter 0x337428
+  fills it; the real gauge's home was not found (the copies are refilled each update; no damage, HP or item value
+  stepped with it). Widescreen 6300 moves slightly (the Scream's screen glow, placed the same way).
 - **Audio pass and frame pacing** (2026-11-24). Same method as below (dummy driver, TTA_AUDIO_STATS, TTA_AUDIO_RATE).
   Steady play makes 48,000 samples a wall second (forest walk, Helm's Deep, battles); the dummy device sometimes
   drains over 1 % fast, which pins the ratio at 0.99 and gives underruns that are the test's, not the game's. Found:

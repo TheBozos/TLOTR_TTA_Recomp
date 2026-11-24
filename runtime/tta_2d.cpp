@@ -392,6 +392,35 @@ namespace tta
         // ---- Primitives ----------------------------------------------------------------------------------------------
         uint32_t g_frameSeen = 0, g_drawn = 0, g_skipped = 0;
 
+        // The overlay's draws of the frame so far, held (tta_port.h, hudIntoFrame / releaseOverlay).
+        struct HeldOverlay
+        {
+            bozo::render::Material material;
+            std::vector<bozo::render::Vertex> triangles;
+            std::shared_ptr<const bozo::render::Texture> texture;
+        };
+        std::vector<HeldOverlay> g_held;
+        size_t g_heldCount = 0; // the entries in use (kept allocated from frame to frame)
+
+        void holdOverlay(const bozo::render::Material &material, std::vector<bozo::render::Vertex> &&triangles,
+                         std::shared_ptr<const bozo::render::Texture> texture)
+        {
+            static const bool direct = env("TTA_HUD_OVER_ALL") != nullptr;
+            if (direct)
+            {
+                (flushDraws(), bozo::render::Renderer::instance()).drawOverlay(material, triangles.data(),
+                                                                               static_cast<uint32_t>(triangles.size()), texture);
+                return;
+            }
+            if (g_heldCount == g_held.size())
+                g_held.emplace_back();
+            HeldOverlay &h = g_held[g_heldCount++];
+            h.material = material;
+            h.triangles = std::move(triangles);
+            h.texture = std::move(texture);
+            g_overlayHeld = true;
+        }
+
         void count(const uint8_t *rdram, bool drawn)
         {
             if (traceLevel() < 1)
@@ -1100,8 +1129,7 @@ namespace tta
                 if (triangles.empty())
                     return count(rdram, false);
             }
-            (flushDraws(), bozo::render::Renderer::instance()).drawOverlay(material, triangles.data(),
-                                                           static_cast<uint32_t>(triangles.size()), picture);
+            holdOverlay(material, std::move(triangles), picture);
             if (traceLevel() >= 2)
                 std::printf("[tta:2d] frame %u: type %u n %u from %x tex %s (TEX0 %016llx: TBW %u TW %u TH %u CBP %x) blend %d "
                             "(%.1f,%.1f)-(%.1f,%.1f) st (%.3f,%.3f)-(%.3f,%.3f) rgba %08x rgba-arg %x ALPHA %llx FBMSK %08x\n",
@@ -1115,6 +1143,52 @@ namespace tta
                             static_cast<uint32_t>(frameReg >> 32));
             count(rdram, true);
         }
+    }
+
+    // The game sends its 2D and 3D in one chain, in order. Natively the 2D not tied to the scene is the overlay, composited
+    // over the finished 3D frame, which keeps the HUD over everything; but the battles' opening transitions (the Eye of
+    // Sauron in Moria, the first battle's swirl: glows with Z ALWAYS, rendered after EA Apt's HUD) cover the HUD on the
+    // console, and the screen filters and letterbox bars run over both. So the overlay's draws are held, and the first 3D
+    // draw after them (the draw queue's push) puts them into the 3D frame's list as they are, under it: no depth, the
+    // overlay's clamped textures, the frame's 512 x 448. TTA_HUD_OVER_ALL=1 for the old way (the HUD always the overlay).
+    bool g_overlayHeld = false;
+
+    void hudIntoFrame()
+    {
+        if (!g_overlayHeld)
+            return;
+        g_overlayHeld = false; // first: flushDraws below must not come back here
+        flushDraws();
+        static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        auto &r = bozo::render::Renderer::instance();
+        for (size_t i = 0; i < g_heldCount; ++i)
+        {
+            HeldOverlay &h = g_held[i];
+            bozo::render::Material m = h.material;
+            m.depthTest = false;
+            m.depthWrite = false;
+            m.clampU = m.clampV = true;
+            m.frameWidth = 512u;
+            m.frameHeight = 448u;
+            r.draw(m, identity, h.triangles.data(), static_cast<uint32_t>(h.triangles.size()), h.texture);
+            h.texture.reset();
+        }
+        if (traceLevel() >= 1)
+            std::printf("[tta:2d] HUD into the frame: %zu draws, under a later 3D draw\n", g_heldCount);
+        g_heldCount = 0;
+    }
+
+    void releaseOverlay()
+    {
+        g_overlayHeld = false;
+        auto &r = bozo::render::Renderer::instance();
+        for (size_t i = 0; i < g_heldCount; ++i)
+        {
+            HeldOverlay &h = g_held[i];
+            r.drawOverlay(h.material, h.triangles.data(), static_cast<uint32_t>(h.triangles.size()), h.texture);
+            h.texture.reset();
+        }
+        g_heldCount = 0;
     }
 
     namespace

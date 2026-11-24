@@ -1257,7 +1257,21 @@ namespace tta
             }
             func_0x2111f8(rdram, ctx, rt);
             if (widen)
+            {
                 std::memcpy(rdram + ((dims + 0x28) & kMask), &kept, 4);
+                // Only the culling planes (RC+0x548 .. 0x564) keep the wide view. The slope RC+0x540 and the scale RC+0x56c
+                // (view units per screen unit) go back to the game's 4:3 values: the screen-attached effects are placed
+                // with them, and the Perfect Mode ring (UI_PerfectFull) came out a third farther from the middle than the
+                // HUD's bar it belongs to (issue #13). TTA_WIDE_PLACE_WIDE=1 leaves them wide.
+                static const bool placeWide = env("TTA_WIDE_PLACE_WIDE") != nullptr;
+                if (!placeWide)
+                {
+                    const float slope = readFloat(rdram, rc + 0x540) * kWideSqueeze;
+                    const float scale = readFloat(rdram, rc + 0x56c) / kWideSqueeze;
+                    std::memcpy(rdram + ((rc + 0x540) & kMask), &slope, 4);
+                    std::memcpy(rdram + ((rc + 0x56c) & kMask), &scale, 4);
+                }
+            }
             ctx->pc = ra;
         }
 
@@ -3114,6 +3128,11 @@ namespace tta
                 material.alphaRef = static_cast<uint8_t>((test >> 4) & 0xffu);
             }
             static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            // A glow with no depth test (Z ALWAYS) rendered after the HUD: the battles' opening transitions (the Eye of
+            // Sauron, the swirl), which cover the HUD on the console (issue #14; tta_2d.cpp, hudIntoFrame). The menus'
+            // glows, rendered between their EA Apt layers, are depth-tested and leave the HUD the overlay.
+            if (g_overlayHeld && ((test >> 17) & 3u) == 1u)
+                hudIntoFrame();
             queueDraw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);
             // Frames between the game's: each particle's two triangles tracked (drawTracked moves their corners).

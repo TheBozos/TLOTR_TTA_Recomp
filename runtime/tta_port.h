@@ -66,6 +66,13 @@ namespace tta
     // The 3D draws queued so far (their vertex work run on the draw workers) given to the renderer in order (tta_3d.cpp).
     // Called before any other use of the renderer: the 2D, the screen filters, the frame's begin and end.
     void flushDraws();
+    // The 2D overlay drawn so far this frame (the HUD), held until the frame's end (tta_2d.cpp). hudIntoFrame: a 3D draw
+    // comes after it in the game's order, so what is held goes into the 3D frame's list first, under that draw (the
+    // battles' opening transitions cover the HUD, issue #14); releaseOverlay at the frame's end gives the rest to the
+    // overlay.
+    extern bool g_overlayHeld;
+    void hudIntoFrame();
+    void releaseOverlay();
     // Debug (tta_debug.cpp): the developers' command-line options given to the game ("encounters_only"), as if from its
     // argv; a warp to a map (an index, a path such as e02c05 or a region such as "Helm's Deep") and a battle by the
     // current map's encounter id, each optionally "@<game frame>". Before or after install.

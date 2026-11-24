@@ -133,6 +133,7 @@ namespace tta
                     std::printf("[tta:render] swap frame=%u movie=%d pictures=%llu\n", read32(rdram, 0x3b5720),
                                 g_movieDrawn ? 1 : 0, (unsigned long long)g_movieVersion);
                 g_movieDrawn = false;
+                releaseOverlay();
                 r.publishOverlay(screen());
                 r.endFrame();
                 g_frameOpen = false;
