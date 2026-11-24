@@ -993,6 +993,21 @@ the game's behaviour); its code is in the history before `8ade037`.
   in the same call, so scaling 0x540 after the call changed nothing. The hook widens *(*(RC+0x18)+0x28) by 4/3 for
   the call and puts it back; nothing else in the set-up reads it. Widescreen only; TTA_WIDE_NO_CULL=1 for the old way.
   In the 4:3 part the frames are unchanged.
+- **Issue #9: the blue screen when Idrial heals herself** (2026-11-24, the user's build/issue9/watcher.state, the Watcher
+  fight at 190625, Idrial's turn; build/issue9/pad_c.txt casts Gift of Elrond on her: UP, CROSS, CROSS, RIGHT, CROSS;
+  Aura of the Valar is not learned in that save). In the self-target close-up the cave behind her turns lavender
+  (background mean 25/28/24 -> 38/40/44 at capture 190880); TTA_NO_GLOWS=1 removes it. It is one particle of the
+  spell's glow (system 0xc7cf10, texture record 0x39c33bf56ee, a 64 x 64 soft blob, rgb 0x50 0x50 0x80, ALPHA 0x48,
+  TEST Z ALWAYS) at her feet, w 2.9 from the camera, ~990 pixels each way: drawn before her, it adds over the whole
+  background. Its strength (S+0xa4 and the ramp) is 1. The glow microcode was read (set 0x350690, entry 0x620 = pair
+  0xc4; scratchpad's vudis.py, a mnemonic VU disassembler): c12 = (2048, 2048, 2000.1, 2000); per particle the corners
+  are P - a c29.x - b c29.y + 2a / 2b as natively, then (1) CLIP of each corner minus (2048, 2048) against 2000,
+  FCAND 0x3cf3ef (x and y of all four, -z of the last): any corner past 2000 skips the particle; (2) the corners
+  against the screen window (c14, vf25.w), FCOR 0xdf7df7 / 0xefbefb / 0xf7df7d / 0xfbefbe: all four past the same edge
+  skips it. The FMAND 0x10 tests before are the spin's wrap (the sign of w), not culls. No near-camera test: the
+  console draws this particle too, and TTA_GLOW_GUARD=2000 (the microcode's guard) left the frame identical. So the
+  tint is the game's, as far as the microcode shows; left as is. TTA_GLOW_DUMP now takes <frame>+<count>; in battle
+  the game counter 0x3b5720 runs ~330 behind the capture frames.
 - **F2's Special thanks tab** (2026-11-24, the user's idea): the players who test and report, one line each in
   tta_main.cpp (kThanks). Vaweila, for #3 to #10.
 - **Anti-aliasing** (2026-11-23, BozoEngine#123). The Video tab's Anti-aliasing (video.ini anti_aliasing,

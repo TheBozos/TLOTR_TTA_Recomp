@@ -3204,7 +3204,16 @@ namespace tta
             const uint32_t ra = ctx->r[31].uw[0];
             const uint32_t s = read32(rdram, ctx->r[4].uw[0] + 4);
             const char *dump = env("TTA_GLOW_DUMP");
-            g_glowDump = dump && frame(rdram) == static_cast<uint32_t>(std::atoi(dump));
+            // TTA_GLOW_DUMP=<game frame>[+<count>]: that frame, or count frames from it.
+            if (dump)
+            {
+                const uint32_t from = static_cast<uint32_t>(std::atoi(dump));
+                const char *plus = std::strchr(dump, '+');
+                const uint32_t count = plus ? static_cast<uint32_t>(std::atoi(plus + 1)) : 1u;
+                g_glowDump = frame(rdram) >= from && frame(rdram) < from + count;
+            }
+            else
+                g_glowDump = false;
             if (static uint32_t scanned = 0; (g_glowDump || (env("TTA_GLOW_SCAN") && frame(rdram) % 60u == 0u)) && scanned != frame(rdram))
             {
                 // Every glow system in RAM (S+0xa0 0xb0, +0xa4 1.0, +0xc8 a texture record with a mist id), as the console's
