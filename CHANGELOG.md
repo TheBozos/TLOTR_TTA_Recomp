@@ -4,6 +4,8 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-24
+
 ### Fixed
 - The game feels smooth at 60 frames a second on a 60 Hz monitor: a picture no longer stays twice now and then while the next is skipped, and the controls answer a few frames sooner.
 - The first movie after the title screen no longer loses about a second of its sound as it starts (the sound of a load came out all at once and overflowed).
