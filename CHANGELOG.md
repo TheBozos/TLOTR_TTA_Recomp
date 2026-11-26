@@ -4,9 +4,11 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-27
+
 ### Fixed
 - The gold ring that spins in the Perfect Mode bar when it is full is no longer hidden by the ground, the enemies' weapons or the rest of the scene in front of the camera (#18).
-- The Evil Mode map shows its chapter lights again (blue for the chapter chosen, red for the others), and the One Ring's inscription turns on the pause menu's emblem (#17).
+- The Evil Mode map shows its chapter lights (blue for the chapter chosen, red for the others), and the One Ring's inscription turns on the pause menu's emblem (#17).
 - The book of Moria lies on its lectern and opens in the "Secrets of Moria" cutscene; it used to stand upright as a closed block. Other skinned props without a root bone move as they should too (#16).
 
 ## [0.1.3] - 2026-11-25
