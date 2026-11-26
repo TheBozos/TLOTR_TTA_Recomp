@@ -73,6 +73,10 @@ namespace tta
     extern bool g_overlayHeld;
     void hudIntoFrame();
     void releaseOverlay();
+    // A glow that EA Apt's menus place on their layers (the Evil Mode map's chapter lights, issue #17), arriving after
+    // the overlay's draws: it joins the overlay in that order, over the layers before it and under those after it.
+    void glowIntoOverlay(const bozo::render::Material &material, const bozo::render::Vertex *triangles, uint32_t count,
+                         std::shared_ptr<const bozo::render::Texture> texture);
     // Debug (tta_debug.cpp): the developers' command-line options given to the game ("encounters_only"), as if from its
     // argv; a warp to a map (an index, a path such as e02c05 or a region such as "Helm's Deep") and a battle by the
     // current map's encounter id, each optionally "@<game frame>". Before or after install.

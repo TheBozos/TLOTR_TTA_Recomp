@@ -1153,6 +1153,22 @@ namespace tta
     // overlay's clamped textures, the frame's 512 x 448. TTA_HUD_OVER_ALL=1 for the old way (the HUD always the overlay).
     bool g_overlayHeld = false;
 
+    void glowIntoOverlay(const bozo::render::Material &material, const bozo::render::Vertex *triangles, uint32_t count,
+                         std::shared_ptr<const bozo::render::Texture> texture)
+    {
+        std::vector<bozo::render::Vertex> copy(triangles, triangles + count);
+        for (auto &q : copy)
+            q.x = wideX(q.x);
+        // The overlay knows the flat blends only: the glow's GS ALPHA as one of them (the lights' Cs As + Cd as
+        // additive; drawn as alpha blends they came out dim, in darker squares).
+        bozo::render::Material m = material;
+        if (m.gsBlend)
+            m.blend = bozo::render::blendOf(static_cast<uint64_t>(m.blendA) | static_cast<uint64_t>(m.blendB) << 2 |
+                                            static_cast<uint64_t>(m.blendC) << 4 | static_cast<uint64_t>(m.blendD) << 6 |
+                                            static_cast<uint64_t>(m.blendFix) << 32);
+        holdOverlay(m, std::move(copy), std::move(texture));
+    }
+
     void hudIntoFrame()
     {
         if (!g_overlayHeld)

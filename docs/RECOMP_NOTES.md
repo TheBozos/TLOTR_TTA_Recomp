@@ -446,6 +446,37 @@ the game's behaviour); its code is in the history before `8ade037`.
   nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
   TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
   clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
+- **Issue #16: the book of Moria not opening (open, 2026-11-26)**. The book (map object BookScrets_A, id 0x5ba, type 6,
+  at 219.3, 23.77, 140.7 in e01c02) is a type-17 weighted skin (01SH_BOOK_01, an ENOB skeleton), opened by the
+  level script's "@bookclosed" / "@bookopen" messages inside the in-game cinematic E1C2_IGC_01, which needs
+  gSavedGame_GotBookKey and the walk to the throne room. Its bones are read per draw from G+0x290 like the
+  characters', so the game's pose for it (the native pose builder, tta_pose.cpp, is the first suspect) is where to
+  look. Not reproduced: the throne room is in a sub-map the script loads on the way (e01c02_mapmoria2..4,
+  StartZoneLoad); moving the leader there (actor +0x40 and its ten other copies) lands in an empty, unloaded room.
+- **Issue #17: the Evil Mode map's chapter lights** (2026-11-26). Reproduced without the reporter's save: a save made
+  in play (from the forest state: encounter 2133 with hp,ap,win, the Epic Scene declined, the walk to Western Moria's
+  first save point, X to save onto a card in --card-dir), then the title's More > Evil Mode > the save: Choose
+  Chapter. The lights are the map movie's isfx.UI_liteBigBlue / Red (NavMenuMoriaMap01, one blue for the chapter
+  chosen, red for the others), glow systems attached to the movie's objects (S+0x84 bit 2, the object matrix at
+  S+0x94) drawn with TEST 0x5000a after the map's Apt layers; they were drawn (21 systems a frame) but into the 3D
+  frame, under the overlay. Moving the whole overlay under every depth-tested glow (as #14 does for Z ALWAYS) brings
+  them out but also puts the pause menu's free veil (b1ceeddb, drawn after the panels, bit 2 clear) over the panels,
+  which the console shows behind them. So an attached depth-tested glow after the overlay's draws now joins the
+  overlay in its place (tta_2d.cpp glowIntoOverlay: the glow's GS ALPHA as the overlay's flat blend, Cs As + Cd
+  additive; as an alpha blend they were dim, in darker squares); free glows stay in the 3D frame.
+  TTA_HUD_OVER_ATTACHED_GLOWS=1 for the old way. Also shown now: the One Ring's inscription turning on the pause
+  menu's top emblem (pause captures, 0.3% of the pixels). The EA Apt draws never write Z (ZBUF ZMSK set, TEST
+  0x3080a / 0x3001b / 0x5080a), so depth does not order them against glows.
+- **Issue #18: the Perfect Mode ring hidden by the scene** (2026-11-26, warp e01c02, encounter 1000 at 16200, the
+  bar forced full by writing pm = 1 after the getter 0x337428, as for #13). What spins in the bar is not the glow but the gold ring
+  model (two static meshes, drawn by drawNode after the HUD's Apt layers, in the frame's last group with the ring's
+  glows). The game draws them with ZBUF ZMSK on and TEST 0x3080a: Z ALWAYS. drawNode turned the depth test on for
+  every mesh, so the ring was tested against the scene's depth and the ground near the camera, the enemies' weapons
+  and, in the Watcher's battle, almost everything hid it. drawNode now follows the TEST in force (DS+0x140, or the
+  batch's own TEST_1/2): ZTE with ZTST ALWAYS draws without the test; the scene's TEST is 0x5000d (GEQUAL) and keeps
+  it. TTA_MESH_DEPTH_ALWAYS_TESTED=1 for the old way. Captures: helmsdeep 19800 changes (the selection ring under
+  the chosen fighter now shows its sparkling band, also drawn Z ALWAYS, which the floor half hid); idrial, balrog
+  and sunny differ slightly from the 0.1.3 baselines with or without the change (not from it).
 - **Issue #14: the battle transitions over the HUD** (2026-11-25, warp e01c02, encounter 1000 at 16200: the Eye of
   Sauron at captures 16256-16490; the reporter's console video at 20:14). The transitions are glows rendered after EA
   Apt's HUD in the game's chain: the Eye (system texture id 4f9131f8a26, 160 quads), the first battle's swirl

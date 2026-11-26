@@ -968,6 +968,17 @@ namespace tta
                     material.blendD = static_cast<uint8_t>((alpha >> 6) & 3u);
                     material.blendFix = static_cast<uint8_t>((alpha >> 32) & 0xffu);
                 }
+                // The depth test follows the TEST in force (DS+0x140, or the batch's own): GEQUAL for the scene
+                // (0x5000d), ALWAYS for the HUD's 3D models drawn after the scene, such as the Perfect Mode ring
+                // (isfx.UI_PerfectFull's gold ring, TEST 0x3080a), which the ground and weapons nearer the camera hid
+                // natively (issue #18). TTA_MESH_DEPTH_ALWAYS_TESTED=1 for the old way.
+                uint64_t depthTest = read64(rdram, ds + 0x140);
+                for (const auto &[reg, value] : batch.registers)
+                    if (reg == 0x47 || reg == 0x48)
+                        depthTest = value;
+                static const bool alwaysTested = env("TTA_MESH_DEPTH_ALWAYS_TESTED") != nullptr;
+                if (!alwaysTested && (depthTest & 0x10000u) && ((depthTest >> 17) & 3u) == 1u)
+                    material.depthTest = false;
                 for (const auto &[reg, value] : batch.registers)
                 {
                     if (reg == 0x42 || reg == 0x43) // ALPHA_1/2
@@ -3131,7 +3142,21 @@ namespace tta
             // A glow with no depth test (Z ALWAYS) rendered after the HUD: the battles' opening transitions (the Eye of
             // Sauron, the swirl), which cover the HUD on the console (issue #14; tta_2d.cpp, hudIntoFrame). The menus'
             // glows, rendered between their EA Apt layers, are depth-tested and leave the HUD the overlay.
-            if (g_overlayHeld && ((test >> 17) & 3u) == 1u)
+            // A depth-tested glow attached to an object (S+0x84 bit 2: the object matrix at S+0x94) after the overlay's
+            // draws is one EA Apt's menus place on their layers: the Evil Mode map's chapter lights
+            // (isfx.UI_liteBigBlue / Red, TEST 0x5000a), which the map covered natively (issue #17). It joins the
+            // overlay in its place, over the map and under what Apt draws after it. Free glows after the overlay (the
+            // menus' veils, bit 2 clear) stay in the 3D frame, under the panels. TTA_HUD_OVER_ATTACHED_GLOWS=1 for the
+            // old way.
+            static const bool attachedUnder = env("TTA_HUD_OVER_ATTACHED_GLOWS") != nullptr;
+            const bool alwaysZ = ((test >> 17) & 3u) == 1u;
+            if (g_overlayHeld && !alwaysZ && !attachedUnder && (read32(rdram, s + 0x84) & 4u) != 0)
+            {
+                glowIntoOverlay(material, triangles.data(), static_cast<uint32_t>(triangles.size()), texture);
+                ++g_glowsDrawn;
+                return;
+            }
+            if (g_overlayHeld && alwaysZ)
                 hudIntoFrame();
             queueDraw(material, identity, triangles.data(), static_cast<uint32_t>(triangles.size()),
                                                     texture);

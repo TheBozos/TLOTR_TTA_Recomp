@@ -4,6 +4,10 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Fixed
+- The gold ring that spins in the Perfect Mode bar when it is full is no longer hidden by the ground, the enemies' weapons or the rest of the scene in front of the camera (#18).
+- The Evil Mode map shows its chapter lights again (blue for the chapter chosen, red for the others), and the One Ring's inscription turns on the pause menu's emblem (#17).
+
 ## [0.1.3] - 2026-11-25
 
 ### Fixed
