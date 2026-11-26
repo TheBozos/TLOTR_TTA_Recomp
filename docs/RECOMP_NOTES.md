@@ -446,13 +446,28 @@ the game's behaviour); its code is in the history before `8ade037`.
   nothing. Pixel-identical (15 frame pairs of the battle and the clearing against earlier builds and against
   TTA_DRAW_THREADS=0). Unpaced: the clearing ~80 -> ~125 frames/s, the first battle ~88 -> ~120. In real time, the
   clearing walk with two other copies of the game running flat out beside it held 59.4-60.2.
-- **Issue #16: the book of Moria not opening (open, 2026-11-26)**. The book (map object BookScrets_A, id 0x5ba, type 6,
-  at 219.3, 23.77, 140.7 in e01c02) is a type-17 weighted skin (01SH_BOOK_01, an ENOB skeleton), opened by the
-  level script's "@bookclosed" / "@bookopen" messages inside the in-game cinematic E1C2_IGC_01, which needs
-  gSavedGame_GotBookKey and the walk to the throne room. Its bones are read per draw from G+0x290 like the
-  characters', so the game's pose for it (the native pose builder, tta_pose.cpp, is the first suspect) is where to
-  look. Not reproduced: the throne room is in a sub-map the script loads on the way (e01c02_mapmoria2..4,
-  StartZoneLoad); moving the leader there (actor +0x40 and its ten other copies) lands in an empty, unloaded room.
+- **Issue #16: the book of Moria not opening** (2026-11-26/27). The book's skins (no root bone: E+0x1c6 = 0xffff)
+  were drawn in bind pose: skin()'s placement check compares RC+0x20 with W x bones[E+0x1c6] to tell a VisualEntity
+  draw from a node drawn by another path with the last character's G; for 0xffff it read a garbage matrix 4 MB past
+  the bones, the check failed every frame and every bone was replaced by identity, the book drawn rigid by RC+0x20.
+  A missing root bone now counts as the identity (expected = W); every book draw passes the check and its pose
+  shows: lying closed at the lectern, then opening in shot 5 (bones 5 / 7 / 8 / 9, the cover and the clasp).
+  TTA_SKIN_ROOT_FFFF=1 for the old way. How it was found: the cinematic is E1C2_IGC_17 ('igc17', not IGC_01). The
+  level script is Lua 4.0 bytecode (resource 'LuaS', E01C02 resource 1; build/scratch/lua40dis.py). It plays a
+  cinematic with SendMsg(self, 2600, 0, 7, 'igc17') (loads it), then SendMsg / DelayedMsg 3100 with its id (1865)
+  to start it; zones load with SendMsg(self, 900, 0, 0, {zones}). The Lua SendMsg binding is 0x266758 (the name
+  table at 0x3984f0); it posts through 0x1aec98(category, id, number, data, t0, callerID, callerEntityType, f12
+  delay), string data a pointer, a table {int count, floats}. Posting 2600 'igc17' then 3100 / 1865 from the
+  main-loop hook plays the cinematic anywhere (the throne room unloaded around it). The book is skin scbm 70380
+  (E01C02 resource 3793, its own loadable xs_BookSecrets_A_bas); each shot makes new actors. The cinematic's book
+  clips are the 'bnk ' resource 3627 (8 clips, version 6), registered into the book's own set 0xafa700 by
+  0x1383d8 -> 0x1344a0 -> 0x1341b0 (the set's table at +0x40: {hash pair, clip id, .., slot offset}); the set's
+  animation nodes point at those slots, shot 5 plays node 10 (clip 0x51b, the only animated one: the others hold
+  constant channels). The sampled pose was right all along (0x13ea30, VU0 0xd38 / 0xdb0 as for the characters).
+  Save editing (build/scratch/savecrc.py, editsave.py): 'DAV ', size, a CRC-32 with the game's table at 0x448320
+  over size bytes from +12; the position is the matrix at 0x383c (translation at 0x386c), the zones the "zone-N"
+  loadables listed in the save; Western Moria has zones 1-112 (the SCP's 'STOC' table of contents: 345 sections,
+  32-byte entries from +0x38 {name, offset, size}).
 - **Issue #17: the Evil Mode map's chapter lights** (2026-11-26). Reproduced without the reporter's save: a save made
   in play (from the forest state: encounter 2133 with hp,ap,win, the Epic Scene declined, the walk to Western Moria's
   first save point, X to save onto a card in --card-dir), then the title's More > Evil Mode > the save: Choose

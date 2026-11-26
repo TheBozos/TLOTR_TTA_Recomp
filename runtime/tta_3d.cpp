@@ -1554,9 +1554,13 @@ namespace tta
             float object[16], expected[16], root[16];
             for (int i = 0; i < 16; ++i)
                 object[i] = readFloat(rdram, rc + 0x20 + i * 4);
+            // A skeleton with no root bone (E+0x1c6 = 0xffff: props such as the book of Moria, whose cover and clasp
+            // bones open it in its cinematic, issue #16) is placed by W alone. Reading bone 65535 instead found garbage,
+            // the check failed every frame and such skins were drawn in bind pose. TTA_SKIN_ROOT_FFFF=1 for the old way.
             const uint32_t rootBone = read16(rdram, g - 0x1d0 + 0x1c6);
+            static const bool oldRoot = env("TTA_SKIN_ROOT_FFFF") != nullptr;
             for (int i = 0; i < 16; ++i)
-                root[i] = readFloat(rdram, bones + rootBone * 64 + i * 4);
+                root[i] = rootBone == 0xffffu && !oldRoot ? (i % 5 == 0 ? 1.0f : 0.0f) : readFloat(rdram, bones + rootBone * 64 + i * 4);
             multiply(w, root, expected);
             bool fresh = true;
             for (int i = 0; i < 16 && fresh; ++i)
